@@ -1,0 +1,12 @@
+{
+  "id": "0004",
+  "state": "assigned",
+  "attempt": 1,
+  "history": [
+    {"step": "open", "state": "opened", "at": "2026-11-03T09:00:00Z"},
+    {"step": "assign", "state": "assigned", "at": "2026-11-03T09:01:00Z", "attempt": 1},
+    {"step": "ci", "state": "assigned", "at": "2026-11-03T09:05:00Z", "attempt": 1, "error": "ci step failed: the gates did not run"}
+  ],
+  "spec": {"title": "Rename a column", "sha256": "4444444444444444444444444444444444444444444444444444444444444444"},
+  "task": {"role": "dev-worker", "harness": "replay", "model": "stub-model"}
+}

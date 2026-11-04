@@ -1,0 +1,15 @@
+{
+  "id": "0002",
+  "state": "held",
+  "attempt": 2,
+  "history": [
+    {"step": "open", "state": "opened", "at": "2026-11-02T08:00:00Z"},
+    {"step": "release", "state": "held", "at": "2026-11-02T10:00:00Z", "attempt": 2}
+  ],
+  "spec": {"title": "Add a waitlist", "sha256": "3333333333333333333333333333333333333333333333333333333333333333"},
+  "rework": [
+    {"attempt": 1, "judge": "gates", "head_sha": "h0", "line": "NO-GO: tests — 1 failed", "details": ["FAILED tests/test_w.py::test_join"], "at": "2026-11-02T08:30:00Z"}
+  ],
+  "release": {"version": "0.3.0-b", "image": "img-b", "verdict": "GO: launchpad — held at 25%",
+              "numbers": ["slo: error_rate canary(0.3.0-b)=0.000 stable(0.1.0)=0.000"]}
+}

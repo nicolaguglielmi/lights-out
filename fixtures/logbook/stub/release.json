@@ -1,0 +1,1 @@
+{"version": "0.5.0-d", "stable": "0.3.0-b", "image": "img-d", "stages": [{"pct": 5, "verdict": "GO", "numbers": ["slo: error_rate canary(0.5.0-d)=0.000 stable(0.3.0-b)=0.000"]}, {"pct": 25, "verdict": "GO", "numbers": ["slo: error_rate canary(0.5.0-d)=0.001 stable(0.3.0-b)=0.000"]}], "verdict": "held", "held_at": 25}

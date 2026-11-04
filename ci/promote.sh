@@ -10,8 +10,12 @@
 # adapters/stub-delivery/{shift.sh,rollback.sh} logging their own call
 # instead of touching Envoy, and adapters/stub-delivery/status.sh printing
 # $root/world/status.json (so the case controls what "the plane runs").
-# Written from docs/adr/0020 §4, §8, docs/adr/0026 §2 and ticket 0008,
-# not from core/promote.sh.
+# Cases k-p are docs/adr/0047 §3: who answered and how (GO_FOR_LAUNCH_BY,
+# GO_FOR_LAUNCH_VIA), the release log's answer lines (RELEASES_LOG), a NO-GO
+# that is recorded, the brief written with no answer, and an answer on the
+# brief already shown (GO_FOR_LAUNCH_BRIEF_SHA256).
+# Written from docs/adr/0020 §4, §8, docs/adr/0026 §2, docs/adr/0047 §3 and
+# ticket 0008, not from core/promote.sh.
 set -eu
 name=promote
 . ci/lib.sh
@@ -78,9 +82,10 @@ cd "$root"
 
 record="$root/release.json"
 out_dir="$root/.crew/promote"
+releases_log="$root/releases.jsonl"
 
 reset() {
-  rm -f "$root/effects.log" "$root/harness.log" "$record"
+  rm -f "$root/effects.log" "$root/harness.log" "$record" "$releases_log"
   rm -rf "$out_dir"
   : > "$root/effects.log"
   : > "$root/harness.log"
@@ -160,8 +165,9 @@ harness_calls() { cat "$root/harness.log" 2>/dev/null || true; }
 # through "$@", and a shell only recognises literal NAME=value tokens as
 # prefix assignments, never the result of an expansion.
 run_promote() {
-  out=$(env DELIVERY=stub-delivery AGENT_HARNESS=stub-harness PLANE_HOST=nowhere.invalid \
-    RELEASE_RECORD="$record" PROMOTE_OUT="$out_dir" "$@" \
+  out=$(env -u GO_FOR_LAUNCH -u GO_FOR_LAUNCH_BY -u GO_FOR_LAUNCH_VIA -u GO_FOR_LAUNCH_BRIEF_SHA256 \
+    DELIVERY=stub-delivery AGENT_HARNESS=stub-harness PLANE_HOST=nowhere.invalid \
+    RELEASE_RECORD="$record" RELEASES_LOG="$releases_log" PROMOTE_OUT="$out_dir" "$@" \
     sh core/promote.sh 2>"$log" </dev/null) && rc=0 || rc=$?
 }
 
@@ -305,7 +311,135 @@ if [ -z "$mismatch" ]; then
   [ -z "$(harness_calls)" ] || fail_case j "the release role was called for a plane that does not hold the canary"
 fi
 
+# answer_lines: how many lines the release log holds (0 when it does not exist).
+answer_lines() { if [ -f "$releases_log" ]; then awk 'END{print NR}' "$releases_log"; else echo 0; fi; }
+# one_answer CASE ANSWER BY VIA: the release log holds exactly one line, the
+# answer line of docs/adr/0047 §3.
+one_answer() {
+  [ "$(answer_lines)" -eq 1 ] || { fail_case "$1" "release log has $(answer_lines) lines, want exactly 1"; return 0; }
+  jq -e --arg a "$2" --arg by "$3" --arg via "$4" '
+    .kind == "answer" and .version == "0.2.0-waitlist" and .answer == $a and .by == $by and .via == $via
+    and (.at | type == "string" and length > 0)' "$releases_log" >/dev/null \
+    || fail_case "$1" "release log line: $(cat "$releases_log"), want an answer line for 0.2.0-waitlist: $2 by $3 via $4"
+}
+# no_answer CASE: nothing was written to the release log.
+no_answer() { [ "$(answer_lines)" -eq 0 ] || fail_case "$1" "release log has a line, want none: $(cat "$releases_log")"; }
+sha_of() { sha256sum "$1" | cut -d' ' -f1; }
+
+# (k) held + a good brief + GO, no GO_FOR_LAUNCH_BY/VIA: the record says who
+# answered (unauthenticated, via cli) and the release log gets one line.
+if [ -z "$mismatch" ]; then
+  reset
+  held_record
+  good_brief_calls
+  run_promote GO_FOR_LAUNCH=GO
+  want_one_line k
+  [ "$out" = "GO: go-for-launch" ] || fail_case k "stdout: $out"
+  [ "$rc" -eq 0 ] || fail_case k "exit $rc, want 0"
+  [ "$(effects)" = "shift 100" ] || fail_case k "effects: $(effects), want exactly 'shift 100'"
+  jq -e '.promoted.weight == 100 and .promoted.by == "unauthenticated" and .promoted.via == "cli"
+    and (.promoted.at | type == "string" and length > 0) and (has("rejected") | not)' "$record" >/dev/null \
+    || fail_case k "record: $(cat "$record"), want promoted {weight 100, at, by unauthenticated, via cli} and no rejected"
+  one_answer k GO unauthenticated cli
+fi
+
+# (l) the same with GO_FOR_LAUNCH_BY=alice GO_FOR_LAUNCH_VIA=console.
+if [ -z "$mismatch" ]; then
+  reset
+  held_record
+  good_brief_calls
+  run_promote GO_FOR_LAUNCH=GO GO_FOR_LAUNCH_BY=alice GO_FOR_LAUNCH_VIA=console
+  want_one_line l
+  [ "$out" = "GO: go-for-launch" ] || fail_case l "stdout: $out"
+  [ "$(effects)" = "shift 100" ] || fail_case l "effects: $(effects), want exactly 'shift 100'"
+  jq -e '.promoted.weight == 100 and .promoted.by == "alice" and .promoted.via == "console"' "$record" >/dev/null \
+    || fail_case l "record: $(cat "$record"), want promoted by alice via console"
+  one_answer l GO alice console
+fi
+
+# (m) NO-GO: the rollback is logged, the record gets rejected {at, by, via}
+# and no promoted, and the release log gets one NO-GO answer line.
+if [ -z "$mismatch" ]; then
+  reset
+  held_record
+  good_brief_calls
+  run_promote GO_FOR_LAUNCH=NO-GO GO_FOR_LAUNCH_BY=bob GO_FOR_LAUNCH_VIA=console
+  want_one_line m
+  [ "$out" = "NO-GO: go-for-launch — human said NO-GO" ] || fail_case m "stdout: $out"
+  [ "$rc" -eq 1 ] || fail_case m "exit $rc, want 1"
+  [ "$(effects)" = "rollback" ] || fail_case m "effects: $(effects), want exactly 'rollback'"
+  jq -e '.rejected.by == "bob" and .rejected.via == "console" and (.rejected.at | type == "string" and length > 0)
+    and (has("promoted") | not)' "$record" >/dev/null \
+    || fail_case m "record: $(cat "$record"), want rejected {at, by bob, via console} and no promoted"
+  one_answer m NO-GO bob console
+fi
+
+# (n) no answer: promote is "prepare the brief" -- brief.md and brief.author
+# written, nothing moved, nothing recorded, no answer line.
+if [ -z "$mismatch" ]; then
+  reset
+  held_record
+  good_brief_calls
+  cp "$record" "$root/record.before"
+  run_promote
+  want_one_line n
+  case "$out" in "NO-GO: go-for-launch — "*) : ;; *) fail_case n "stdout: $out" ;; esac
+  [ "$rc" -eq 1 ] || fail_case n "exit $rc, want 1"
+  grep -q '0.2.0-waitlist' "$out_dir/brief.md" 2>/dev/null || fail_case n "no brief.md naming the version in $out_dir"
+  [ -s "$out_dir/brief.author" ] || fail_case n "no brief.author in $out_dir"
+  [ -z "$(effects)" ] || fail_case n "effects: $(effects), want none: preparing the brief moves nothing"
+  cmp -s "$record" "$root/record.before" || fail_case n "the record changed: $(cat "$record")"
+  no_answer n
+fi
+
+# (o) GO_FOR_LAUNCH_BRIEF_SHA256 = the hash of the brief already on disk
+# (written first, by a prepare under a non-replay harness): GO answers that
+# brief -- shift 100, the release role is not called again, brief.md is the
+# same bytes. The harness would write another brief if it were called.
+if [ -z "$mismatch" ]; then
+  reset
+  held_record
+  good_brief_calls
+  run_promote
+  [ -f "$out_dir/brief.md" ] || fail_case o "the prepare run wrote no brief.md"
+  cp "$out_dir/brief.md" "$root/brief.before"
+  sha=$(sha_of "$out_dir/brief.md")
+  : > "$root/harness.log"
+  cat > "$root/world/calls.json" <<'JSON'
+[{"name": "submit_brief", "args": {"version": "0.2.0-waitlist", "brief": "A different brief for 0.2.0-waitlist: stages 5% and 25%. Hold."}}]
+JSON
+  run_promote GO_FOR_LAUNCH=GO GO_FOR_LAUNCH_BRIEF_SHA256="$sha"
+  want_one_line o
+  [ "$out" = "GO: go-for-launch" ] || fail_case o "stdout: $out"
+  [ "$rc" -eq 0 ] || fail_case o "exit $rc, want 0"
+  [ "$(effects)" = "shift 100" ] || fail_case o "effects: $(effects), want exactly 'shift 100'"
+  [ -z "$(harness_calls)" ] || fail_case o "the release role was called again: the human answered the brief already on disk"
+  cmp -s "$out_dir/brief.md" "$root/brief.before" || fail_case o "brief.md changed under an answer on its hash"
+  one_answer o GO unauthenticated cli
+fi
+
+# (p) GO_FOR_LAUNCH_BRIEF_SHA256 that is not the hash of the brief on disk:
+# one fixed NO-GO line, nothing moved, no answer line, the brief untouched.
+if [ -z "$mismatch" ]; then
+  reset
+  held_record
+  good_brief_calls
+  run_promote
+  [ -f "$out_dir/brief.md" ] || fail_case p "the prepare run wrote no brief.md"
+  cp "$out_dir/brief.md" "$root/brief.before"
+  cp "$record" "$root/record.before"
+  : > "$root/harness.log"
+  run_promote GO_FOR_LAUNCH=GO GO_FOR_LAUNCH_BRIEF_SHA256=0000000000000000000000000000000000000000000000000000000000000000
+  want_one_line p
+  [ "$out" = "NO-GO: go-for-launch — the brief on disk is not the one answered; nothing moved" ] || fail_case p "stdout: $out"
+  [ "$rc" -eq 1 ] || fail_case p "exit $rc, want 1"
+  [ -z "$(effects)" ] || fail_case p "effects: $(effects), want none"
+  cmp -s "$record" "$root/record.before" || fail_case p "the record changed: $(cat "$record")"
+  cmp -s "$out_dir/brief.md" "$root/brief.before" || fail_case p "the brief on disk changed"
+  no_answer p
+fi
+
 cd "$repo"
-[ -z "$mismatch" ] || nogo "stub case $mismatch disagrees with docs/adr/0020 §4 or ticket 0008"
+[ -z "$mismatch" ] || nogo "stub case $mismatch disagrees with docs/adr/0020 §4, docs/adr/0047 §3 or ticket 0008"
 
 go

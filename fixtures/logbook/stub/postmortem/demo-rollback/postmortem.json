@@ -1,0 +1,17 @@
+{
+  "incident": "demo-rollback",
+  "title": "Canary 0.2.0-a rolled back at 5%",
+  "window": {"from": "2026-11-01T09:20:00Z", "to": "2026-11-01T09:30:00Z"},
+  "release": {"version": "0.2.0-a", "stable": "0.1.0", "verdict": "rolled-back", "image": "img-a"},
+  "chain": null,
+  "timeline": [
+    {"event": "canary opened at 5%", "anchor": "release:0.2.0-a", "evidence": ["slo: error_rate canary(0.2.0-a)=1.000 stable(0.1.0)=0.000"]}
+  ],
+  "causes": [
+    {"cause": "the waitlist flag was on for the canary", "evidence": ["flags/flags.json targets 0.2.0-a"]}
+  ],
+  "actions": [
+    {"n": 1, "title": "Gate the waitlist flag", "ticket": "0005", "rationale": "dropped by the reader"}
+  ],
+  "run": {"source": "fixtures/adk/ops-triage", "recorded": {"provider": "stub-provider", "model": "stub-model"}, "provider": "replay", "model": "replay"}
+}

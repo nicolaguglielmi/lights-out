@@ -1,0 +1,678 @@
+{
+  "launch": {
+    "brief": {
+      "author": "the release role, stub-harness",
+      "sha256": "7e5fee07a4416c33e5f0e8c0c609bec7c8882cb25f80d2387e16854d5944716b",
+      "text": "# Promotion brief: 0.5.0-d\n\nPromote `0.5.0-d` (`img-d`), replacing stable `0.3.0-b`.\n\n- 5%: GO\n- 25%: GO\n\nRecommendation: GO.\n"
+    },
+    "disabled_reason": null,
+    "plane": {
+      "canary": "0.5.0-d",
+      "stable": "0.3.0-b",
+      "weight": 25
+    },
+    "preparable": false,
+    "pressable": true,
+    "record": {
+      "held_at": 25,
+      "image": "img-d",
+      "stable": "0.3.0-b",
+      "stages": [
+        {
+          "numbers": [
+            "slo: error_rate canary(0.5.0-d)=0.000 stable(0.3.0-b)=0.000"
+          ],
+          "pct": 5,
+          "verdict": "GO"
+        },
+        {
+          "numbers": [
+            "slo: error_rate canary(0.5.0-d)=0.001 stable(0.3.0-b)=0.000"
+          ],
+          "pct": 25,
+          "verdict": "GO"
+        }
+      ],
+      "verdict": "held",
+      "version": "0.5.0-d"
+    }
+  },
+  "postmortems": [
+    {
+      "actions": [
+        {
+          "n": 1,
+          "ticket": "0005",
+          "title": "Gate the waitlist flag"
+        }
+      ],
+      "causes": [
+        {
+          "cause": "the waitlist flag was on for the canary",
+          "evidence": [
+            "flags/flags.json targets 0.2.0-a"
+          ]
+        }
+      ],
+      "chain": null,
+      "name": "demo-rollback",
+      "release": {
+        "image": "img-a",
+        "stable": "0.1.0",
+        "verdict": "rolled-back",
+        "version": "0.2.0-a"
+      },
+      "run": {
+        "model": "stub-model",
+        "provider": "stub-provider",
+        "replayed": true
+      },
+      "timeline": [
+        {
+          "anchor": "release:0.2.0-a",
+          "event": "canary opened at 5%",
+          "evidence": [
+            "slo: error_rate canary(0.2.0-a)=1.000 stable(0.1.0)=0.000"
+          ]
+        }
+      ],
+      "title": "Canary 0.2.0-a rolled back at 5%",
+      "window": {
+        "from": "2026-11-01T09:20:00Z",
+        "to": "2026-11-01T09:30:00Z"
+      }
+    }
+  ],
+  "releases": [
+    {
+      "answer": null,
+      "at": "2026-11-01T09:29:00Z",
+      "from": "releases.jsonl",
+      "held_at": null,
+      "image": "img-a",
+      "stable": "0.1.0",
+      "stages": [
+        {
+          "numbers": [
+            "slo: error_rate canary(0.2.0-a)=1.000 stable(0.1.0)=0.000"
+          ],
+          "pct": 5,
+          "verdict": "NO-GO: launchpad — 5%: error_rate 1.000 → rolled back"
+        }
+      ],
+      "ticket": "0001",
+      "verdict": "rolled-back",
+      "version": "0.2.0-a"
+    },
+    {
+      "answer": {
+        "answer": "GO",
+        "at": "2026-11-02T10:30:00Z",
+        "by": "alice",
+        "via": "console"
+      },
+      "at": "2026-11-02T09:59:00Z",
+      "from": "releases.jsonl",
+      "held_at": 25,
+      "image": "img-b",
+      "stable": "0.1.0",
+      "stages": [
+        {
+          "numbers": [
+            "slo: error_rate canary(0.3.0-b)=0.000 stable(0.1.0)=0.000"
+          ],
+          "pct": 5,
+          "verdict": "GO"
+        },
+        {
+          "numbers": [
+            "slo: error_rate canary(0.3.0-b)=0.000 stable(0.1.0)=0.000"
+          ],
+          "pct": 25,
+          "verdict": "GO"
+        }
+      ],
+      "ticket": "0002",
+      "verdict": "held",
+      "version": "0.3.0-b"
+    },
+    {
+      "answer": {
+        "answer": "NO-GO",
+        "at": "2026-11-03T12:20:00Z",
+        "by": "carol",
+        "via": "cli"
+      },
+      "at": "2026-11-03T12:00:00Z",
+      "from": "releases.jsonl",
+      "held_at": 5,
+      "image": "img-c",
+      "stable": "0.3.0-b",
+      "stages": [
+        {
+          "numbers": [
+            "slo: traffic canary(0.4.0-c)=0.208 stable(0.3.0-b)=4.018"
+          ],
+          "pct": 5,
+          "verdict": "GO"
+        }
+      ],
+      "ticket": null,
+      "verdict": "held",
+      "version": "0.4.0-c"
+    },
+    {
+      "answer": null,
+      "at": null,
+      "from": "release.json",
+      "held_at": 25,
+      "image": "img-d",
+      "stable": "0.3.0-b",
+      "stages": [
+        {
+          "numbers": [
+            "slo: error_rate canary(0.5.0-d)=0.000 stable(0.3.0-b)=0.000"
+          ],
+          "pct": 5,
+          "verdict": "GO"
+        },
+        {
+          "numbers": [
+            "slo: error_rate canary(0.5.0-d)=0.001 stable(0.3.0-b)=0.000"
+          ],
+          "pct": 25,
+          "verdict": "GO"
+        }
+      ],
+      "ticket": null,
+      "verdict": "held",
+      "version": "0.5.0-d"
+    }
+  ],
+  "schema": "lights-out/logbook/1.0",
+  "source": {
+    "code_host": "gitea",
+    "commit": "bc8b42b2ce93f7048f60e5a1aade7f58b05e6d3b",
+    "level": "l0",
+    "workload": "app"
+  },
+  "thresholds": [
+    {
+      "file": "policy/merge.env",
+      "judge": "gates",
+      "key": "RISK_SIZE_MEDIUM_LINES",
+      "overridden": false,
+      "provenance": {
+        "kind": "external",
+        "text": "the low end of a review-size guidance."
+      },
+      "value": "200"
+    },
+    {
+      "file": "policy/merge.env",
+      "judge": "gates",
+      "key": "MUTATION_MARGIN",
+      "overridden": false,
+      "provenance": {
+        "kind": "decision",
+        "text": "one score quantum of the honest-fix fixture, about ten mutants."
+      },
+      "value": "0.10"
+    },
+    {
+      "file": "contract/policy.env",
+      "judge": "verify",
+      "key": "ERROR_RATE_MAX_DELTA",
+      "overridden": true,
+      "provenance": {
+        "kind": "decision",
+        "text": "this workload's error budget is tighter, set by the client."
+      },
+      "value": "0.005"
+    },
+    {
+      "file": "policy/merge.env",
+      "judge": "verify",
+      "key": "LATENCY_P95_MAX_DELTA",
+      "overridden": false,
+      "provenance": null,
+      "value": "0.25"
+    },
+    {
+      "file": "contract/workload.env",
+      "judge": "gates",
+      "key": "MUTATION_BASELINE",
+      "overridden": false,
+      "provenance": {
+        "kind": "measurement",
+        "text": "./go mutation-baseline, 205 mutants, 157 killed."
+      },
+      "value": "0.7658536585365854"
+    },
+    {
+      "file": "policy/rework.env",
+      "judge": "rework",
+      "key": "REWORK_MAX_ATTEMPTS",
+      "overridden": false,
+      "provenance": {
+        "kind": "decision",
+        "text": "the owner's, four attempts a day."
+      },
+      "value": "4"
+    }
+  ],
+  "tickets": [
+    {
+      "attempt": 1,
+      "ci": {
+        "decision": "auto-merge",
+        "details": [],
+        "failed": null,
+        "head_sha": "h1",
+        "line": "GO: ci",
+        "risk_level": "low",
+        "verdict": "GO"
+      },
+      "history": [
+        {
+          "at": "2026-11-01T09:00:00Z",
+          "state": "opened",
+          "step": "open"
+        },
+        {
+          "at": "2026-11-01T09:01:00Z",
+          "attempt": 1,
+          "state": "assigned",
+          "step": "assign"
+        },
+        {
+          "at": "2026-11-01T09:30:00Z",
+          "attempt": 1,
+          "state": "rolled-back",
+          "step": "release"
+        }
+      ],
+      "id": "0001",
+      "merge": {
+        "head_sha": "h1",
+        "sha": "m1"
+      },
+      "opened_at": "2026-11-01T09:00:00Z",
+      "origin": null,
+      "outcome": {
+        "judge": "verify",
+        "line": "NO-GO: launchpad — 5%: error_rate 1.000 → rolled back",
+        "verdict": "NO-GO"
+      },
+      "perimeter": [
+        "app/backend/meetups/*",
+        "docs/venues.md"
+      ],
+      "pr": {
+        "base_sha": "b1",
+        "head_sha": "h1",
+        "number": 1,
+        "url": "http://codehost.invalid/o/r/pulls/1"
+      },
+      "release": {
+        "image": "img-a",
+        "numbers": [
+          "slo: error_rate canary(0.2.0-a)=1.000 stable(0.1.0)=0.000"
+        ],
+        "verdict": "NO-GO: launchpad — 5%: error_rate 1.000 → rolled back",
+        "version": "0.2.0-a"
+      },
+      "review": null,
+      "rework": [],
+      "spec": {
+        "sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+        "title": "Unknown venue answers 500"
+      },
+      "state": "rolled-back",
+      "task": {
+        "duration_s": 12.5,
+        "harness": "replay",
+        "input_sha256": "2222222222222222222222222222222222222222222222222222222222222222",
+        "model": "stub-model",
+        "provider": "stub-provider",
+        "replayed": true,
+        "role": "dev-worker",
+        "thinking": "low",
+        "tokens": {
+          "input": 100,
+          "output": 50,
+          "total": 150
+        },
+        "turns": 7
+      },
+      "title": "Unknown venue answers 500",
+      "updated_at": "2026-11-01T09:30:00Z"
+    },
+    {
+      "attempt": 2,
+      "ci": null,
+      "history": [
+        {
+          "at": "2026-11-02T08:00:00Z",
+          "state": "opened",
+          "step": "open"
+        },
+        {
+          "at": "2026-11-02T10:00:00Z",
+          "attempt": 2,
+          "state": "held",
+          "step": "release"
+        }
+      ],
+      "id": "0002",
+      "merge": null,
+      "opened_at": "2026-11-02T08:00:00Z",
+      "origin": null,
+      "outcome": {
+        "judge": "human",
+        "line": "promoted by alice via console",
+        "verdict": "GO"
+      },
+      "perimeter": [
+        "app/backend/waitlist/*"
+      ],
+      "pr": null,
+      "release": {
+        "image": "img-b",
+        "numbers": [
+          "slo: error_rate canary(0.3.0-b)=0.000 stable(0.1.0)=0.000"
+        ],
+        "verdict": "GO: launchpad — held at 25%",
+        "version": "0.3.0-b"
+      },
+      "review": null,
+      "rework": [
+        {
+          "at": "2026-11-02T08:30:00Z",
+          "attempt": 1,
+          "details": [
+            "FAILED tests/test_w.py::test_join"
+          ],
+          "head_sha": "h0",
+          "judge": "gates",
+          "line": "NO-GO: tests — 1 failed"
+        }
+      ],
+      "spec": {
+        "sha256": "3333333333333333333333333333333333333333333333333333333333333333",
+        "title": "Add a waitlist"
+      },
+      "state": "held",
+      "task": null,
+      "title": "Add a waitlist",
+      "updated_at": "2026-11-02T10:00:00Z"
+    },
+    {
+      "attempt": null,
+      "ci": {
+        "decision": null,
+        "details": [
+          "FAILED tests/a.py::one",
+          "FAILED tests/a.py::two"
+        ],
+        "failed": "tests",
+        "head_sha": "h3",
+        "line": "NO-GO: tests — 2 failed",
+        "risk_level": "low",
+        "verdict": "NO-GO"
+      },
+      "history": [
+        {
+          "at": "2026-11-03T08:00:00Z",
+          "state": "opened",
+          "step": "open"
+        },
+        {
+          "at": "2026-11-03T08:20:00Z",
+          "state": "ci-failed",
+          "step": "ci"
+        }
+      ],
+      "id": "0003",
+      "merge": null,
+      "opened_at": "2026-11-03T08:00:00Z",
+      "origin": null,
+      "outcome": {
+        "judge": "gates",
+        "line": "NO-GO: tests — 2 failed",
+        "verdict": "NO-GO"
+      },
+      "perimeter": [
+        "README.md"
+      ],
+      "pr": null,
+      "release": null,
+      "review": null,
+      "rework": [],
+      "spec": null,
+      "state": "ci-failed",
+      "task": null,
+      "title": "0003 — Tidy the README",
+      "updated_at": "2026-11-03T08:20:00Z"
+    },
+    {
+      "attempt": 1,
+      "ci": null,
+      "history": [
+        {
+          "at": "2026-11-03T09:00:00Z",
+          "state": "opened",
+          "step": "open"
+        },
+        {
+          "at": "2026-11-03T09:01:00Z",
+          "attempt": 1,
+          "state": "assigned",
+          "step": "assign"
+        },
+        {
+          "at": "2026-11-03T09:05:00Z",
+          "attempt": 1,
+          "error": "ci step failed: the gates did not run",
+          "state": "assigned",
+          "step": "ci"
+        }
+      ],
+      "id": "0004",
+      "merge": null,
+      "opened_at": "2026-11-03T09:00:00Z",
+      "origin": null,
+      "outcome": {
+        "judge": "step",
+        "line": "ci step failed: the gates did not run",
+        "verdict": "stranded"
+      },
+      "perimeter": [
+        "app/backend/migrations/*"
+      ],
+      "pr": null,
+      "release": null,
+      "review": null,
+      "rework": [],
+      "spec": {
+        "sha256": "4444444444444444444444444444444444444444444444444444444444444444",
+        "title": "Rename a column"
+      },
+      "state": "assigned",
+      "task": {
+        "duration_s": null,
+        "harness": "replay",
+        "input_sha256": null,
+        "model": "stub-model",
+        "provider": null,
+        "replayed": null,
+        "role": "dev-worker",
+        "thinking": null,
+        "tokens": null,
+        "turns": null
+      },
+      "title": "Rename a column",
+      "updated_at": "2026-11-03T09:05:00Z"
+    },
+    {
+      "attempt": null,
+      "ci": null,
+      "history": [
+        {
+          "at": "2026-11-04T07:00:00Z",
+          "state": "opened",
+          "step": "open"
+        }
+      ],
+      "id": "0005",
+      "merge": null,
+      "opened_at": "2026-11-04T07:00:00Z",
+      "origin": "postmortem demo-rollback action 1",
+      "outcome": {
+        "judge": null,
+        "line": null,
+        "verdict": "pending"
+      },
+      "perimeter": {
+        "error": "ticket tickets/0005.md has no ## Perimeter section",
+        "ok": false
+      },
+      "pr": null,
+      "release": null,
+      "review": null,
+      "rework": [],
+      "spec": {
+        "sha256": "5555555555555555555555555555555555555555555555555555555555555555",
+        "title": "Gate the waitlist flag"
+      },
+      "state": "opened",
+      "task": null,
+      "title": "Gate the waitlist flag",
+      "updated_at": "2026-11-04T07:00:00Z"
+    },
+    {
+      "attempt": 4,
+      "ci": null,
+      "history": [
+        {
+          "at": "2026-11-04T06:00:00Z",
+          "state": "opened",
+          "step": "open"
+        },
+        {
+          "at": "2026-11-04T06:50:00Z",
+          "attempt": 4,
+          "state": "needs-human",
+          "step": "rework"
+        }
+      ],
+      "id": "0007",
+      "merge": null,
+      "opened_at": "2026-11-04T06:00:00Z",
+      "origin": null,
+      "outcome": {
+        "judge": "review",
+        "line": "CHANGES-REQUESTED — reviewer",
+        "verdict": "needs-human"
+      },
+      "perimeter": [
+        "app/backend/geocoder/*"
+      ],
+      "pr": null,
+      "release": null,
+      "review": {
+        "harness": "replay",
+        "model": "stub-model",
+        "reason": "too broad\nsecond line",
+        "role": "reviewer",
+        "verdict": "changes-requested"
+      },
+      "rework": [
+        {
+          "at": "2026-11-04T06:30:00Z",
+          "attempt": 3,
+          "details": [
+            "x"
+          ],
+          "head_sha": "h6",
+          "judge": "gates",
+          "line": "NO-GO: tests — 1 failed"
+        },
+        {
+          "at": "2026-11-04T06:50:00Z",
+          "attempt": 4,
+          "details": [
+            "too broad",
+            "second line"
+          ],
+          "head_sha": "h7",
+          "judge": "review",
+          "line": "CHANGES-REQUESTED — reviewer"
+        }
+      ],
+      "spec": {
+        "sha256": "7777777777777777777777777777777777777777777777777777777777777777",
+        "title": "Cache geocoder answers"
+      },
+      "state": "needs-human",
+      "task": null,
+      "title": "Cache geocoder answers",
+      "updated_at": "2026-11-04T06:50:00Z"
+    },
+    {
+      "attempt": 1,
+      "ci": {
+        "decision": "review",
+        "details": [],
+        "failed": null,
+        "head_sha": "h8",
+        "line": "GO: ci",
+        "risk_level": "medium",
+        "verdict": "GO"
+      },
+      "history": [
+        {
+          "at": "2026-11-04T05:00:00Z",
+          "state": "opened",
+          "step": "open"
+        },
+        {
+          "at": "2026-11-04T05:40:00Z",
+          "attempt": 1,
+          "state": "ci-failed",
+          "step": "review"
+        }
+      ],
+      "id": "0008",
+      "merge": null,
+      "opened_at": "2026-11-04T05:00:00Z",
+      "origin": null,
+      "outcome": {
+        "judge": "review",
+        "line": "first line",
+        "verdict": "NO-GO"
+      },
+      "perimeter": [
+        "app/backend/router.py"
+      ],
+      "pr": null,
+      "release": null,
+      "review": {
+        "harness": "replay",
+        "model": "stub-model",
+        "reason": "first line\nsecond line",
+        "role": "reviewer",
+        "verdict": "changes-requested"
+      },
+      "rework": [],
+      "spec": {
+        "sha256": "8888888888888888888888888888888888888888888888888888888888888888",
+        "title": "Split the router"
+      },
+      "state": "ci-failed",
+      "task": null,
+      "title": "Split the router",
+      "updated_at": "2026-11-04T05:40:00Z"
+    }
+  ]
+}

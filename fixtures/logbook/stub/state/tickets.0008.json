@@ -1,0 +1,12 @@
+{
+  "id": "0008",
+  "state": "ci-failed",
+  "attempt": 1,
+  "history": [
+    {"step": "open", "state": "opened", "at": "2026-11-04T05:00:00Z"},
+    {"step": "review", "state": "ci-failed", "at": "2026-11-04T05:40:00Z", "attempt": 1}
+  ],
+  "spec": {"title": "Split the router", "sha256": "8888888888888888888888888888888888888888888888888888888888888888"},
+  "ci": {"verdict": "GO", "failed": null, "risk_level": "medium", "decision": "review", "line": "GO: ci", "details": [], "head_sha": "h8"},
+  "review": {"role": "reviewer", "verdict": "changes-requested", "reason": "first line\nsecond line", "harness": "replay", "model": "stub-model"}
+}

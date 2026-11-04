@@ -1,0 +1,6 @@
+{
+  "id": "0005",
+  "state": "opened",
+  "history": [{"step": "open", "state": "opened", "at": "2026-11-04T07:00:00Z"}],
+  "spec": {"title": "Gate the waitlist flag", "sha256": "5555555555555555555555555555555555555555555555555555555555555555"}
+}

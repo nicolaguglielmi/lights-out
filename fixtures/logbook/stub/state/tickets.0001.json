@@ -1,0 +1,18 @@
+{
+  "id": "0001",
+  "state": "rolled-back",
+  "attempt": 1,
+  "history": [
+    {"step": "open", "state": "opened", "at": "2026-11-01T09:00:00Z"},
+    {"step": "assign", "state": "assigned", "at": "2026-11-01T09:01:00Z", "attempt": 1},
+    {"step": "release", "state": "rolled-back", "at": "2026-11-01T09:30:00Z", "attempt": 1}
+  ],
+  "spec": {"title": "Unknown venue answers 500", "sha256": "1111111111111111111111111111111111111111111111111111111111111111", "path": "tickets/0001.md"},
+  "task": {"role": "dev-worker", "harness": "replay", "provider": "stub-provider", "model": "stub-model", "thinking": "low", "turns": 7,
+           "tokens": {"input": 100, "output": 50, "total": 150}, "duration_s": 12.5, "input_sha256": "2222222222222222222222222222222222222222222222222222222222222222", "replayed": true},
+  "pr": {"number": 1, "url": "http://codehost.invalid/o/r/pulls/1", "base_sha": "b1", "head_sha": "h1", "branch": "ticket-0001"},
+  "ci": {"verdict": "GO", "risk_level": "low", "decision": "auto-merge", "line": "GO: ci", "details": [], "head_sha": "h1"},
+  "merge": {"sha": "m1", "head_sha": "h1"},
+  "release": {"version": "0.2.0-a", "image": "img-a", "verdict": "NO-GO: launchpad — 5%: error_rate 1.000 → rolled back",
+              "numbers": ["slo: error_rate canary(0.2.0-a)=1.000 stable(0.1.0)=0.000"]}
+}

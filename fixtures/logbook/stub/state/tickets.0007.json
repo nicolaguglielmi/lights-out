@@ -1,0 +1,15 @@
+{
+  "id": "0007",
+  "state": "needs-human",
+  "attempt": 4,
+  "history": [
+    {"step": "open", "state": "opened", "at": "2026-11-04T06:00:00Z"},
+    {"step": "rework", "state": "needs-human", "at": "2026-11-04T06:50:00Z", "attempt": 4}
+  ],
+  "spec": {"title": "Cache geocoder answers", "sha256": "7777777777777777777777777777777777777777777777777777777777777777"},
+  "review": {"role": "reviewer", "verdict": "changes-requested", "reason": "too broad\nsecond line", "harness": "replay", "model": "stub-model"},
+  "rework": [
+    {"attempt": 3, "judge": "gates", "head_sha": "h6", "line": "NO-GO: tests — 1 failed", "details": ["x"], "at": "2026-11-04T06:30:00Z"},
+    {"attempt": 4, "judge": "review", "head_sha": "h7", "line": "CHANGES-REQUESTED — reviewer", "details": ["too broad", "second line"], "at": "2026-11-04T06:50:00Z"}
+  ]
+}

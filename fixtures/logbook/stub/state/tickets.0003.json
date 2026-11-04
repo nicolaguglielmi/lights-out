@@ -1,0 +1,10 @@
+{
+  "id": "0003",
+  "state": "ci-failed",
+  "history": [
+    {"step": "open", "state": "opened", "at": "2026-11-03T08:00:00Z"},
+    {"step": "ci", "state": "ci-failed", "at": "2026-11-03T08:20:00Z"}
+  ],
+  "ci": {"verdict": "NO-GO", "failed": "tests", "risk_level": "low", "decision": null, "line": "NO-GO: tests — 2 failed",
+         "details": ["FAILED tests/a.py::one", "FAILED tests/a.py::two"], "head_sha": "h3"}
+}
