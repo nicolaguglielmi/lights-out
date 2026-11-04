@@ -1,8 +1,8 @@
 # The console (M11): five screens over the logbook, and what stays out
 
 - Date: 2026-11-04
-- Status: design, docs only. Decided by [ADR 0046](../adr/0046-console-reads-one-versioned-logbook-and-writes-only-go-for-launch.md) (proposed), which amends [ADR 0023](../adr/0023-console-at-m11.md).
-- Built: after M22 merges (plan §7 M11, §16). Preconditions P1–P3 are in ADR 0046 §2.
+- Status: design, docs only. Decided by [ADR 0047](../adr/0047-console-reads-one-versioned-logbook-and-writes-only-go-for-launch.md) (proposed), which amends [ADR 0023](../adr/0023-console-at-m11.md).
+- Built: after M22 merges (plan §7 M11, §16). Preconditions P1–P3 are in ADR 0047 §2.
 - Audience: a business client with one lights-out instance, who reads what the agents did and presses go-for-launch. The DevOps engineer keeps `./go`; every screen mirrors `./go logbook`, and the one button mirrors `./go promote`.
 
 ## How to read this document
@@ -16,7 +16,7 @@ which `core/logbook.sh` assembles. The console never reads the tower,
   change a source, this column changes and the console does not.
 
 Fields marked **P1** exist only after the tower copies them from `run.json`
-(ADR 0046 §2, P1). Fields marked **P2** exist only after the release log
+(ADR 0047 §2, P1). Fields marked **P2** exist only after the release log
 `.crew/releases.jsonl` exists (P2). Fields marked **M22** come from the post
 mortem of [ADR 0044](../adr/0044-incident-in-postmortem-out.md) (proposed,
 on the M22 branch at the time of writing).
@@ -25,7 +25,7 @@ A source the reader cannot read is `{ok: false, error}` in the logbook, and
 the screen shows that error where the value would be. No screen shows a
 default in place of a missing fact.
 
-The logbook has no clock (ADR 0046 §2). "This week" is the viewer's clock
+The logbook has no clock (ADR 0047 §2). "This week" is the viewer's clock
 applied to the `at` fields; the logbook does not change with it.
 
 ## The logbook at the top
@@ -81,7 +81,7 @@ a new tower state changes the reader and its golden file, not the screen.
 **Filter**: the window (default 7 days, the viewer's choice; nothing is
 computed from it). **Empty**: "no ticket touched in this window". **Before
 ADR 0031 §6 exists**: a banner, "the tower is in memory at L0; tickets from
-before the last `./go down` are not here" (ADR 0046 §2).
+before the last `./go down` are not here" (ADR 0047 §2).
 
 ## Screen 2 — One ticket's chain, from ticket to rollback
 
@@ -149,7 +149,7 @@ The only screen with an input. It mirrors `./go promote`.
 | What the plane says now | `launch.plane.{canary, stable, weight}` | DELIVERY `status` |
 | The brief, and its hash | `launch.brief.{text, sha256}` | `$PROMOTE_OUT/brief.md` (default `.crew/promote/brief.md`) |
 | Who wrote the brief | `launch.brief.author` | promote's own line (the release role at L1, rendered from the record under replay) |
-| Already answered | `launch.record.promoted.{at, by, via}` or `launch.record.rejected.{at, by, via}` | `.crew/release.json`, written by promote (ADR 0046 §3) |
+| Already answered | `launch.record.promoted.{at, by, via}` or `launch.record.rejected.{at, by, via}` | `.crew/release.json`, written by promote (ADR 0047 §3) |
 | Can it be pressed | `launch.pressable`, `launch.disabled_reason` | reader: a `held` record that agrees with the plane and has a brief; the console adds its own reasons (snapshot mode, identity not in `CONSOLE_LAUNCHERS`) |
 
 **The button**: two choices, GO and NO-GO, then a confirmation that repeats
@@ -181,7 +181,7 @@ value. A client reads this to know what "GO" meant.
 A key without the comment form shows **undeclared** in place of a reason
 (`provenance: null`). Nothing fills it in. M11 rewrites today's other
 provenance forms into the parsed one, and a ci check NO-GOes a numeric
-policy key without it (ADR 0046, Consequences). The SLO query itself,
+policy key without it (ADR 0047, Consequences). The SLO query itself,
 `verify/slo.promql`, is linked, not reproduced: its thresholds are keys in
 `policy/merge.env`.
 
@@ -189,11 +189,11 @@ policy key without it (ADR 0046, Consequences). The SLO query itself,
 
 - **Header**: `source.workload`, `source.level`, mode (LIVE or snapshot),
   and the identity the proxy sent (or "loopback").
-- **Freshness**: LIVE reloads the logbook every 2 s (ADR 0046 §4); the
+- **Freshness**: LIVE reloads the logbook every 2 s (ADR 0047 §4); the
   screen shows the time of the last good read, and a stale banner when the
   reader failed.
 - **No charts.** The numbers that decided are the `slo:` lines and the gate
-  lines, shown as text (ADR 0046 §7).
+  lines, shown as text (ADR 0047 §7).
 - **Design**: Stitch designs the five screens into `design/` (ADR 0023 §6,
   kept); this document is the brief for that design session. The fields
   above are the data contract the design must use; a field the design wants
@@ -210,7 +210,7 @@ Out, in the consumer:
 
 - **Portfolio across clients.** Many instances, many logbooks, one view. A
   client with one instance has nothing to compare; lights-out has no
-  tenant field and keeps one client per instance (ADR 0046 §5).
+  tenant field and keeps one client per instance (ADR 0047 §5).
 - **Value report.** Hours and money saved, cost per merged ticket per
   provider, trend across engagements. The logbook carries tokens, duration,
   provider and model (**P1**) and never a currency (ADR 0031 §5: the only
@@ -223,7 +223,7 @@ In lights-out, though a consultant may use them: the five screens above,
 the post mortem, the thresholds with provenance. A client with one instance
 needs each.
 
-**The public interface the consumer needs**, and the only one (ADR 0046 §6):
+**The public interface the consumer needs**, and the only one (ADR 0047 §6):
 
 1. **The logbook**, read-only, two ways:
    - `./go logbook` writes `LOGBOOK_FILE` (default `.crew/logbook.json`)
@@ -234,7 +234,7 @@ needs each.
    consumer validates what it collects.
 3. **The versioning promise**: an added optional field is a minor; a
    removed, renamed or retyped field, or one whose meaning changes, is a
-   new major served next to the old one for one tagged release (ADR 0046
+   new major served next to the old one for one tagged release (ADR 0047
    §2, the owner decides the length).
 
 What the consumer must not do: read the tower, `.crew/`, an adapter or the
@@ -248,8 +248,8 @@ the logbook as a minor, open, with its own ADR when it is structural.
 ## Open questions this plan leaves to M11
 
 - The exact JSON Schema text of 1.0, written from the tables above; the
-  golden file and `ci/logbook.sh` come from it (ADR 0046 §2).
+  golden file and `ci/logbook.sh` come from it (ADR 0047 §2).
 - Whether the post mortem's `run` carries `replayed`, or the reader derives
   it from the level; settled when M22 merges.
-- Stitch's export format (unverified on 2026-11-04, ADR 0046 §1).
-- IAP's and oauth2-proxy's identity headers (unverified, ADR 0046 §5).
+- Stitch's export format (unverified on 2026-11-04, ADR 0047 §1).
+- IAP's and oauth2-proxy's identity headers (unverified, ADR 0047 §5).
