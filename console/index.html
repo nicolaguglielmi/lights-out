@@ -1,0 +1,349 @@
+<!doctype html>
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+<!-- The console (docs/adr/0047): five screens over one document, the
+     logbook, read from /v1/logbook.json. Every value on these screens is a
+     field of the logbook (docs/plans/console.md names each one); the page
+     computes no verdict of its own. The one input is go-for-launch, a POST
+     to /v1/go-for-launch, which runs core/promote.sh. No build, no asset
+     from the network. Built by the session on 2026-11-04, not from a Stitch
+     design (console/README.md). -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>lights-out console</title>
+<style>
+:root {
+  --bg: #f6f7f9; --panel: #ffffff; --ink: #17202a; --muted: #5b6673; --line: #dde2e8;
+  --go: #13795b; --go-bg: #e3f4ec; --nogo: #b42318; --nogo-bg: #fde8e6;
+  --wait: #8a5a00; --wait-bg: #fdf3dc; --none: #5b6673; --none-bg: #eef0f3; --accent: #1d4ed8;
+  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0f1419; --panel: #171e26; --ink: #e6ebf0; --muted: #9aa6b2; --line: #2a3440;
+    --go: #4cc38a; --go-bg: #12301f; --nogo: #ff7b72; --nogo-bg: #3a1513;
+    --wait: #e3b341; --wait-bg: #33280e; --none: #9aa6b2; --none-bg: #222b35; --accent: #79a8ff;
+  }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--ink); font: 15px/1.45 system-ui, -apple-system, "Segoe UI", sans-serif; }
+header { background: var(--panel); border-bottom: 1px solid var(--line); padding: 12px 16px; }
+.top { display: flex; flex-wrap: wrap; gap: 8px 20px; align-items: baseline; max-width: 1180px; margin: 0 auto; }
+.brand { font-weight: 700; letter-spacing: .02em; }
+.meta { color: var(--muted); font-size: 13px; }
+nav { display: flex; flex-wrap: wrap; gap: 4px; max-width: 1180px; margin: 10px auto 0; }
+nav a { padding: 6px 12px; border-radius: 6px; color: var(--ink); text-decoration: none; font-size: 14px; }
+nav a.on { background: var(--none-bg); font-weight: 600; }
+main { max-width: 1180px; margin: 0 auto; padding: 16px; }
+h1 { font-size: 20px; margin: 4px 0 4px; }
+h2 { font-size: 16px; margin: 20px 0 8px; }
+.lede { color: var(--muted); margin: 0 0 14px; }
+.banner { border-radius: 8px; padding: 10px 12px; margin: 0 0 12px; font-size: 14px; border: 1px solid var(--line); background: var(--panel); }
+.banner.warn { background: var(--wait-bg); border-color: transparent; color: var(--ink); }
+.banner.err { background: var(--nogo-bg); border-color: transparent; }
+.panel { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 14px 16px; margin: 0 0 14px; overflow-x: auto; }
+table { border-collapse: collapse; width: 100%; font-size: 14px; }
+th { text-align: left; color: var(--muted); font-weight: 600; font-size: 12px; text-transform: uppercase; letter-spacing: .04em; padding: 6px 8px; border-bottom: 1px solid var(--line); }
+td { padding: 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+tr:last-child td { border-bottom: 0; }
+.mono, code, pre { font-family: var(--mono); font-size: 13px; }
+pre { white-space: pre-wrap; word-break: break-word; margin: 6px 0 0; background: var(--bg); padding: 10px; border-radius: 6px; }
+.chip { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 12px; font-weight: 700; white-space: nowrap; }
+.GO { color: var(--go); background: var(--go-bg); }
+.NO-GO, .stranded { color: var(--nogo); background: var(--nogo-bg); }
+.pending, .needs-human { color: var(--wait); background: var(--wait-bg); }
+.none { color: var(--none); background: var(--none-bg); }
+.muted { color: var(--muted); }
+a { color: var(--accent); }
+.unread { color: var(--nogo); font-size: 13px; }
+.stations { list-style: none; margin: 0; padding: 0; }
+.station { display: grid; grid-template-columns: 150px 1fr; gap: 4px 16px; padding: 12px 0; border-bottom: 1px solid var(--line); }
+.station:last-child { border-bottom: 0; }
+.station .name { font-weight: 600; }
+.station.empty .name, .station.empty .body { color: var(--muted); }
+dl { display: grid; grid-template-columns: max-content 1fr; gap: 2px 14px; margin: 6px 0 0; font-size: 14px; }
+dt { color: var(--muted); }
+dd { margin: 0; word-break: break-word; }
+.buttons { display: flex; flex-wrap: wrap; gap: 10px; margin: 12px 0 0; }
+button { font: inherit; font-weight: 600; padding: 9px 18px; border-radius: 8px; border: 1px solid var(--line); background: var(--panel); color: var(--ink); cursor: pointer; }
+button.go { background: var(--go); color: #fff; border-color: transparent; }
+button.nogo { background: var(--nogo); color: #fff; border-color: transparent; }
+button:disabled { opacity: .45; cursor: not-allowed; }
+select { font: inherit; padding: 4px 6px; border-radius: 6px; border: 1px solid var(--line); background: var(--panel); color: var(--ink); }
+.cards { display: grid; gap: 14px; }
+@media (max-width: 640px) { .station { grid-template-columns: 1fr; } }
+</style>
+</head>
+<body>
+<header>
+  <div class="top">
+    <span class="brand">lights-out console</span>
+    <span class="meta" id="who">reading…</span>
+    <span class="meta" id="fresh"></span>
+  </div>
+  <nav id="nav">
+    <a href="#tickets" data-s="tickets">This week's tickets</a>
+    <a href="#incidents" data-s="incidents">Incidents and post mortems</a>
+    <a href="#launch" data-s="launch">Go-for-launch</a>
+    <a href="#thresholds" data-s="thresholds">Thresholds</a>
+  </nav>
+</header>
+<main id="main"><p class="muted">Reading the logbook…</p></main>
+<script>
+"use strict";
+let book = null, con = null, lastLine = null, busy = false, windowDays = null;
+
+// h(tag, attrs, ...children): every text goes through a text node, never HTML.
+function h(tag, attrs, ...kids) {
+  const el = document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs || {})) {
+    if (v === null || v === undefined || v === false) continue;
+    if (k.startsWith("on")) el.addEventListener(k.slice(2), v);
+    else if (k === "cls") el.className = v;
+    else el.setAttribute(k, v === true ? "" : v);
+  }
+  for (const kid of kids.flat()) {
+    if (kid === null || kid === undefined || kid === false) continue;
+    el.append(kid instanceof Node ? kid : document.createTextNode(String(kid)));
+  }
+  return el;
+}
+const unread = (v) => v && typeof v === "object" && !Array.isArray(v) && v.ok === false;
+const shown = (v) => (v === null || v === undefined || v === "") ? "—" : v;
+function chip(verdict) {
+  const cls = ["GO", "NO-GO", "pending", "needs-human", "stranded"].includes(verdict) ? verdict : "none";
+  return h("span", {cls: "chip " + cls}, verdict || "not reached");
+}
+function err(v) { return h("span", {cls: "unread"}, "could not read: " + v.error); }
+function dl(pairs) {
+  return h("dl", {}, pairs.filter(Boolean).map(([k, v]) => [h("dt", {}, k), h("dd", {}, v instanceof Node ? v : shown(v))]));
+}
+function ticketsList() { return Array.isArray(book.tickets) ? book.tickets : []; }
+function releasesList() { return Array.isArray(book.releases) ? book.releases : []; }
+
+// --- screen 1 ----------------------------------------------------------
+function screenTickets() {
+  const out = [h("h1", {}, "This week's tickets"),
+    h("p", {cls: "lede"}, "Did each change get through, and if not, which judge stopped it and with what line.")];
+  if ((book.source || {}).level === "l0" && con.mode === "live")
+    out.push(h("div", {cls: "banner warn"}, "The tower is in memory at L0: tickets from before the last ./go down are not here (ADR 0047 §2)."));
+  if (unread(book.tickets)) return out.concat(h("div", {cls: "panel"}, err(book.tickets)));
+  if (windowDays === null) windowDays = con.mode === "snapshot" ? 0 : 7;
+  const pick = h("select", {onchange: (e) => { windowDays = Number(e.target.value); render(); }},
+    [[7, "last 7 days"], [30, "last 30 days"], [0, "all"]].map(([v, t]) => h("option", {value: v, selected: v === windowDays}, t)));
+  out.push(h("p", {cls: "muted"}, "Window, by this browser's clock: ", pick));
+  const since = windowDays ? Date.now() - windowDays * 86400e3 : 0;
+  const rows = ticketsList().filter((t) => !since || (t.updated_at && Date.parse(t.updated_at) >= since))
+    .sort((a, b) => String(b.updated_at || "").localeCompare(String(a.updated_at || "")));
+  if (!rows.length) return out.concat(h("div", {cls: "panel"}, h("p", {cls: "muted"}, "No ticket touched in this window.")));
+  out.push(h("div", {cls: "panel"}, h("table", {},
+    h("tr", {}, ["Ticket", "Outcome", "Decided by", "Why, in one line", "State", "Attempts", "Last activity", "Cost"].map((c) => h("th", {}, c))),
+    rows.map((t) => h("tr", {},
+      h("td", {}, h("a", {href: "#ticket/" + encodeURIComponent(t.id)}, t.id), " ", t.title,
+        t.origin ? h("div", {cls: "muted"}, "from " + t.origin) : null),
+      h("td", {}, chip(t.outcome.verdict)),
+      h("td", {}, shown(t.outcome.judge)),
+      h("td", {cls: "mono"}, shown(t.outcome.line)),
+      h("td", {}, t.state),
+      h("td", {}, shown(t.attempt)),
+      h("td", {cls: "mono"}, shown(t.updated_at)),
+      h("td", {}, cost(t.task)))))));
+  return out;
+}
+function cost(task) {
+  if (!task) return "—";
+  const tokens = task.tokens && task.tokens.total;
+  const parts = [];
+  if (tokens !== undefined && tokens !== null) parts.push(Number(tokens).toLocaleString("en") + " tokens");
+  if (task.duration_s !== null && task.duration_s !== undefined) parts.push(task.duration_s + " s");
+  if (!parts.length) return "—";
+  return parts.join(", ") + (task.replayed ? " (recorded, replayed)" : "");
+}
+
+// --- screen 2 ----------------------------------------------------------
+function station(name, verdict, body, reached) {
+  return h("li", {cls: "station" + (reached ? "" : " empty")},
+    h("div", {cls: "name"}, name, h("div", {}, reached ? chip(verdict) : chip(null))),
+    h("div", {cls: "body"}, reached ? body : "not reached"));
+}
+function screenTicket(id) {
+  const t = ticketsList().find((x) => x.id === id);
+  if (!t) return [h("h1", {}, "Ticket " + id), h("div", {cls: "panel"}, "This ticket is not in the logbook: the tower never opened it, or the store could not be read.")];
+  const rel = releasesList().filter((r) => r.ticket === id).slice(-1)[0] || null;
+  const task = t.task || {};
+  const s = [];
+  s.push(station("Spec", "GO", dl([["Title", t.spec && t.spec.title], ["sha256", h("span", {cls: "mono"}, shown(t.spec && t.spec.sha256))],
+    ["Perimeter", unread(t.perimeter) ? err(t.perimeter) : h("span", {cls: "mono"}, t.perimeter.join("  ·  "))], ["Origin", t.origin]]), true));
+  s.push(station("Task", t.task ? "GO" : null, dl([["Role", task.role], ["Harness", task.harness], ["Provider", task.provider],
+    ["Model served", task.model], ["Thinking", task.thinking], ["Turns", task.turns], ["Tokens", task.tokens && task.tokens.total],
+    ["Duration", task.duration_s === null || task.duration_s === undefined ? null : task.duration_s + " s"],
+    task.replayed ? ["Replay", "replayed at this level: recorded by " + shown(task.provider) + " " + shown(task.model) + ", no tokens spent now"] : null]), !!t.task));
+  s.push(station("Attempts", t.rework.length ? "NO-GO" : "GO", t.rework.length
+    ? h("div", {}, t.rework.map((r) => h("div", {}, h("b", {}, "attempt " + r.attempt + ", " + r.judge + ": "), h("span", {cls: "mono"}, r.line),
+        r.details && r.details.length ? h("pre", {}, r.details.join("\n")) : null, h("div", {cls: "muted"}, shown(r.at)))))
+    : "one attempt", !!t.task));
+  s.push(station("PR", t.pr ? "GO" : null, t.pr && dl([["Number", t.pr.url ? h("a", {href: t.pr.url, rel: "noopener"}, "#" + t.pr.number) : "#" + t.pr.number],
+    ["Base", h("span", {cls: "mono"}, shown(t.pr.base_sha))], ["Head", h("span", {cls: "mono"}, shown(t.pr.head_sha))]]), !!t.pr));
+  s.push(station("Gates", t.ci && t.ci.verdict, t.ci && h("div", {}, h("div", {cls: "mono"}, shown(t.ci.line)),
+    dl([["Failed gate", t.ci.failed], ["Risk", t.ci.risk_level], ["Decision", t.ci.decision]]),
+    t.ci.details && t.ci.details.length ? h("pre", {}, t.ci.details.join("\n")) : null), !!t.ci));
+  s.push(station("Review", t.review && (t.review.verdict === "changes-requested" ? "NO-GO" : "GO"), t.review && h("div", {},
+    dl([["Role", t.review.role], ["Verdict", t.review.verdict], ["Model", t.review.model]]), t.review.reason ? h("pre", {}, t.review.reason) : null),
+    !!t.review || !!(t.ci && t.ci.decision === "review")));
+  s.push(station("Merge", t.merge ? "GO" : null, t.merge && dl([["Merge", h("span", {cls: "mono"}, shown(t.merge.sha))], ["Head merged", h("span", {cls: "mono"}, shown(t.merge.head_sha))]]), !!t.merge));
+  const stages = rel ? rel.stages : [];
+  s.push(station("Release", t.release ? (String(t.release.verdict || "").startsWith("GO") ? "GO" : "NO-GO") : null, t.release && h("div", {},
+    dl([["Version", t.release.version], ["Image", h("span", {cls: "mono"}, shown(t.release.image))], ["Launchpad", h("span", {cls: "mono"}, shown(t.release.verdict))]]),
+    stages.length ? h("table", {}, h("tr", {}, h("th", {}, "Stage"), h("th", {}, "Verdict"), h("th", {}, "Numbers")),
+      stages.map((st) => h("tr", {}, h("td", {}, st.pct + "%"), h("td", {cls: "mono"}, st.verdict), h("td", {cls: "mono"}, st.numbers.join("\n")))))
+      : h("p", {cls: "muted"}, "The stages of this release are not in the release log (it predates it)."),
+    !rel && (t.release.numbers || []).length ? h("pre", {}, t.release.numbers.join("\n")) : null), !!t.release));
+  const done = t.state === "rolled-back" || t.state === "held";
+  s.push(station("Verify / rollback", t.state === "rolled-back" ? "NO-GO" : "GO",
+    t.state === "rolled-back" ? "Rolled back automatically: verify said NO-GO." : "Held at " + shown(rel && rel.held_at) + "% for go-for-launch.", done));
+  const ans = rel && rel.answer;
+  s.push(station("Go-for-launch", ans ? ans.answer : null, ans && dl([["Answer", ans.answer], ["By", ans.by], ["Via", ans.via], ["At", ans.at]]), !!ans));
+  return [h("h1", {}, t.id + " — " + t.title),
+    h("p", {cls: "lede"}, "The audit chain from the ticket to the rollback. Check it against the code host: ", h("code", {}, "./go audit TICKET=" + t.id)),
+    h("div", {cls: "panel"}, h("p", {}, chip(t.outcome.verdict), " ", shown(t.outcome.judge), ": ", h("span", {cls: "mono"}, shown(t.outcome.line)))),
+    h("div", {cls: "panel"}, h("ol", {cls: "stations"}, s)),
+    h("h2", {}, "History"),
+    h("div", {cls: "panel"}, h("table", {}, h("tr", {}, ["Step", "State", "Attempt", "At", "Error"].map((c) => h("th", {}, c))),
+      t.history.map((e) => h("tr", {}, h("td", {}, e.step), h("td", {}, e.state), h("td", {}, shown(e.attempt)), h("td", {cls: "mono"}, shown(e.at)), h("td", {cls: "mono"}, shown(e.error))))))];
+}
+
+// --- screen 3 ----------------------------------------------------------
+function screenIncidents() {
+  const out = [h("h1", {}, "Incidents and post mortems"),
+    h("p", {cls: "lede"}, "What went wrong in production, the evidence behind each step, and the fix tickets it filed.")];
+  if (unread(book.postmortems)) return out.concat(h("div", {cls: "panel"}, err(book.postmortems)));
+  if (!book.postmortems.length) return out.concat(h("div", {cls: "panel"}, h("p", {cls: "muted"},
+    "No post mortem recorded. ./go postmortem INCIDENT=<file> writes one; ./go demo-postmortem names the recording it needs.")));
+  for (const pm of book.postmortems) {
+    const rel = pm.release || {};
+    out.push(h("div", {cls: "panel"},
+      h("h2", {}, pm.name + ": " + pm.title),
+      dl([["Window", shown(pm.window && pm.window.from) + " to " + shown(pm.window && pm.window.to)],
+        ["Release", shown(rel.version) + " (" + shown(rel.verdict) + "), stable " + shown(rel.stable)],
+        ["Chain", pm.chain ? h("span", {}, h("a", {href: "#ticket/" + encodeURIComponent(pm.chain.ticket)}, "ticket " + pm.chain.ticket), ", PR #" + pm.chain.pr + ", merge " + pm.chain.merge) : "not released by the tower"],
+        ["Written by", (pm.run.replayed ? "replayed, recorded by " : "") + shown(pm.run.provider) + " " + shown(pm.run.model)]]),
+      h("h2", {}, "Timeline"),
+      h("ul", {}, pm.timeline.map((e) => h("li", {}, e.event, " ", h("code", {}, e.anchor), e.evidence.length ? h("pre", {}, e.evidence.join("\n")) : null))),
+      h("h2", {}, "Contributing causes"),
+      h("ul", {}, pm.causes.map((c) => h("li", {}, c.cause, h("div", {cls: "muted"}, c.evidence)))),
+      h("h2", {}, "Action items"),
+      h("table", {}, h("tr", {}, ["#", "Action", "Fix ticket", "Its state"].map((c) => h("th", {}, c))),
+        pm.actions.map((a) => {
+          const t = ticketsList().find((x) => x.id === a.ticket);
+          return h("tr", {}, h("td", {}, a.n), h("td", {}, a.title),
+            h("td", {}, t ? h("a", {href: "#ticket/" + encodeURIComponent(a.ticket)}, a.ticket) : a.ticket),
+            h("td", {}, t ? chip(t.outcome.verdict) : "not opened yet: waiting for a human to declare the perimeter"));
+        }))));
+  }
+  return out;
+}
+
+// --- screen 4 ----------------------------------------------------------
+async function pressAnswer(answer) {
+  const L = book.launch, rec = L.record;
+  if (answer !== "PREPARE") {
+    const first = (L.brief.text.split("\n").find((l) => l.trim()) || "").replace(/^#+\s*/, "");
+    if (!confirm(answer + " for " + rec.version + "?\n\n" + first + "\n\n" + (answer === "GO" ? "100% of traffic goes to the canary." : "The canary is rolled back."))) return;
+  }
+  busy = true; render();
+  try {
+    const r = await fetch("/v1/go-for-launch", {method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({answer, version: rec.version, held_at: rec.held_at, brief_sha256: L.brief ? L.brief.sha256 : null})});
+    const body = await r.json().catch(() => ({}));
+    lastLine = body.line || ("refused (" + r.status + "): " + (body.error || r.statusText));
+  } catch (e) { lastLine = "the console did not answer: " + e; }
+  busy = false; await load();
+}
+function screenLaunch() {
+  const L = book.launch, rec = L.record;
+  const out = [h("h1", {}, "Go-for-launch"),
+    h("p", {cls: "lede"}, "The one human decision before 100% of traffic. The same check and the same script as ./go promote.")];
+  if (!rec || unread(rec)) out.push(h("div", {cls: "panel"}, rec ? err(rec) : h("p", {cls: "muted"}, "No release record yet.")));
+  else {
+    const answered = rec.promoted ? ["GO", rec.promoted] : rec.rejected ? ["NO-GO", rec.rejected] : null;
+    out.push(h("div", {cls: "panel"},
+      dl([["Version", rec.version], ["Stable", rec.stable], ["Image", h("span", {cls: "mono"}, shown(rec.image))],
+        ["Verdict", rec.verdict], ["Held at", rec.held_at === null ? null : rec.held_at + "%"],
+        answered ? ["Answered", h("span", {}, chip(answered[0]), " by " + shown(answered[1].by) + " via " + shown(answered[1].via) + " at " + shown(answered[1].at))] : null]),
+      (rec.stages || []).length ? h("table", {}, h("tr", {}, h("th", {}, "Stage"), h("th", {}, "Verdict"), h("th", {}, "Numbers")),
+        rec.stages.map((st) => h("tr", {}, h("td", {}, st.pct + "%"), h("td", {cls: "mono"}, st.verdict), h("td", {cls: "mono"}, st.numbers.join("\n"))))) : null));
+  }
+  const p = L.plane;
+  out.push(h("h2", {}, "What the plane runs now"), h("div", {cls: "panel"}, unread(p) ? err(p) : dl([["Stable", p.stable], ["Canary", p.canary], ["Canary weight", p.weight === null ? null : p.weight + "%"]])));
+  out.push(h("h2", {}, "The brief"), h("div", {cls: "panel"}, L.brief
+    ? h("div", {}, h("p", {cls: "muted"}, "By " + shown(L.brief.author) + " · sha256 ", h("span", {cls: "mono"}, L.brief.sha256)), h("pre", {}, L.brief.text))
+    : h("p", {cls: "muted"}, "No brief on disk.")));
+  const reasons = [];
+  if (!con.can_launch && con.reason) reasons.push(con.reason);
+  if (L.disabled_reason) reasons.push(L.disabled_reason);
+  const can = con.can_launch && !busy;
+  out.push(h("h2", {}, "Answer"), h("div", {cls: "panel"},
+    reasons.length ? h("p", {}, "Disabled: ", reasons.join("; ")) : h("p", {}, "Pressing answers the brief above, as " + shown(con.identity === "loopback" ? "unauthenticated (loopback)" : con.identity) + "."),
+    h("div", {cls: "buttons"},
+      L.preparable ? h("button", {onclick: () => pressAnswer("PREPARE"), disabled: !can}, "Prepare the brief") : null,
+      h("button", {cls: "go", onclick: () => pressAnswer("GO"), disabled: !(can && L.pressable)}, "GO — promote to 100%"),
+      h("button", {cls: "nogo", onclick: () => pressAnswer("NO-GO"), disabled: !(can && L.pressable)}, "NO-GO — roll back")),
+    busy ? h("p", {cls: "muted"}, "core/promote.sh is running…") : null,
+    lastLine ? h("pre", {}, lastLine) : null));
+  return out;
+}
+
+// --- screen 5 ----------------------------------------------------------
+function screenThresholds() {
+  const out = [h("h1", {}, "Thresholds"),
+    h("p", {cls: "lede"}, "Every number that can stop a change, where it is set, and why it has that value.")];
+  if (unread(book.thresholds)) return out.concat(h("div", {cls: "panel"}, err(book.thresholds)));
+  out.push(h("div", {cls: "panel"}, h("table", {},
+    h("tr", {}, ["Key", "Value", "Judges", "Set in", "Provenance"].map((c) => h("th", {}, c))),
+    book.thresholds.map((t) => h("tr", {},
+      h("td", {cls: "mono"}, t.key), h("td", {cls: "mono"}, t.value), h("td", {}, t.judge),
+      h("td", {cls: "mono"}, t.file + (t.overridden ? " (overrides the platform)" : "")),
+      h("td", {}, t.provenance ? h("span", {}, h("b", {}, t.provenance.kind + ": "), t.provenance.text) : h("span", {cls: "chip NO-GO"}, "undeclared")))))));
+  return out;
+}
+
+// --- frame -------------------------------------------------------------
+function render() {
+  const main = document.getElementById("main");
+  if (!book || !con) return;
+  const src = book.source || {};
+  document.getElementById("who").textContent = [src.workload || "?", "level " + (src.level || "?"),
+    con.mode === "snapshot" ? "snapshot of " + (src.commit || "?").slice(0, 12) + ", no plane behind it" : "live",
+    con.identity ? "as " + con.identity : null].filter(Boolean).join(" · ");
+  document.getElementById("fresh").textContent = con.mode === "live" ? "read at " + (con.read_at || "—") : "";
+  const hash = decodeURIComponent(location.hash.slice(1)) || "tickets";
+  const [screen, arg] = hash.split("/");
+  for (const a of document.querySelectorAll("nav a")) a.classList.toggle("on", a.dataset.s === screen || (screen === "ticket" && a.dataset.s === "tickets"));
+  let body;
+  if (screen === "ticket") body = screenTicket(arg);
+  else if (screen === "incidents") body = screenIncidents();
+  else if (screen === "launch") body = screenLaunch();
+  else if (screen === "thresholds") body = screenThresholds();
+  else body = screenTickets();
+  const banners = [];
+  if (con.read_error) banners.push(h("div", {cls: "banner err"}, "Stale: the last read failed (" + con.read_error + "); showing the last good logbook."));
+  main.replaceChildren(...banners, ...body);
+}
+async function load() {
+  try {
+    const [c, b] = await Promise.all([fetch("/v1/console.json").then((r) => r.json()), fetch("/v1/logbook.json").then((r) => r.ok ? r.json() : null)]);
+    con = c; if (b) book = b;
+  } catch (e) { /* keep what is shown; the header says when it was read */ }
+  if (!book) {
+    document.getElementById("main").textContent = "No logbook yet" + (con && con.read_error ? ": " + con.read_error : "; the first read is still running.");
+    return;
+  }
+  if (!busy) render();
+}
+window.addEventListener("hashchange", render);
+load();
+setInterval(() => { if (con && con.mode === "live") load(); }, 2000);
+</script>
+</body>
+</html>

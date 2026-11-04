@@ -33,6 +33,9 @@
 #   ./go postmortem     run the ops-triage role on an incident document: INCIDENT=<file>, one ticket per action item
 #   ./go demo-postmortem prove the incident captured from demo-rollback becomes a post mortem and a fix ticket, no plane
 #   ./go board          the pipeline explained, live when the plane is up, on localhost:8099
+#   ./go console        the client's console on localhost:8098: the record, and go-for-launch from a browser (ADR 0047)
+#   ./go logbook        write the logbook, the one versioned record the console reads: [LOGBOOK_FILE=<file>]
+#   ./go demo-console   prove go-for-launch pressed from the console: held canary, POST GO → 100%, then the un-promote
 #   ./go promote        go-for-launch: the brief, the human answer, then 100% or rollback
 #   ./go demo-launch    prove go-for-launch: held canary, brief, GO → 100%, then the un-promote
 #   ./go record-evals   record the ADK roles' responses at L1 (PROFILE=l1)
@@ -233,9 +236,9 @@ fi
 socket_flags=""
 host_sock_flag=""
 socket_optional=""
-case "$cmd" in gates|init|mutation-baseline|demo-init) socket_optional=1 ;; esac
+case "$cmd" in gates|init|mutation-baseline|demo-init|console|logbook) socket_optional=1 ;; esac
 case "$cmd" in
-  up|down|test|demo|release|demo-rollback|demo-hold|demo-seam|demo-network|e2e|resume|shell|gates|demo-gates|mutation-baseline|assign|demo-crew|record|demo-launch|review|demo-review|record-review|delivery-conformance|harness-conformance|codehost-conformance|unsigned-refused|board|demo-rework|init|demo-init)
+  up|down|test|demo|release|demo-rollback|demo-hold|demo-seam|demo-network|e2e|resume|shell|gates|demo-gates|mutation-baseline|assign|demo-crew|record|demo-launch|review|demo-review|record-review|delivery-conformance|harness-conformance|codehost-conformance|unsigned-refused|board|demo-rework|init|demo-init|console|logbook|demo-console)
     sock=""
     if [ "$engine" = podman ]; then
       sock=$(podman info --format '{{.Host.RemoteSocket.Path}}'); sock=${sock#unix://}
@@ -278,6 +281,20 @@ esac
 port_flags=""
 if [ "$cmd" = board ]; then
   port_flags="-p 127.0.0.1:${BOARD_PORT:-8099}:8099 -e BOARD_PORT=${BOARD_PORT:-8099}"
+fi
+# The console likewise (docs/adr/0047 §4, §5): on the host's loopback by
+# default. It listens on every address inside the container, so it is told
+# where the host publishes it, and refuses to start in loopback mode
+# anywhere else. CONSOLE_* settings pass through from the host's
+# environment; the Makefile also reads them from .env.
+if [ "$cmd" = console ]; then
+  publish=${CONSOLE_PUBLISH:-127.0.0.1}
+  port_flags="-p $publish:${CONSOLE_PORT:-8098}:8098 -e CONSOLE_PORT=${CONSOLE_PORT:-8098} -e CONSOLE_BIND=0.0.0.0 -e CONSOLE_PUBLISH=$publish"
+  # -e NAME, no value: the engine copies it from this environment, so a
+  # value with spaces is never split. An unset one is not passed.
+  for v in CONSOLE_AUTH CONSOLE_IDENTITY_HEADER CONSOLE_LAUNCHERS CONSOLE_SNAPSHOT CONSOLE_HOSTS CONSOLE_POLL_S; do
+    if env | grep -q "^$v="; then port_flags="$port_flags -e $v"; fi
+  done
 fi
 
 # shellcheck disable=SC2086 # flag strings are deliberately word-split

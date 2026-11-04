@@ -243,6 +243,86 @@ up: ## Start the L0 plane, wait until every adapter is ready, then publish the s
 board: ## The flight readiness board on localhost:8099: the pipeline explained, and the live plane when it is up (docs/adr/0035)
 	@python3 board/serve.py
 
+# The logbook (docs/adr/0047 §2): the one versioned document the console
+# and any consumer read, assembled from the tower, the release log, the
+# post mortems, the policy files and the plane. LOGBOOK_FILE moves it.
+.PHONY: logbook
+logbook: ## Write the logbook, the record a client's console reads: [LOGBOOK_FILE=.crew/logbook.json] (docs/adr/0047 §2)
+	@sh core/logbook.sh
+
+# The console (docs/adr/0047): the client's five screens over the logbook
+# and the one write, go-for-launch through core/promote.sh. ./go publishes
+# it on the host's loopback, CONSOLE_PORT to move it; CONSOLE_SNAPSHOT=<file>
+# serves a logbook file with no plane behind it.
+.PHONY: console
+console: ## The console on localhost:8098: tickets, one ticket's chain, post mortems, go-for-launch, thresholds (docs/adr/0047)
+	@python3 console/serve.py
+
+# M11's acceptance (docs/adr/0047 §4): demo-launch's sequence, but the
+# human answer is an HTTP POST to a running console instead of
+# GO_FOR_LAUNCH=GO, then demo-launch's own checks, the record's `via:
+# console`, and the un-promote. Not a `demo` stage (ADR 0003): plan §2's
+# criterion is the rollback. The console runs inside this recipe on a
+# loopback port of the workbench, like a browser on the same machine.
+DEMO_CONSOLE_PORT ?= 18098
+.PHONY: demo-console
+demo-console: ## Prove go-for-launch pressed from the console: held canary, brief, POST GO → 100%, via console, then the un-promote (docs/adr/0047 §4)
+	@backup=$$(mktemp); \
+	cp "$(FLAGS_FILE)" "$$backup"; \
+	restore() { [ -f "$$backup" ] || return 0; cat "$$backup" > "$(FLAGS_FILE)"; rm -f "$$backup"; }; \
+	console_pid=""; \
+	trap 'rc=$$?; [ -z "$$console_pid" ] || kill "$$console_pid" 2>/dev/null; restore; [ "$$rc" -eq 0 ] || sh "adapters/$(DELIVERY)/rollback.sh" >&2' EXIT; \
+	trap 'exit 130' INT TERM; \
+	url="http://127.0.0.1:$(DEMO_CONSOLE_PORT)"; \
+	mkdir -p .crew; \
+	CONSOLE_LISTEN=$(DEMO_CONSOLE_PORT) CONSOLE_PORT=$(DEMO_CONSOLE_PORT) CONSOLE_AUTH=loopback python3 console/serve.py 2>.crew/demo-console.log & \
+	console_pid=$$!; \
+	$(MAKE) --no-print-directory kill-switch || exit 1; \
+	stable=$$(curl -fsS --connect-timeout 1 --max-time 3 "$(APP_URL)/healthz" | jq -r .version); \
+	printf '[demo-console] stable is %s; releasing %s with %s off\n' "$$stable" "$(CANARY_VERSION)" "$(WORKLOAD_KILL_SWITCH)" >&2; \
+	if ! $(MAKE) --no-print-directory release CANARY_VERSION=$(CANARY_VERSION); then \
+		printf 'NO-GO: demo-console — release rolled back; expected a hold at 25%%\n'; exit 1; \
+	fi; \
+	post() { curl -sS --max-time 600 -X POST "$$url/v1/go-for-launch" -H 'Content-Type: application/json' -H "Origin: $$url" -d "$$1"; }; \
+	launch() { curl -fsS --max-time 10 "$$url/v1/logbook.json" | jq -c .launch; }; \
+	i=0; l=""; \
+	while [ "$$i" -lt 60 ]; do \
+		l=$$(launch 2>/dev/null) || l=""; \
+		[ "$$(printf '%s' "$$l" | jq -r '.record.verdict // empty' 2>/dev/null)" = held ] && break; \
+		i=$$((i + 1)); sleep 1; \
+	done; \
+	[ "$$(printf '%s' "$$l" | jq -r .preparable)" = true ] \
+		|| { printf 'NO-GO: demo-console — the console offers no brief to prepare: %s\n' "$$(printf '%s' "$$l" | jq -r '.disabled_reason // "no logbook"')"; cat .crew/demo-console.log >&2; exit 1; }; \
+	v=$$(printf '%s' "$$l" | jq -r .record.version); held=$$(printf '%s' "$$l" | jq -r .record.held_at); \
+	r=$$(post "{\"answer\":\"PREPARE\",\"version\":\"$$v\",\"held_at\":$$held}"); \
+	printf '[demo-console] prepare the brief: %s\n' "$$(printf '%s' "$$r" | jq -r '.line // .error')" >&2; \
+	l=$$(launch); \
+	[ "$$(printf '%s' "$$l" | jq -r .pressable)" = true ] \
+		|| { printf 'NO-GO: demo-console — the button is disabled: %s\n' "$$(printf '%s' "$$l" | jq -r .disabled_reason)"; exit 1; }; \
+	sha=$$(printf '%s' "$$l" | jq -r .brief.sha256); \
+	printf '[demo-console] the brief for %s, sha256 %s, by %s; pressing GO\n' "$$v" "$$sha" "$$(printf '%s' "$$l" | jq -r .brief.author)" >&2; \
+	r=$$(post "{\"answer\":\"GO\",\"version\":\"$$v\",\"held_at\":$$held,\"brief_sha256\":\"$$sha\"}"); \
+	line=$$(printf '%s' "$$r" | jq -r '.line // ("refused: " + .error)'); \
+	[ "$$line" = "GO: go-for-launch" ] || { printf 'NO-GO: demo-console — the console answered: %s\n' "$$line"; cat .crew/demo-console.log >&2; exit 1; }; \
+	via=$$(jq -r '.promoted.via // empty' "$(RELEASE_RECORD)"); \
+	[ "$$via" = console ] || { printf 'NO-GO: demo-console — the record says promoted via %s, want console\n' "$${via:-nothing}"; exit 1; }; \
+	logged=$$(tail -n 1 "$(RELEASES_LOG)" | jq -r '"\(.kind) \(.answer) \(.via)"'); \
+	[ "$$logged" = "answer GO console" ] || { printf 'NO-GO: demo-console — the release log ends with %s, want the console'"'"'s GO\n' "$$logged"; exit 1; }; \
+	canary_w=$$(curl -fsS --connect-timeout 1 --max-time 3 "$(ENVOY_ADMIN_URL)/runtime" | jq -r '.entries["weights.canary"].final_value // "none"'); \
+	[ "$$canary_w" = "100" ] || { printf 'NO-GO: demo-console — Envoy reports weights.canary=%s after the press, want 100\n' "$$canary_w"; exit 1; }; \
+	ok=0; total=10; i=0; \
+	while [ "$$i" -lt "$$total" ]; do \
+		hv=$$(curl -fsS --connect-timeout 1 --max-time 3 "$(APP_URL)/healthz" | jq -r .version); \
+		[ "$$hv" = "$(CANARY_VERSION)" ] && ok=$$((ok + 1)); \
+		i=$$((i + 1)); \
+	done; \
+	[ "$$ok" -eq "$$total" ] || { printf 'NO-GO: demo-console — only %s/%s healthz through Envoy report %s at 100%%\n' "$$ok" "$$total" "$(CANARY_VERSION)"; exit 1; }; \
+	printf '[demo-console] %s at 100%% after the console'"'"'s GO: %s/%s healthz samples; now the un-promote\n' "$(CANARY_VERSION)" "$$ok" "$$total" >&2; \
+	sh adapters/$(DELIVERY)/rollback.sh >&2; \
+	canary_w=$$(curl -fsS --connect-timeout 1 --max-time 3 "$(ENVOY_ADMIN_URL)/runtime" | jq -r '.entries["weights.canary"].final_value // "none"'); \
+	[ "$$canary_w" = "0" ] || { printf 'NO-GO: demo-console — Envoy reports weights.canary=%s after the un-promote, want 0\n' "$$canary_w"; exit 1; }; \
+	printf 'GO: demo-console\n'
+
 .PHONY: publish
 publish: ## Build, push and sign the image at TAG (docs/adr/0025 §1-§3)
 	@sh "adapters/$(REGISTRY)/publish.sh" "$(TAG)"
