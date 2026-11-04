@@ -12,6 +12,16 @@
 # are the only scripts it calls. At L0 "100%" is the canary cluster taking
 # every request; the canary does not become the new stable image (M8).
 #
+# Who answered, and through what (docs/adr/0047 §3): GO_FOR_LAUNCH_BY
+# (default `unauthenticated`: a container's user name would look like an
+# identity it is not) and GO_FOR_LAUNCH_VIA (default `cli`; the console
+# passes `console`) go into the record, `promoted` on GO and `rejected` on
+# NO-GO, and into one line of RELEASES_LOG per answer. With
+# GO_FOR_LAUNCH_BRIEF_SHA256 set, promote answers on the brief already in
+# PROMOTE_OUT, the one the human read, if its sha256 matches, and writes
+# no new one; otherwise nothing moves. With no answer it writes the brief
+# and moves nothing: that is how a console prepares the brief it shows.
+#
 # Reuses ci/lib.sh's go/nogo for the one-line verdict, as launchpad does.
 set -eu
 name=go-for-launch
@@ -21,6 +31,10 @@ name=go-for-launch
 : "${DELIVERY:?DELIVERY not set; run this via ./go, not directly}"
 : "${AGENT_HARNESS:?AGENT_HARNESS not set; run this via ./go, not directly}"
 : "${PROMOTE_OUT:=.crew/promote}"
+: "${RELEASES_LOG:=.crew/releases.jsonl}"
+by=${GO_FOR_LAUNCH_BY:-unauthenticated}
+via=${GO_FOR_LAUNCH_VIA:-cli}
+answered_sha=${GO_FOR_LAUNCH_BRIEF_SHA256:-}
 
 [ -f "$RELEASE_RECORD" ] || nogo "no release record; run ./go release" "looked at $RELEASE_RECORD"
 record=$(jq -c . "$RELEASE_RECORD" 2>/dev/null) || nogo "$RELEASE_RECORD is not JSON"
@@ -60,9 +74,16 @@ fi
 # shellcheck disable=SC1091 # the role's budgets
 . roles/release/role.env
 harness=${HARNESS:-$AGENT_HARNESS}
-rm -rf "$PROMOTE_OUT"
-mkdir -p "$PROMOTE_OUT/out"
-if [ "$AGENT_HARNESS" = replay ]; then
+if [ -n "$answered_sha" ]; then
+  # The answer is to the brief already shown: no second brief is written,
+  # because a release role at L1 would not write the same one twice.
+  on_disk=$(sha256sum "$PROMOTE_OUT/brief.md" 2>/dev/null | cut -d' ' -f1)
+  [ "$on_disk" = "$answered_sha" ] || nogo "the brief on disk is not the one answered; nothing moved"
+  brief=$(cat "$PROMOTE_OUT/brief.md")
+  author=$(head -n1 "$PROMOTE_OUT/brief.author" 2>/dev/null) || author="unknown"
+elif [ "$AGENT_HARNESS" = replay ]; then
+  rm -rf "$PROMOTE_OUT"
+  mkdir -p "$PROMOTE_OUT/out"
   author="core/promote.sh from the record — no model at L0, the release role writes it from L1"
   brief=$(printf '%s' "$record" | jq -r '
     "# Promotion brief: \(.version)\n\nPromote `\(.version)` (`\(.image)`), replacing stable `\(.stable)`.\n\n## Stages\n"
@@ -70,6 +91,8 @@ if [ "$AGENT_HARNESS" = replay ]; then
     + "\n## Not verified\n- 100% of traffic: not observed yet; that is what this decision starts.\n"
     + "\nRecommendation: GO — every stage passed verify; the numbers above are the evidence."')
 else
+  rm -rf "$PROMOTE_OUT"
+  mkdir -p "$PROMOTE_OUT/out"
   author="the release role, $harness"
   ROLE=release INPUT="$RELEASE_RECORD" OUT="$PROMOTE_OUT/out" \
     THINKING="${THINKING:-low}" TIMEOUT_S="${TIMEOUT_S:-900}" \
@@ -93,11 +116,28 @@ for pct in $(printf '%s' "$record" | jq -r '.stages[].pct'); do
     *) nogo "the brief does not name the $pct% stage" ;;
   esac
 done
-printf '%s\n' "$brief" > "$PROMOTE_OUT/brief.md"
+if [ -z "$answered_sha" ]; then
+  printf '%s\n' "$brief" > "$PROMOTE_OUT/brief.md"
+  printf '%s\n' "$author" > "$PROMOTE_OUT/brief.author"
+fi
 {
   printf '[go-for-launch] promotion brief for %s (by %s):\n\n' "$version" "$author"
   printf '%s\n\n' "$brief"
 } >&2
+
+# answered ANSWER: who answered goes into the record (`promoted` or
+# `rejected`) and one line of the release log.
+answered() {
+  at=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+  key=promoted
+  [ "$1" = GO ] || key=rejected
+  printf '%s' "$record" | jq -c --arg k "$key" --arg at "$at" --arg by "$by" --arg via "$via" \
+    '. + {($k): ((if $k == "promoted" then {weight: 100} else {} end) + {at: $at, by: $by, via: $via})}' \
+    > "$RELEASE_RECORD"
+  mkdir -p "$(dirname "$RELEASES_LOG")"
+  jq -cn --arg at "$at" --arg v "$version" --arg a "$1" --arg by "$by" --arg via "$via" \
+    '{kind: "answer", at: $at, version: $v, answer: $a, by: $by, via: $via}' >> "$RELEASES_LOG"
+}
 
 # The human.
 answer=${GO_FOR_LAUNCH:-}
@@ -111,13 +151,13 @@ case "$answer" in
   GO) ;;
   NO-GO)
     sh "adapters/$DELIVERY/rollback.sh" >&2 || nogo "human said NO-GO, and the rollback failed"
+    answered NO-GO
     nogo "human said NO-GO" "$version rolled back" ;;
   "") nogo "no human answer (set GO_FOR_LAUNCH=GO or answer on the terminal); nothing moved" ;;
   *) nogo "answer \"$answer\" is neither GO nor NO-GO; nothing moved" ;;
 esac
 
 sh "adapters/$DELIVERY/shift.sh" 100 >&2 || nogo "shift to 100% did not take"
-printf '%s' "$record" | jq -c --arg at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
-  '. + {promoted: {weight: 100, at: $at, by: "go-for-launch"}}' > "$RELEASE_RECORD"
+answered GO
 printf '[go-for-launch] %s at 100%% of traffic (%s)\n' "$version" "$DELIVERY" >&2
 go

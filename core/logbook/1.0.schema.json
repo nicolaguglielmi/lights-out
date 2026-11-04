@@ -1,0 +1,258 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "lights-out/logbook/1.0",
+  "title": "lights-out logbook 1.0",
+  "description": "The one document the console reads and a consumer collects (docs/adr/0047 §2, §6; field by field in docs/plans/console.md). Assembled by core/logbook.sh, no clock of its own. An added optional field is a minor version; readers ignore fields they do not know. A source the reader could not read is {ok: false, error}, never a default.",
+  "type": "object",
+  "required": ["schema", "source", "tickets", "releases", "postmortems", "thresholds", "launch"],
+  "properties": {
+    "schema": {"const": "lights-out/logbook/1.0"},
+    "source": {
+      "type": "object",
+      "required": ["commit", "level", "workload", "code_host"],
+      "properties": {
+        "commit": {"type": ["string", "null"]},
+        "level": {"type": "string"},
+        "workload": {"type": "string"},
+        "code_host": {"type": "string"}
+      }
+    },
+    "tickets": {"oneOf": [{"type": "array", "items": {"$ref": "#/$defs/ticket"}}, {"$ref": "#/$defs/unread"}]},
+    "releases": {"oneOf": [{"type": "array", "items": {"$ref": "#/$defs/release"}}, {"$ref": "#/$defs/unread"}]},
+    "postmortems": {"oneOf": [{"type": "array", "items": {"$ref": "#/$defs/postmortem"}}, {"$ref": "#/$defs/unread"}]},
+    "thresholds": {"oneOf": [{"type": "array", "items": {"$ref": "#/$defs/threshold"}}, {"$ref": "#/$defs/unread"}]},
+    "launch": {"$ref": "#/$defs/launch"}
+  },
+  "$defs": {
+    "unread": {
+      "type": "object",
+      "required": ["ok", "error"],
+      "properties": {"ok": {"const": false}, "error": {"type": "string", "minLength": 1}},
+      "additionalProperties": false
+    },
+    "str_or_null": {"type": ["string", "null"]},
+    "ticket": {
+      "type": "object",
+      "required": ["id", "title", "origin", "perimeter", "state", "attempt", "opened_at", "updated_at", "outcome", "spec", "task", "rework", "pr", "ci", "review", "merge", "release", "history"],
+      "properties": {
+        "id": {"type": "string"},
+        "title": {"type": "string"},
+        "origin": {"$ref": "#/$defs/str_or_null"},
+        "perimeter": {"oneOf": [{"type": "array", "items": {"type": "string"}}, {"$ref": "#/$defs/unread"}]},
+        "state": {"type": "string"},
+        "attempt": {"type": ["integer", "null"]},
+        "opened_at": {"$ref": "#/$defs/str_or_null"},
+        "updated_at": {"$ref": "#/$defs/str_or_null"},
+        "outcome": {
+          "type": "object",
+          "required": ["verdict", "judge", "line"],
+          "properties": {
+            "verdict": {"enum": ["GO", "NO-GO", "pending", "needs-human", "stranded"]},
+            "judge": {"enum": ["gates", "review", "verify", "human", "step", null]},
+            "line": {"$ref": "#/$defs/str_or_null"}
+          }
+        },
+        "spec": {
+          "type": ["object", "null"],
+          "properties": {"title": {"$ref": "#/$defs/str_or_null"}, "sha256": {"$ref": "#/$defs/str_or_null"}}
+        },
+        "task": {
+          "type": ["object", "null"],
+          "properties": {
+            "role": {"$ref": "#/$defs/str_or_null"},
+            "harness": {"$ref": "#/$defs/str_or_null"},
+            "provider": {"$ref": "#/$defs/str_or_null"},
+            "model": {"$ref": "#/$defs/str_or_null"},
+            "thinking": {"$ref": "#/$defs/str_or_null"},
+            "turns": {"type": ["integer", "null"]},
+            "tokens": {"type": ["object", "null"]},
+            "duration_s": {"type": ["number", "null"]},
+            "input_sha256": {"$ref": "#/$defs/str_or_null"},
+            "replayed": {"type": ["boolean", "null"]}
+          }
+        },
+        "rework": {"type": "array", "items": {"type": "object"}},
+        "pr": {
+          "type": ["object", "null"],
+          "properties": {
+            "number": {"type": ["integer", "null"]},
+            "url": {"$ref": "#/$defs/str_or_null"},
+            "base_sha": {"$ref": "#/$defs/str_or_null"},
+            "head_sha": {"$ref": "#/$defs/str_or_null"}
+          }
+        },
+        "ci": {
+          "type": ["object", "null"],
+          "properties": {
+            "verdict": {"$ref": "#/$defs/str_or_null"},
+            "failed": {"$ref": "#/$defs/str_or_null"},
+            "risk_level": {"$ref": "#/$defs/str_or_null"},
+            "decision": {"$ref": "#/$defs/str_or_null"},
+            "line": {"$ref": "#/$defs/str_or_null"},
+            "details": {"type": ["array", "null"], "items": {"type": "string"}},
+            "head_sha": {"$ref": "#/$defs/str_or_null"}
+          }
+        },
+        "review": {
+          "type": ["object", "null"],
+          "properties": {
+            "role": {"$ref": "#/$defs/str_or_null"},
+            "verdict": {"$ref": "#/$defs/str_or_null"},
+            "reason": {"$ref": "#/$defs/str_or_null"},
+            "harness": {"$ref": "#/$defs/str_or_null"},
+            "model": {"$ref": "#/$defs/str_or_null"}
+          }
+        },
+        "merge": {
+          "type": ["object", "null"],
+          "properties": {"sha": {"$ref": "#/$defs/str_or_null"}, "head_sha": {"$ref": "#/$defs/str_or_null"}}
+        },
+        "release": {
+          "type": ["object", "null"],
+          "properties": {
+            "version": {"$ref": "#/$defs/str_or_null"},
+            "image": {"$ref": "#/$defs/str_or_null"},
+            "verdict": {"$ref": "#/$defs/str_or_null"},
+            "numbers": {"type": ["array", "null"], "items": {"type": "string"}}
+          }
+        },
+        "history": {"type": "array", "items": {"type": "object"}}
+      }
+    },
+    "stage": {
+      "type": "object",
+      "required": ["pct", "verdict", "numbers"],
+      "properties": {
+        "pct": {"type": "integer"},
+        "verdict": {"type": "string"},
+        "numbers": {"type": "array", "items": {"type": "string"}}
+      }
+    },
+    "answer": {
+      "type": "object",
+      "required": ["answer", "by", "via", "at"],
+      "properties": {
+        "answer": {"enum": ["GO", "NO-GO"]},
+        "by": {"type": "string"},
+        "via": {"type": "string"},
+        "at": {"type": "string"}
+      }
+    },
+    "release": {
+      "type": "object",
+      "required": ["version", "stable", "image", "stages", "verdict", "held_at", "at", "ticket", "answer", "from"],
+      "properties": {
+        "version": {"type": "string"},
+        "stable": {"$ref": "#/$defs/str_or_null"},
+        "image": {"$ref": "#/$defs/str_or_null"},
+        "stages": {"type": "array", "items": {"$ref": "#/$defs/stage"}},
+        "verdict": {"enum": ["held", "rolled-back"]},
+        "held_at": {"type": ["integer", "null"]},
+        "at": {"$ref": "#/$defs/str_or_null"},
+        "ticket": {"$ref": "#/$defs/str_or_null"},
+        "answer": {"oneOf": [{"$ref": "#/$defs/answer"}, {"type": "null"}]},
+        "from": {"enum": ["releases.jsonl", "release.json"]}
+      }
+    },
+    "postmortem": {
+      "type": "object",
+      "required": ["name", "title", "window", "release", "chain", "timeline", "causes", "actions", "run"],
+      "properties": {
+        "name": {"type": "string"},
+        "title": {"type": "string"},
+        "window": {"type": "object", "required": ["from", "to"]},
+        "release": {"type": "object"},
+        "chain": {"type": ["object", "null"]},
+        "timeline": {
+          "type": "array",
+          "items": {"type": "object", "required": ["event", "anchor", "evidence"]}
+        },
+        "causes": {"type": "array", "items": {"type": "object", "required": ["cause", "evidence"]}},
+        "actions": {"type": "array", "items": {"type": "object", "required": ["n", "title", "ticket"]}},
+        "run": {
+          "type": "object",
+          "required": ["provider", "model", "replayed"],
+          "properties": {
+            "provider": {"$ref": "#/$defs/str_or_null"},
+            "model": {"$ref": "#/$defs/str_or_null"},
+            "replayed": {"type": "boolean"}
+          }
+        }
+      }
+    },
+    "threshold": {
+      "type": "object",
+      "required": ["key", "value", "file", "overridden", "judge", "provenance"],
+      "properties": {
+        "key": {"type": "string"},
+        "value": {"type": "string"},
+        "file": {"type": "string"},
+        "overridden": {"type": "boolean"},
+        "judge": {"enum": ["gates", "verify", "rework"]},
+        "provenance": {
+          "oneOf": [
+            {
+              "type": "object",
+              "required": ["kind", "text"],
+              "properties": {"kind": {"enum": ["decision", "external", "measurement"]}, "text": {"type": "string"}}
+            },
+            {"type": "null"}
+          ]
+        }
+      }
+    },
+    "launch": {
+      "type": "object",
+      "required": ["record", "plane", "brief", "pressable", "preparable", "disabled_reason"],
+      "properties": {
+        "record": {
+          "oneOf": [
+            {
+              "type": "object",
+              "required": ["version", "verdict"],
+              "properties": {
+                "version": {"type": "string"},
+                "stable": {"$ref": "#/$defs/str_or_null"},
+                "image": {"$ref": "#/$defs/str_or_null"},
+                "verdict": {"type": "string"},
+                "held_at": {"type": ["integer", "null"]},
+                "stages": {"type": "array", "items": {"$ref": "#/$defs/stage"}},
+                "promoted": {"type": "object"},
+                "rejected": {"type": "object"}
+              }
+            },
+            {"type": "null"},
+            {"$ref": "#/$defs/unread"}
+          ]
+        },
+        "plane": {
+          "oneOf": [
+            {
+              "type": "object",
+              "required": ["stable", "canary", "weight"],
+              "properties": {"stable": {}, "canary": {}, "weight": {}}
+            },
+            {"$ref": "#/$defs/unread"}
+          ]
+        },
+        "brief": {
+          "oneOf": [
+            {
+              "type": "object",
+              "required": ["text", "sha256", "author"],
+              "properties": {
+                "text": {"type": "string"},
+                "sha256": {"type": "string", "pattern": "^[0-9a-f]{64}$"},
+                "author": {"$ref": "#/$defs/str_or_null"}
+              }
+            },
+            {"type": "null"}
+          ]
+        },
+        "pressable": {"type": "boolean"},
+        "preparable": {"type": "boolean"},
+        "disabled_reason": {"$ref": "#/$defs/str_or_null"}
+      }
+    }
+  }
+}

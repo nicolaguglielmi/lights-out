@@ -52,6 +52,13 @@ rollback() {
 # its verdict (ticket 0008). A pre-staging refusal (freeze, signature)
 # leaves the prior run's record on disk untouched (docs/adr/0026 §6 case
 # 3); core/promote.sh checks any `held` record against the plane.
+#
+# The release log (docs/adr/0047 §2, P2): every final record, `held` or
+# `rolled-back`, is also appended to RELEASES_LOG with the time and the
+# tower's ticket (RELEASE_TICKET, set by core/steps/release.sh; null for a
+# release run directly). RELEASE_RECORD keeps only the latest; the log
+# keeps them all, for the logbook. Never rewritten, only appended.
+: "${RELEASES_LOG:=.crew/releases.jsonl}"
 stages='[]'
 image=""
 record() {
@@ -62,6 +69,11 @@ record() {
     '{version: $v, stable: $s, stages: $stages, verdict: $verdict,
       held_at: (if $held == "" then null else ($held | tonumber) end),
       image: $image}' > "$RELEASE_RECORD"
+  [ "$1" != in-progress ] || return 0
+  mkdir -p "$(dirname "$RELEASES_LOG")"
+  jq -c --arg at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --arg t "${RELEASE_TICKET:-}" \
+    '{kind: "release", at: $at, ticket: (if $t == "" then null else $t end), record: .}' \
+    "$RELEASE_RECORD" >> "$RELEASES_LOG"
 }
 
 fail_stage() {

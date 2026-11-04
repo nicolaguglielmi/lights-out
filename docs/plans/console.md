@@ -1,7 +1,7 @@
 # The console (M11): five screens over the logbook, and what stays out
 
 - Date: 2026-11-04
-- Status: design, docs only. Decided by [ADR 0047](../adr/0047-console-reads-one-versioned-logbook-and-writes-only-go-for-launch.md) (proposed), which amends [ADR 0023](../adr/0023-console-at-m11.md).
+- Status: first version built on 2026-11-04 on the provisional decisions of ADR 0047 (owner to confirm); the rules fixed while building are in "Decided at build" at the end. Decided by [ADR 0047](../adr/0047-console-reads-one-versioned-logbook-and-writes-only-go-for-launch.md) (proposed), which amends [ADR 0023](../adr/0023-console-at-m11.md).
 - Built: after M22 merges (plan §7 M11, §16). Preconditions P1–P3 are in ADR 0047 §2.
 - Audience: a business client with one lights-out instance, who reads what the agents did and presses go-for-launch. The DevOps engineer keeps `./go`; every screen mirrors `./go logbook`, and the one button mirrors `./go promote`.
 
@@ -253,3 +253,156 @@ the logbook as a minor, open, with its own ADR when it is structural.
   it from the level; settled when M22 merges.
 - Stitch's export format (unverified on 2026-11-04, ADR 0047 §1).
 - IAP's and oauth2-proxy's identity headers (unverified, ADR 0047 §5).
+
+## Decided at build (2026-11-04, first version)
+
+The rules the tables above left open, fixed for 1.0. They are part of the
+data contract: `ci/logbook.sh` is written from this section and the
+tables, not from the reader. Each is provisional with ADR 0047's list.
+
+### Serialization
+
+`LOGBOOK_FILE` is `json.dumps(logbook, sort_keys=True, indent=2,
+ensure_ascii=False)` plus one newline. Equal sources give equal bytes.
+
+### The release log, `.crew/releases.jsonl` (P2, `RELEASES_LOG`)
+
+One JSON object per line, appended, never rewritten:
+
+- `{"kind": "release", "at": <utc>, "ticket": <id or null>, "record": <launchpad's final record>}`,
+  written by `core/launchpad.sh` when it records `held` or `rolled-back`
+  (never `in-progress`). `ticket` is `RELEASE_TICKET`, which
+  `core/steps/release.sh` sets to the tower's ticket; a direct `./go
+  release` (demo-rollback, demo-hold, demo-launch) leaves it `null`.
+- `{"kind": "answer", "at": <utc>, "version": <v>, "answer": "GO"|"NO-GO", "by": <who>, "via": <cli|console>}`,
+  written by `core/promote.sh` after the shift to 100 % (GO) or after the
+  rollback (NO-GO). No answer, or a refused one, writes nothing.
+
+### `releases[]`
+
+One entry per `release` line, in log order: `version, stable, image,
+stages, verdict, held_at` from its `record`; `at, ticket` from the line;
+`answer` is the first `answer` line after it with the same version and
+before the next `release` line, as `{answer, by, via, at}`, else `null`;
+`from: "releases.jsonl"`. An absent log is no entries. A line that is not
+JSON makes the whole field `{ok: false, error: "<file> line <n> is not JSON"}`.
+
+Fallback for the latest: when `RELEASE_RECORD` holds `held` or
+`rolled-back` and the last entry above does not have the same `version`
+and `verdict` (or there is none), one more entry is added from it, with
+`at: null`, `ticket: null`, `from: "release.json"`, and `answer` from its
+`promoted` (`GO`) or `rejected` (`NO-GO`) object when that has `by`, `via`
+and `at`, else `null`.
+
+### `tickets[]`
+
+One entry per `TICKETS_DIR/*.md`, in file-name order, whose tower document
+exists (`get.sh` exit 1 skips it, as on the board). Any other `get.sh`
+failure makes the whole field `{ok: false, error: <get.sh's last stderr
+line>}`.
+
+- `id`: the file name without `.md`. `title`: the document's `spec.title`,
+  else the ticket's first `# ` line without the `# `.
+- `origin`: the value of the ticket's `- Origin: ` line, else `null`.
+- `perimeter`: the lines `core/perimeter.sh --list <ticket>` prints; when
+  it exits non-zero, `{ok: false, error: <its last stderr line>}` (a post
+  mortem's fix ticket before a human declares its perimeter).
+- `state`, `attempt` (`null` when absent), `opened_at` (`history[0].at`),
+  `updated_at` (`history[-1].at`), `history` and `rework` (`[]` when
+  absent) from the document.
+- `spec {title, sha256}`, `pr {number, url, base_sha, head_sha}`, `ci
+  {verdict, failed, risk_level, decision, line, details, head_sha}`, `review
+  {role, verdict, reason, harness, model}`, `merge {sha, head_sha}`,
+  `release {version, image, verdict, numbers}`: those keys of the
+  document's object, a missing key `null`; the object `null` when the
+  document has none.
+- `task {role, harness, provider, model, thinking, turns, tokens,
+  duration_s, input_sha256, replayed}`: the document's `task`, a missing
+  key `null` (P1 fills them from the step on).
+- `outcome`: the rule of screen 1, with two changes. Rule 3's line is the
+  document's `release.verdict`, launchpad's own line, which names the stage
+  and the number (`release.numbers` has no verdict per stage). Rule 4: the
+  last entry of `releases[]` with this `ticket` and the document's
+  `release.version` that has an `answer` decides; `GO` gives `GO`, judge
+  `human`, line `promoted by <by> via <via>`; `NO-GO` gives `NO-GO`, judge
+  `human`, line `rejected by <by> via <via>`; none gives `GO`, judge
+  `verify`, line `release.verdict`.
+
+### `thresholds[]`
+
+The keys of `core/policy.py`'s effective policy whose value is a decimal
+number (`^[0-9]+(\.[0-9]+)?$`), in its order, then `REWORK_MAX_ATTEMPTS`
+from `policy/rework.env`. A failure of `core/policy.py` makes the field
+`{ok: false, error: <its line>}`.
+
+- `file`: `<contract>/policy.env` when the workload overrides the key
+  there (`overridden: true`), `<contract>/workload.env` for
+  `MUTATION_BASELINE`, `policy/rework.env` for `REWORK_MAX_ATTEMPTS`, else
+  `policy/merge.env` (`overridden: false`).
+- `judge`: `verify` for `ERROR_RATE_MAX_DELTA` and
+  `LATENCY_P95_MAX_DELTA`, `rework` for `REWORK_MAX_ATTEMPTS`, else
+  `gates`.
+- `provenance`: from the block of own-line `#` comments directly above the
+  key's line in `file`. The first line of the block of the form `#
+  Provenance, <kind>: <text>` starts it; `text` is that `<text>` and the
+  block's following lines, each without its leading `#` and spaces, joined
+  with one space. No such line: `null`, shown "undeclared".
+
+### `postmortems[]`
+
+One per `POSTMORTEM_DIR/*/postmortem.json` (default `.crew/postmortem`), in
+directory-name order: `name` (`incident`), `title`, `window`, `release`,
+`chain`, `timeline`, `causes`, `actions[] {n, title, ticket}`, and `run
+{provider, model, replayed}`, where `replayed` is true when the run has a
+`source` and a `recorded` object, and `provider`/`model` come from
+`recorded` then. A file that is not JSON makes the field `{ok: false,
+error}`.
+
+### `launch`
+
+- `record`: `RELEASE_RECORD` as it is; `null` when absent; `{ok: false,
+  error}` when not JSON.
+- `plane`: `adapters/$DELIVERY/status.sh`'s JSON; `{ok: false, error: <its
+  last stderr line>}` when it fails or `DELIVERY` is unset.
+- `brief`: `{text, sha256, author}` when `$PROMOTE_OUT/brief.md` exists:
+  the file's text, the sha256 of its bytes, and the first line of
+  `$PROMOTE_OUT/brief.author` (`null` when absent); else `null`.
+- `pressable`, `preparable`, `disabled_reason`, first match wins (the
+  wording of promote's own checks where it has one):
+  1. no record: "no release record; run ./go release";
+  2. record unreadable: its error;
+  3. verdict not `held`: "release <v> is <verdict>, nothing to promote";
+  4. `promoted` present: "release <v> was already answered GO by <by> via <via>";
+     `rejected` present: the same with NO-GO;
+  5. plane unreadable: "the plane cannot be read: <error>";
+  6. plane canary or weight differ: "the record holds <v> at <held_at>%, the plane has canary <c> at <w>%";
+  7. no brief, or a brief that does not name `<v>`: `preparable: true`,
+     "no brief for <v> yet; prepare it";
+  8. otherwise `pressable: true`, `disabled_reason: null`.
+
+### The console's routes
+
+- `GET /`: `console/index.html`. `GET /v1/logbook.json`: the logbook's
+  bytes as the reader wrote them (or the snapshot file's). `GET
+  /v1/console.json`: `{mode: live|snapshot, auth, identity, can_launch,
+  reason, read_at, read_error, snapshot}` about this console and this
+  request, not part of the logbook (ADR 0047, provisional 17).
+- `POST /v1/go-for-launch`, the only write, body `{answer:
+  "GO"|"NO-GO"|"PREPARE", version, held_at, brief_sha256}` (`brief_sha256`
+  not needed for `PREPARE`). Refused before anything runs: 415 without
+  `Content-Type: application/json`; 403 when `Host` is not the console's
+  or `Origin` is not `http(s)://<Host>`, in snapshot mode, or when the
+  identity is not a launcher; 401 in `proxy` mode without the identity
+  header (every route); 400 for a body that is not that shape; 409 when it
+  does not match the current logbook (`launch.pressable`, or `preparable`
+  for `PREPARE`, and the same version, held_at and brief sha256) or while
+  another press runs. Accepted: `core/promote.sh` runs with
+  `GO_FOR_LAUNCH=<answer>` (unset for `PREPARE`), `GO_FOR_LAUNCH_BY`,
+  `GO_FOR_LAUNCH_VIA=console`, `GO_FOR_LAUNCH_BRIEF_SHA256`, stdin closed;
+  the answer is 200 `{line, exit}`, promote's one stdout line verbatim.
+- Start-up refusals, one stderr line naming the key, exit 1: an unknown
+  `CONSOLE_AUTH`; `loopback` published on an address other than
+  127.0.0.1, ::1 or localhost (`CONSOLE_PUBLISH`, default `CONSOLE_BIND`);
+  `proxy` without `CONSOLE_IDENTITY_HEADER`; `public` without
+  `CONSOLE_SNAPSHOT` naming `console/snapshot/logbook.json`; a
+  `CONSOLE_SNAPSHOT` that is not a readable logbook.

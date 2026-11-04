@@ -15,6 +15,11 @@
 #
 #   git -C <workspace> diff --name-only <base>..HEAD \
 #     | sh core/perimeter.sh <ticket-file>
+#   sh core/perimeter.sh --list <ticket-file>
+#
+# --list prints the declared globs, one per line, and reads no stdin: the
+# logbook's reader shows a ticket's perimeter from here, so the section is
+# parsed in one place (docs/adr/0047, provisional decision 15).
 #
 # set -f: `for glob in $globs` must split on newlines without expanding
 # each glob against the caller's directory first (crew runs from the repo
@@ -22,7 +27,12 @@
 # that list of files and refuses a new path it should accept.
 set -euf
 
-ticket=${1:?usage: core/perimeter.sh <ticket-file>}
+list=""
+if [ "${1:-}" = --list ]; then
+  list=1
+  shift
+fi
+ticket=${1:?usage: core/perimeter.sh [--list] <ticket-file>}
 [ -f "$ticket" ] || { printf 'no such ticket file: %s\n' "$ticket" >&2; exit 1; }
 
 globs=$(awk '
@@ -32,6 +42,11 @@ globs=$(awk '
 ' "$ticket")
 
 [ -n "$globs" ] || { printf 'ticket %s has no ## Perimeter section\n' "$ticket" >&2; exit 1; }
+
+if [ -n "$list" ]; then
+  printf '%s\n' "$globs"
+  exit 0
+fi
 
 while IFS= read -r path; do
   [ -n "$path" ] || continue

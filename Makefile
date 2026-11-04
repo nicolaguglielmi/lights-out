@@ -139,6 +139,10 @@ export STAGE_SECONDS
 # reads (docs/adr/0020 §4). Under .crew/, gitignored.
 RELEASE_RECORD ?= .crew/release.json
 export RELEASE_RECORD
+# Every final record and every go-for-launch answer, appended (docs/adr/
+# 0047 §2, P2): launchpad and promote write it, the logbook reads it.
+RELEASES_LOG ?= .crew/releases.jsonl
+export RELEASES_LOG
 
 # Plan §2's ceiling on `./go demo` reaching the automatic rollback, timed by
 # ./go from before engine-compat, where the cold pulls happen (docs/adr/0013

@@ -14,6 +14,10 @@
 # the anthropic SDK. Measured in a fresh Python 3.13 venv the same day:
 # google-adk alone 61 MB of site-packages, with litellm 239 MB (+178 MB,
 # 50 transitive packages), paid once per image build, L0 included.
+# jsonschema (docs/adr/0047 §2): ci/logbook.sh validates the logbook against
+# its committed schemas. Already in the lock at this version as a transitive
+# dependency of google-adk, pinned directly so a bump of the ADK cannot
+# take it away; no new bytes are downloaded.
 [project]
 name = "lights-out-workbench"
 version = "0"
@@ -25,6 +29,7 @@ dependencies = [
     "rouge-score==0.1.2",
     "pandas==2.3.3",
     "tabulate==0.9.0",
+    "jsonschema==4.26.0",
 ]
 
 [tool.uv]

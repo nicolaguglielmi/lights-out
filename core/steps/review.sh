@@ -124,12 +124,18 @@ fi
 
 harness_reported=$(jq -r '.harness // "unknown"' "$review_dir/out/run.json")
 model=$(jq -r '.model // .recorded.model // null' "$review_dir/out/run.json")
+# The cost of the review run (docs/adr/0047 §2, P1), the rule of assign;
+# input_sha256 is this step's own, above.
+cost=$(jq -c '{provider: (.provider // .recorded.provider // null),
+  thinking: (.thinking // .recorded.thinking // null), turns: (.turns // .recorded.turns // null),
+  tokens: (.tokens // .recorded.tokens // null), duration_s: (.duration_s // .recorded.duration_s // null),
+  replayed: (.harness == "replay")}' "$review_dir/out/run.json")
 
 sh "adapters/$CODE_HOST/status.sh" "$HEAD_SHA" "$status" review "$verdict: $(printf '%s\n' "$reason" | head -n1)" \
   || { printf 'step-review: could not post the status\n' >&2; exit 1; }
 
 jq -cn --arg state "$state" --arg role "$ROLE" --arg verdict "$verdict" --arg reason "$reason" \
-  --arg harness "$harness_reported" --arg model "$model" --arg insha "$input_sha256" --argjson matches "$input_matches" \
-  '{state: $state, review: {role: $role, verdict: $verdict, reason: $reason, harness: $harness,
+  --arg harness "$harness_reported" --arg model "$model" --arg insha "$input_sha256" --argjson matches "$input_matches" --argjson cost "$cost" \
+  '{state: $state, review: ($cost + {role: $role, verdict: $verdict, reason: $reason, harness: $harness,
     model: (if $model == "null" then null else $model end),
-    input_sha256: $insha, input_matches_recorded: $matches}}'
+    input_sha256: $insha, input_matches_recorded: $matches})}'

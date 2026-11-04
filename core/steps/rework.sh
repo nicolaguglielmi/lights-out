@@ -72,9 +72,17 @@ TICKET="$TICKET" ROLE="$ROLE" ATTEMPT="$next" REWORK_FILE="$verdict" REWORK_HEAD
 . "$crew_dir/pr-opened.env"
 harness=$(jq -r '.harness // "unknown"' "$crew_dir/out/run.json")
 model=$(jq -r '.model // .recorded.model // null' "$crew_dir/out/run.json")
+# The cost of the run (docs/adr/0047 §2, P1): what the harness reported,
+# or under replay what the recorded run reported, the rule model already
+# follows. A key the harness does not report is null, never a guess.
+cost=$(jq -c '{provider: (.provider // .recorded.provider // null),
+  thinking: (.thinking // .recorded.thinking // null), turns: (.turns // .recorded.turns // null),
+  tokens: (.tokens // .recorded.tokens // null), duration_s: (.duration_s // .recorded.duration_s // null),
+  input_sha256: (.input_sha256 // .recorded.input_sha256 // null), replayed: (.harness == "replay")}' \
+  "$crew_dir/out/run.json")
 
 jq -cn --argjson next "$next" --argjson rework "$rework" --arg n "$PR_NUMBER" --arg url "$PR_URL" \
-  --arg base "$BASE_SHA" --arg head "$HEAD_SHA" --arg harness "$harness" --arg model "$model" --arg role "$ROLE" \
+  --arg base "$BASE_SHA" --arg head "$HEAD_SHA" --arg harness "$harness" --arg model "$model" --arg role "$ROLE" --argjson cost "$cost" \
   '{state: "pr-opened", attempt: $next, rework: $rework, ci: null, review: null,
     pr: {number: ($n | tonumber), url: $url, base_sha: $base, head_sha: $head},
-    task: {role: $role, harness: $harness, model: (if $model == "null" then null else $model end)}}'
+    task: ({role: $role, harness: $harness, model: (if $model == "null" then null else $model end)} + $cost)}'

@@ -69,7 +69,9 @@ trap 'rm -f "$rc_file"' EXIT
 # A fresh record: launchpad leaves the prior one untouched when it refuses
 # before staging, and that one must not speak for this release.
 rm -f "$RELEASE_RECORD"
-verdict=$( { { make --no-print-directory release CANARY_VERSION="$CANARY_VERSION" CANARY_TAG="$canary_tag" 2>&1 1>&3; \
+# RELEASE_TICKET: launchpad writes it into the release log (docs/adr/0047
+# §2, P2), so the logbook can tie this release to this ticket.
+verdict=$( { { RELEASE_TICKET="$TICKET" make --no-print-directory release CANARY_VERSION="$CANARY_VERSION" CANARY_TAG="$canary_tag" 2>&1 1>&3; \
   printf '%s' "$?" > "$rc_file"; } | tee "$log" >&2; } 3>&1 )
 # A release with no verdict line at all did not run launchpad: fail the step.
 [ -n "$verdict" ] || { printf 'step-release: release printed no verdict; see %s\n' "$log" >&2; exit 1; }

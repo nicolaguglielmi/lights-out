@@ -1,6 +1,6 @@
 # ADR 0047 — The console for a business client: a new `console/` beside the board reads one versioned document, the logbook, which `./go logbook` assembles in core from the tower, a release log, the post mortems and the policy files; its one write is go-for-launch through `core/promote.sh`, recording who pressed; loopback without auth, anywhere else a trusted proxy's identity and an allowlist; no `Charts` port; built after M22
 
-- Status: proposed. Amends ADR 0023 §2(a) [dropped: the console does not answer the product role's question], §4 [no `Charts` port, no Grafana container], §5 [five other screens], §7 [acceptance through `demo-console`]; ADR 0020 §4 [`promote.sh` records who answered, records a NO-GO, and can answer a brief already shown]; ADR 0031 §3 [its cost fields become M11's precondition, nothing else of it] and §5 [`./go report`, if built, renders the logbook]; plan §4 [the `Charts` row goes] and §7 M11 [screens, writes, done-when].
+- Status: proposed; built on the provisional decisions below (2026-11-04, owner to confirm). Amends ADR 0023 §2(a) [dropped: the console does not answer the product role's question], §4 [no `Charts` port, no Grafana container], §5 [five other screens], §7 [acceptance through `demo-console`]; ADR 0020 §4 [`promote.sh` records who answered, records a NO-GO, and can answer a brief already shown]; ADR 0031 §3 [its cost fields become M11's precondition, nothing else of it] and §5 [`./go report`, if built, renders the logbook]; plan §4 [the `Charts` row goes] and §7 M11 [screens, writes, done-when].
 - Date: 2026-11-04
 - Milestone: M11 (built after M22 merges)
 
@@ -154,15 +154,37 @@ ADR 0023 fixed what the console may know and do. The following was read in this 
 
 ## Open for the owner
 
-Each with the recommendation this ADR is written on; a different answer amends the section named.
+Each with the recommendation this ADR is written on; a different answer amends the section named. The owner was not available when the first version was built, so each one carries a provisional decision, taken from the recommendation, that the build relies on. The alternative is kept next to it; overturning one means the change named there, nothing else.
 
 1. Drop ADR 0023 §2(a), answering the product role's question (§3). Recommended: yes, until a `./go` command answers it.
+   - **Provisional decision (2026-11-04, owner to confirm):** dropped. The console has no route for it. Alternative kept: a `./go answer TICKET=<id>` command first, then a second POST in the console mirroring it, with its own ADR.
 2. Fold M17's "dashboard" into M11, so there is one human surface and the board stays the explainer. Recommended: yes; this ADR does not decide it.
+   - **Provisional decision (2026-11-04, owner to confirm):** yes, as a direction for the plan: nothing of M17 is built, and the board is unchanged. Alternative kept: M17 keeps its own dashboard, and the console stays the client's view only.
 3. Build ADR 0031 §6, the emulator mirror, inside M11, so "the week's tickets" survive `down` (§2). Recommended: yes, §6 alone.
+   - **Provisional decision (2026-11-04, owner to confirm):** yes, inside M11, but not in this first version: it changes `adapters/firestore-emulator/`, which another session was changing the same night. Until it lands, screen 1 shows the "tower is in memory at L0" banner whenever `source.level` is `l0`. Alternative kept: leave §6 to its own ticket after M11, banner kept.
 4. How long a superseded major is served (§2). Recommended: one tagged release; a decision, not a measurement.
+   - **Provisional decision (2026-11-04, owner to confirm):** one tagged release. Only `/v1/` exists today, so nothing is served twice yet. Alternative kept: two tagged releases, or a date.
 5. Host the snapshot console publicly with `CONSOLE_AUTH=public` (§5). Recommended: yes, deployed by the owner, like the board.
+   - **Provisional decision (2026-11-04, owner to confirm):** yes, the mode exists and refuses any file but `console/snapshot/logbook.json`; nothing is deployed, the owner deploys. Alternative kept: no public mode; the snapshot is only opened locally.
 6. Who builds the console (ADR 0023 §6): a frontend worker through the tower at L1, with the owner's key. Recommended: keep it; if a screen does not pass the gates within `REWORK_MAX_ATTEMPTS`, the session builds it and the README says so.
+   - **Provisional decision (2026-11-04, owner to confirm):** the first version is built by the session, without Stitch and without a key: no key may be spent where it was built, and Stitch's export format is still unverified. `console/README.md` says so. `design/` does not exist yet. Alternative kept: the Stitch design session and the frontend worker at L1 rebuild `console/index.html` from `design/`, against the same logbook and the same ci check.
 7. The default `by` for a CLI answer (§3). Recommended: `unauthenticated`; a container user name would look like an identity it is not.
+   - **Provisional decision (2026-11-04, owner to confirm):** `unauthenticated`, for the CLI and for the console in `loopback` mode, which has no identity either; the header shows "loopback". Alternative kept: the host's `$USER` for the CLI, `loopback` for the console.
 8. Whether `proxy` mode verifies IAP's signed assertion (§5). Recommended: decide at M11, after reading IAP's current headers.
+   - Read on 2026-11-04 in Google's "Securing your app with signed headers": IAP sets `x-goog-authenticated-user-email` (value prefixed `accounts.google.com:`) and a signed JWT in `x-goog-iap-jwt-assertion`; the unsigned headers can be forged by a request that bypasses IAP. oauth2-proxy's header names were not re-read.
+   - **Provisional decision (2026-11-04, owner to confirm):** no verification in this first version, so no JWT dependency. `proxy` mode trusts `CONSOLE_IDENTITY_HEADER` verbatim and compares it verbatim with `CONSOLE_LAUNCHERS`; `console/README.md` says the console must be reachable from the proxy only. Alternative kept: verify `x-goog-iap-jwt-assertion` (ES256, Google's published keys, the `aud` from the IAP settings), with a pinned JWT library and its own ADR line, before any Cloud Run deployment.
 9. Timing (§8). Recommended: after M22 and M21, since a client wants links to its own GitHub; the plan's place after the experiment holds unless a design partner asks sooner.
+   - **Provisional decision (2026-11-04, owner to confirm):** M21 and M22 are both on main, so the first version is built now, on a branch, and merged only when the owner confirms. Alternative kept: the branch waits until after the experiment (§14).
 10. The command name `./go logbook` (§2). Recommended: yes; `record` is taken.
+    - **Provisional decision (2026-11-04, owner to confirm):** `./go logbook`, `core/logbook.sh`, `LOGBOOK_FILE`. Alternative kept: `./go ledger`.
+
+Decided while building, not in the list above, each also provisional (2026-11-04, owner to confirm):
+
+11. **The reader is `core/logbook.py`, behind `core/logbook.sh`** (the `core/postmortem.sh` + `core/postmortem.py` precedent): the shell script holds the contract line, the Python the assembly. Alternative kept: all of it in `jq`.
+12. **`jsonschema` is pinned directly** (`==4.26.0` in `workbench/pyproject.toml`, the same version the lock already had), as §2 says. It is used only by `ci/logbook.sh`; the reader and the console stay standard library. Alternative kept: leave it transitive and let the check NO-GO if it disappears.
+13. **The committed snapshot comes from GitHub Actions**, not from a laptop: the `engine-compat` job runs `./go logbook` after `./go demo` and uploads it as an artifact, and the file is committed from that artifact with its run id in `console/snapshot/README.md`. Nothing is added to `./go demo`. Alternative kept: the owner regenerates it on the reference engine (podman).
+14. **Screen 1's line for a rolled-back ticket is launchpad's own line** (the tower's `release.verdict`, which names the stage and the number), not "the first stage of `release.numbers` whose verdict is not GO": `release.numbers` holds `slo:` lines, which carry no verdict. Alternative kept: the stage from the release log once P2 exists for that ticket.
+15. **`core/perimeter.sh --list <ticket>` prints the declared globs**, so the reader does not parse the `## Perimeter` section a second time. Alternative kept: the reader parses it, as the board does.
+16. **"Prepare the brief" is the same POST with `answer: "PREPARE"`.** It runs `core/promote.sh` with no answer, which writes the brief and moves nothing (§3). Alternative kept: no prepare button; the operator runs `./go promote` once with no answer.
+17. **The console's own state is a second read-only route, `GET /v1/console.json`** (mode, auth, the identity, whether it may press, the time of the last good read, the reader's last error). It is not part of the logbook, because it is about the request, not the record. Alternative kept: fold it into response headers.
+18. **`promote.sh` writes `$PROMOTE_OUT/brief.author`** beside `brief.md`, so `launch.brief.author` has a source; today the author is only on promote's stderr. Alternative kept: `author: null` until a release role writes it.
