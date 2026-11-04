@@ -99,6 +99,9 @@ If port 8080 is already taken on your machine, put `APP_PORT=9000` (or any free 
 ./go freeze          # stop launchpad from deploying or shifting (manual flag edit)
 ./go unfreeze        # re-enable launchpad after freeze
 ./go board           # the pipeline explained, live while the plane runs, on localhost:8099 (BOARD_PORT to move it)
+./go console         # the client's console on localhost:8098: five screens over the logbook, go-for-launch through core/promote.sh (CONSOLE_PORT; CONSOLE_SNAPSHOT=<file> without the plane; ADR 0047)
+./go logbook         # write the logbook, the one versioned record the console and a consumer read: LOGBOOK_FILE (default .crew/logbook.json)
+./go demo-console    # prove go-for-launch pressed from the console: held canary, POST GO → 100% via console, then the un-promote
 ./go doctor          # host-side: engine, podman socket, git, workbench image, the plane's ports, the key the profile needs; one line each, then GO or NO-GO (ADR 0045 §4)
 ./go package         # build the lights-out image as localhost/lights-out:dev, for the lights-out wrapper (ADR 0045 §1)
 ./go demo-package    # prove the wrapper: build the image, workloads/minimal as its own repository, init, commit the draft, gates GO in the workbench under 300 s, then a staged break NO-GO at test (ADR 0045 §8)
@@ -278,7 +281,7 @@ lights-out/
   LICENSE                   # Apache 2.0 license
   NOTICE                    # copyright
   README.md                 # this file
-  Makefile                  # targets: help, ci, ci-*, demo, up, smoke, down, test, verify, demo-rollback, demo-seam, demo-hold, demo-launch, triage, demo-triage, incident, postmortem, demo-postmortem, record-postmortem, promote, record-evals, kill-switch, freeze, unfreeze, e2e, board
+  Makefile                  # targets: help, ci, ci-*, demo, up, smoke, down, test, verify, demo-rollback, demo-seam, demo-hold, demo-launch, triage, demo-triage, incident, postmortem, demo-postmortem, record-postmortem, promote, record-evals, kill-switch, freeze, unfreeze, e2e, board, logbook, console, demo-console
   go                        # host entrypoint, POSIX sh
   .env.example              # template for secrets (gitignored)
   .gitignore
@@ -291,11 +294,19 @@ lights-out/
     index.html              # the board: scripted scenarios, live view (ADR 0035)
     serve.py                # serves it and /state.json, read through the port verbs
 
+  console/
+    index.html              # M11: the client's five screens over the logbook (ADR 0047)
+    serve.py                # serves it, /v1/logbook.json, and the one POST: go-for-launch through core/promote.sh
+    README.md               # how to run it, CONSOLE_AUTH, what is real at L0, who built it
+
   core/
     launchpad.sh            # release controller: stages, verify gates, automatic rollback
     incident.sh             # M22: ./go incident, the incident document from the release record
     postmortem.sh           # M22: ./go postmortem, runs the role, checks and files tickets
     postmortem.py           # M22: the document and anchor checks
+    logbook.sh              # M11: ./go logbook, the one versioned record (ADR 0047 §2)
+    logbook.py              # M11: its reader, by the rules in docs/plans/console.md
+    logbook/1.0.schema.json # M11: the logbook's schema, one file per minor
     risk.py                 # risk classifier: rules-based PR scoring
     tests/                  # unit tests for risk.py
 

@@ -36,6 +36,36 @@ jobs:
       - run: ./go demo
         env:
           CONTAINER_ENGINE: docker
+      # The logbook of the demo just run (docs/adr/0047 §4, provisional
+      # decision 13): the source of console/snapshot/logbook.json, printed
+      # here and uploaded below. Not part of ./go demo: the demo is unchanged.
+      - run: ./go logbook LOGBOOK_FILE=.crew/logbook-demo.json && cat .crew/logbook-demo.json
+        env:
+          CONTAINER_ENGINE: docker
+      # The console over that logbook in snapshot mode, on the runner's own
+      # Python (the console is standard library), and one screenshot per
+      # screen with the runner's preinstalled Chrome. Evidence for a human,
+      # not a check: ci/logbook.sh and demo-console are the checks.
+      - name: console screenshots
+        continue-on-error: true
+        run: |
+          CONSOLE_SNAPSHOT=.crew/logbook-demo.json CONSOLE_LISTEN=8098 python3 console/serve.py &
+          sleep 2
+          mkdir -p console-shots
+          for s in tickets ticket/0001 incidents launch thresholds; do
+            google-chrome --headless=new --no-sandbox --disable-gpu --hide-scrollbars \
+              --window-size=1280,1400 --virtual-time-budget=5000 \
+              --screenshot="console-shots/$(printf '%s' "$s" | tr / -).png" "http://localhost:8098/#$s"
+          done
+          ls -l console-shots
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: console-snapshot
+          path: |
+            .crew/logbook-demo.json
+            console-shots/
+          if-no-files-found: warn
       # The Gitea runner's own output, which ./go demo does not print: the
       # e2e release step waits on the image job it runs. always(), the one
       # status function Gitea Actions accepts (ci/gitea-compat.sh).
@@ -114,6 +144,13 @@ jobs:
         env:
           CONTAINER_ENGINE: docker
       - run: ./go demo-launch
+        env:
+          CONTAINER_ENGINE: docker
+      # M11's acceptance (docs/adr/0047 §4): the same hold, but the human
+      # answer is an HTTP POST to a running console, which runs
+      # core/promote.sh; then demo-launch's checks, `via: console` in the
+      # record, and the un-promote. Same plane, no second boot.
+      - run: ./go demo-console
         env:
           CONTAINER_ENGINE: docker
       # The CodeHost port's conformance suite (docs/adr/0043 §5) against the
