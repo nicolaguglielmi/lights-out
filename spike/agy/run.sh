@@ -131,4 +131,20 @@ if [ -n "${GEMINI_API_KEY_REAL:-}" ]; then
     xargs rm -f < "$R/key-hits.txt"
   fi
 fi
+# P: the egress proxy of ADR 0046 (merge/harness-egress): which hosts agy
+# asks for with nothing allowed, then a full run with only the stub allowed.
+# Go never proxies loopback, so the stub is reached by the runner's address.
+if [ -z "$ONLY" ] || printf ' %s ' "$ONLY" | grep -q ' P'; then
+  ip=$(hostname -I | awk '{print $1}')
+  mkdir -p "$R/egress"; : > "$R/egress/allow"
+  EGRESS_DIR=$R/egress python3 "$SPIKE_DIR/egress.py" 3128 2> "$R/egress/log" &
+  EG_PID=$!; sleep 1
+  px="env HTTPS_PROXY=http://$ip:3128 HTTP_PROXY=http://$ip:3128 https_proxy=http://$ip:3128 http_proxy=http://$ip:3128 NO_PROXY=localhost,127.0.0.1,::1 no_proxy=localhost,127.0.0.1,::1"
+  BASE_URL= WRAP=$px OUTER_TIMEOUT=90 \
+  run_case P1 shim "$PUSH_ENV" -p "Do the task." --output-format stream-json --dangerously-skip-permissions --model "$MODEL" --print-timeout 60s
+  printf '%s:8089\n' "$ip" > "$R/egress/allow"
+  BASE_URL=http://$ip:8089 WRAP=$px \
+  run_case P2 shim "$PUSH_ENV" -p "Do the task." --output-format stream-json --dangerously-skip-permissions --model "$MODEL" --print-timeout 180s
+  kill "$EG_PID"; echo "egress decisions:"; sort "$R/egress/log" | uniq -c | tee "$R/egress/summary.txt"
+fi
 exit 0
