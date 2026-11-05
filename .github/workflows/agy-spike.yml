@@ -1,0 +1,44 @@
+name: agy-spike
+
+# Spike only (never merged): Antigravity CLI against the harness contract.
+on:
+  push:
+    branches: [spike/agy-harness]
+
+permissions:
+  contents: read
+
+jobs:
+  spike:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq strace tcpdump jq >/dev/null
+      - name: dns capture
+        run: |
+          mkdir -p results
+          sudo sh -c 'nohup tcpdump -i any -nn -tt -l "udp port 53 or tcp port 53" > results/dns.log 2>/dev/null &'
+          sleep 2
+      - name: cases on the runner (uid 1001)
+        env:
+          GEMINI_API_KEY_REAL: ${{ secrets.GEMINI_API_KEY }}
+        run: SPIKE_RESULTS=$PWD/results bash spike/agy/run.sh
+      - name: case B as root in a container
+        run: |
+          docker run --rm -v "$PWD:/w" -v /usr/local/bin/agy:/usr/local/bin/agy:ro -w /w python:3.12-slim bash -c '
+            apt-get update -qq && apt-get install -y -qq git jq curl >/dev/null &&
+            id && SPIKE_RESULTS=/w/results/root SPIKE_ONLY="B p1" bash spike/agy/run.sh'
+      - name: dns summary
+        if: always()
+        run: |
+          sudo pkill tcpdump || true; sleep 1
+          grep -oE '(A|AAAA)\? [^ ]+' results/dns.log | sort | uniq -c | sort -rn | tee results/dns-names.txt
+          cat results/marks.log
+          grep -h 'connect(' results/A-connect.strace 2>/dev/null | grep -oE 'sin6?_addr=[^)]*|inet_addr\("[^"]+"\)|sin_port=htons\([0-9]+\)' | sort | uniq -c | head -40
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        if: always()
+        with:
+          name: agy-spike
+          path: results/
+          include-hidden-files: true
