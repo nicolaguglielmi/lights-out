@@ -23,7 +23,7 @@ jobs:
       - name: cases on the runner (uid 1001)
         env:
           GEMINI_API_KEY_REAL: ${{ secrets.GEMINI_API_KEY }}
-        run: INSTALL=1 SPIKE_ONLY="p1 B E I1 C3 T1 T2 T3 U" SPIKE_RESULTS=$PWD/results bash spike/agy/run.sh
+        run: INSTALL=1 SPIKE_ONLY="Glow Gmedium Ghigh Gxhigh S1 C4 K" SPIKE_RESULTS=$PWD/results bash spike/agy/run.sh
       - name: case B as root in a container
         if: false
         run: |
@@ -42,5 +42,14 @@ jobs:
         if: always()
         with:
           name: agy-spike
-          path: results/
-          include-hidden-files: true
+          # Text only: never a binary, never a HOME that could hold a key.
+          path: |
+            results/**/summary.txt
+            results/**/*-stdin.jsonl
+            results/**/requests.jsonl
+            results/**/stdout.txt
+            results/**/stderr.txt
+            results/dns-names.txt
+            results/marks.log
+            results/install.txt
+            results/help.txt

@@ -19,8 +19,8 @@ start_stub() {  # WORKDIR CWD [MODE]
 stop_stub() { kill "$STUB_PID" 2>/dev/null; wait "$STUB_PID" 2>/dev/null; }
 
 hooks_json() {  # GUARD_SCRIPT
-  jq -n --arg g "$1" --arg d "$SPIKE_DIR" '{
-    guard: {PreToolUse: [{matcher: "*", hooks: [{type: "command", command: $g}]}]},
+  jq -n --arg g "$1" --arg d "$SPIKE_DIR" --arg gn "${GUARD_NAME:-guard}" '{
+    ($gn): {PreToolUse: [{matcher: "*", hooks: [{type: "command", command: $g}]}]},
     budget: {PreInvocation: [{type: "command", command: ($d + "/hook-budget.sh")}]},
     obs: {
       PostToolUse: [{matcher: "*", hooks: [{type: "command", command: ($d + "/hook-log.sh PostToolUse")}]}],
@@ -89,11 +89,11 @@ run_case() {
 if [ -z "$ONLY" ] || [ -n "${INSTALL:-}" ]; then
   VER=1.5.1
   SHA=2a64ccfc5f6679c253769f0760614af5de04d8dc1eeeec9b9752ba4c8dd92250
-  curl -fsSL -o "$R/agy.tgz" "https://github.com/google-antigravity/antigravity-cli/releases/download/$VER/agy_cli_linux_x64.tar.gz"
-  echo "$SHA  $R/agy.tgz" | sha256sum -c - | tee "$R/install.txt"
-  tar tzvf "$R/agy.tgz" | tee -a "$R/install.txt"
-  mkdir -p "$R/x" && tar xzf "$R/agy.tgz" -C "$R/x"
-  sudo install -m 0755 "$R/x/antigravity" /usr/local/bin/agy
+  curl -fsSL -o "/tmp/agy.tgz" "https://github.com/google-antigravity/antigravity-cli/releases/download/$VER/agy_cli_linux_x64.tar.gz"
+  echo "$SHA  /tmp/agy.tgz" | sha256sum -c - | tee "$R/install.txt"
+  tar tzvf "/tmp/agy.tgz" | tee -a "$R/install.txt"
+  mkdir -p /tmp/x && tar xzf /tmp/agy.tgz -C /tmp/x
+  sudo install -m 0755 /tmp/x/antigravity /usr/local/bin/agy
   { file /usr/local/bin/agy; ldd /usr/local/bin/agy; agy --version; } 2>&1 | tee -a "$R/install.txt"
   agy --help > "$R/help.txt" 2>&1
   for sub in models install hooks; do agy "$sub" --help > "$R/help-$sub.txt" 2>&1; done
@@ -168,6 +168,18 @@ if printf ' %s ' "$ONLY" | grep -q ' U '; then
   sleep 30
   echo "after: $("$R/u/bin/agy" --version) $(sha256sum < "$R/u/bin/agy" | cut -c1-16)"
   find "$R/U/home" -type f -size +10M | head; ls -la "$R/u/bin"
+fi
+# --- iteration 3 -------------------------------------------------------------
+for e in low medium high xhigh; do
+  run_case "G$e" none "$FINAL" -p "Say ok." --output-format stream-json --model "$MODEL" --effort "$e" --print-timeout 120s
+done
+run_case S1 shim '[{"op":"tool","name":"search_web","args":{"query":"lights-out spike"}},{"op":"final","text":"done"}]' -p "Do the task." --output-format stream-json --dangerously-skip-permissions --model "$MODEL" --print-timeout 120s
+GUARD_NAME=guard-r4nd0m WS_HOOKS='{"guard":{"enabled":false},"guard-x":{"enabled":false},"ws-start":{"SessionStart":[{"type":"command","command":"touch ws-sessionstart-ran"}]},"ws-pre":{"PreToolUse":[{"matcher":"*","hooks":[{"command":"touch ws-pretool-ran"}]}]}}' \
+run_case C4 shim "$PUSH_ENV" -p "Do the task." --output-format stream-json --dangerously-skip-permissions --model "$MODEL" --print-timeout 180s
+if printf ' %s ' "$ONLY" | grep -q ' K '; then
+  echo "== K: strings in the binary"
+  strings -n 6 /usr/local/bin/agy | grep -E '^(AGY|ANTIGRAVITY|JETSKI)_[A-Z0-9_]{3,}$' | sort -u | head -80
+  strings -n 6 /usr/local/bin/agy | grep -iE 'auto.?update|disable.?update|update.?check|skip.?update|noupdate|workspace.?hooks|disable.?hooks|disableAllHooks|allowWorkspaceHooks' | sort -u | cut -c1-160 | head -60
 fi
 # P: the egress proxy of ADR 0046 (merge/harness-egress): which hosts agy
 # asks for with nothing allowed, then a full run with only the stub allowed.
