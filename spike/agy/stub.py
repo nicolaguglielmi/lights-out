@@ -103,6 +103,9 @@ class H(BaseHTTPRequestHandler):
             body = {}
         tools = tools_of(body)
         rec["tool_names"] = [t.get("name") for t in tools]
+        if tools and not os.path.exists(os.path.join(WORK, "tools.json")):
+            with open(os.path.join(WORK, "tools.json"), "w") as f:
+                json.dump(tools, f)
         m = re.search(r"/models/([^/:]+):", self.path)
         served = (m.group(1) if m else "unknown") + "-spike"
         rec["served"] = served
@@ -120,6 +123,8 @@ class H(BaseHTTPRequestHandler):
         if step["op"] == "hang":
             time.sleep(3600)
             return
+        if step["op"] == "tool":
+            return self.reply({"functionCall": {"name": step["name"], "args": step["args"]}}, served, (900, 100))
         if step["op"] == "final":
             return self.reply({"text": step["text"]}, served, (900, 100))
         cmd = step.get("cmd") or "echo loop %d" % idx

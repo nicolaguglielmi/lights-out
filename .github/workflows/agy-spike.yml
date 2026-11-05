@@ -23,8 +23,9 @@ jobs:
       - name: cases on the runner (uid 1001)
         env:
           GEMINI_API_KEY_REAL: ${{ secrets.GEMINI_API_KEY }}
-        run: SPIKE_RESULTS=$PWD/results bash spike/agy/run.sh
+        run: INSTALL=1 SPIKE_ONLY="p1 B E I1 C3 T1 T2 T3 U" SPIKE_RESULTS=$PWD/results bash spike/agy/run.sh
       - name: case B as root in a container
+        if: false
         run: |
           docker run --rm -v "$PWD:/w" -v /usr/local/bin/agy:/usr/local/bin/agy:ro -w /w python:3.12-slim bash -c '
             apt-get update -qq && apt-get install -y -qq git jq curl >/dev/null &&
@@ -33,6 +34,7 @@ jobs:
         if: always()
         run: |
           sudo pkill tcpdump || true; sleep 1
+          sudo chown -R "$(id -u):$(id -g)" results
           grep -oE '(A|AAAA)\? [^ ]+' results/dns.log | sort | uniq -c | sort -rn | tee results/dns-names.txt
           cat results/marks.log
           grep -h 'connect(' results/A-connect.strace 2>/dev/null | grep -oE 'sin6?_addr=[^)]*|inet_addr\("[^"]+"\)|sin_port=htons\([0-9]+\)' | sort | uniq -c | head -40
