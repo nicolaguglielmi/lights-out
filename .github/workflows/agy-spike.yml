@@ -21,9 +21,7 @@ jobs:
           sudo sh -c 'nohup tcpdump -i any -nn -tt -l "udp port 53 or tcp port 53" > results/dns.log 2>/dev/null &'
           sleep 2
       - name: cases on the runner (uid 1001)
-        env:
-          GEMINI_API_KEY_REAL: ${{ secrets.GEMINI_API_KEY }}
-        run: INSTALL=1 SPIKE_ONLY="Glow Gmedium Ghigh Gxhigh S1 C4 K" SPIKE_RESULTS=$PWD/results bash spike/agy/run.sh
+        run: INSTALL=1 SPIKE_ONLY="D D2 D3" SPIKE_RESULTS=$PWD/results bash spike/agy/run.sh
       - name: case B as root in a container
         if: false
         run: |
@@ -49,6 +47,9 @@ jobs:
             results/**/requests.jsonl
             results/**/stdout.txt
             results/**/stderr.txt
+            results/**/tool-schemas.jsonl
+            results/**/pb.txt
+            results/**/tokens.log
             results/dns-names.txt
             results/marks.log
             results/install.txt

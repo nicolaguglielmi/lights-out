@@ -77,7 +77,9 @@ run_case() {
       jq -c '[.contents[]?.parts[]? | (.functionResponse // .function_response // empty)] | .[-3:]' "$b" 2>/dev/null | cut -c1-1500; done
     echo "stub served/paths:"; jq -c '{n,method,path,served,op,tool_names: (.tool_names|length)}' "$C/requests.jsonl" 2>/dev/null | head -12
     echo "gen config:"; for b in "$C"/bodies/*; do jq -c '.generationConfig' "$b" 2>/dev/null; done | sort | uniq -c
-    echo "db model strings:"; for db in "$C"/home/.gemini/antigravity-cli/conversations/*.db; do [ -f "$db" ] && python3 "$SPIKE_DIR/dbdump.py" "$db"; done
+    echo "db model strings:"; for db in "$C"/home/.gemini/antigravity-cli/conversations/*.db; do [ -f "$db" ] && python3 "$SPIKE_DIR/dbdump.py" "$db" && python3 "$SPIKE_DIR/pbdump.py" "$db" > "$C/pb.txt" 2>&1; done
+    echo "key canary in home: $(grep -rlF -- "${KEY:-$CANARY_KEY}" "$C/home" 2>/dev/null | sed "s|$C/||" | tr '\n' ' ')"
+    echo "tokens.log:"; cat "$C/tokens.log" 2>/dev/null
     echo "home tree:"; (cd "$C/home" && find . -type f | grep -v '/cache/' | head -30)
     for f in PreInvocation PostInvocation SessionStart Stop PostToolUse pretool; do [ -f "$C/$f-stdin.jsonl" ] && { echo "payload $f:"; head -n 1 "$C/$f-stdin.jsonl" | cut -c1-900; }; done
     echo "stdout tail:"; tail -c 1500 "$C/stdout.txt"; echo
@@ -181,6 +183,15 @@ if printf ' %s ' "$ONLY" | grep -q ' K '; then
   strings -n 6 /usr/local/bin/agy | grep -E '^(AGY|ANTIGRAVITY|JETSKI)_[A-Z0-9_]{3,}$' | sort -u | head -80
   strings -n 6 /usr/local/bin/agy | grep -iE 'auto.?update|disable.?update|update.?check|skip.?update|noupdate|workspace.?hooks|disable.?hooks|disableAllHooks|allowWorkspaceHooks' | sort -u | cut -c1-160 | head -60
 fi
+# D: the tool schemas and the gen_metadata fields; D2 the file tools by schema; D3 tokens seen mid-run.
+run_case D shim "$FINAL" -p "Do the task." --output-format stream-json --dangerously-skip-permissions --model "$MODEL" --print-timeout 120s
+if [ -f "$R/D/tools.json" ]; then
+  D2=$(python3 "$SPIKE_DIR/mkscript.py" "$R/D/tools.json" "$R/D2/ws"); echo "D2 script: $D2"
+  jq -c '.[] | {name, parameters: (.parameters // .parametersJsonSchema)}' "$R/D/tools.json" > "$R/D/tool-schemas.jsonl"
+  run_case D2 shim "$D2" -p "Do the task." --output-format stream-json --dangerously-skip-permissions --model "$MODEL" --print-timeout 120s
+  echo "D2 written.txt: $(cat "$R/D2/ws/written.txt" 2>/dev/null)" | tee -a "$R/D2/summary.txt"
+fi
+SPIKE_MAXT=4 run_case D3 shim '[{"op":"loop"}]' -p "Do the task." --output-format stream-json --dangerously-skip-permissions --model "$MODEL" --print-timeout 120s
 # P: the egress proxy of ADR 0046 (merge/harness-egress): which hosts agy
 # asks for with nothing allowed, then a full run with only the stub allowed.
 # Go never proxies loopback, so the stub is reached by the runner's address.
