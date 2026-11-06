@@ -201,6 +201,10 @@ run_case E3 shim "$(printf %s "$E_SCRIPT" | sed "s#/E2/#/E3/#g")" -p "Do the tas
 # E4: a command longer than WaitMsBeforeAsync's documented 10000 ms ceiling, asked to wait 60000.
 E4_SCRIPT='[{"op":"tool","name":"run_command","args":{"CommandLine":"sleep 15; echo slept-15","toolSummary":"Sleep","WaitMsBeforeAsync":60000}},{"op":"tool","name":"run_command","args":{"CommandLine":"sleep 12; echo slept-12","toolSummary":"Sleep","WaitMsBeforeAsync":10000}},{"op":"final","text":"done"}]'
 run_case E4 shim "$E4_SCRIPT" -p "Do the task." --output-format stream-json --dangerously-skip-permissions --model "$MODEL" --print-timeout 180s
+# E5: a backgrounded command, then manage_task until it is done.
+E5_SCRIPT='[{"op":"tool","name":"run_command","args":{"CommandLine":"sleep 14; echo slept-14","toolSummary":"Sleep","WaitMsBeforeAsync":10000}},{"op":"taskstatus"},{"op":"taskstatus"},{"op":"taskstatus","action":"list"},{"op":"final","text":"done"}]'
+run_case E5 shim "$E5_SCRIPT" -p "Do the task." --output-format stream-json --dangerously-skip-permissions --model "$MODEL" --print-timeout 180s
+cp "$R/E5/taskstatus.log" "$R/E5/taskstatus.txt" 2>/dev/null
 # D: the tool schemas and the gen_metadata fields; D2 the file tools by schema; D3 tokens seen mid-run.
 run_case D shim "$FINAL" -p "Do the task." --output-format stream-json --dangerously-skip-permissions --model "$MODEL" --print-timeout 120s
 if [ -f "$R/D/tools.json" ]; then

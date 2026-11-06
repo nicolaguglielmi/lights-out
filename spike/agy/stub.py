@@ -123,6 +123,17 @@ class H(BaseHTTPRequestHandler):
         if step["op"] == "hang":
             time.sleep(3600)
             return
+        if step["op"] == "taskstatus":
+            last = ""
+            for c in body.get("contents") or []:
+                for part in c.get("parts") or []:
+                    if "functionResponse" in part:
+                        last = json.dumps(part["functionResponse"])
+            m = re.findall(r"task id: ([^\\\s\"]+)", last)
+            tid = m[-1] if m else "none"
+            with open(os.path.join(WORK, "taskstatus.log"), "a") as f:
+                f.write("step %d last=%s\n" % (idx, last[:600]))
+            return self.reply({"functionCall": {"name": "manage_task", "args": {"Action": step.get("action", "status"), "TaskId": tid}}}, served, (900, 100))
         if step["op"] == "tool":
             return self.reply({"functionCall": {"name": step["name"], "args": step["args"]}}, served, (900, 100))
         if step["op"] == "final":
