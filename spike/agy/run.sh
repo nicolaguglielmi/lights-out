@@ -51,6 +51,11 @@ run_case() {
     raw) hooks_json "$SPIKE_DIR/hook-raw.sh" > "$C/home/.gemini/config/hooks.json" ;;
     shim) hooks_json "$SPIKE_DIR/hook-shim.sh" > "$C/home/.gemini/config/hooks.json" ;;
   esac
+  if [ -n "${ROLE_MARKERS:-}" ]; then
+    printf 'Rule M1: ROLE-MARKER-HOME-GEMINI-MD\n' > "$C/home/.gemini/GEMINI.md"
+    printf 'Rule M2: ROLE-MARKER-AGY-GEMINI-MD\n' > "$C/home/.gemini/antigravity-cli/GEMINI.md"
+    printf 'Rule M3: ROLE-MARKER-HOME-AGENTS-MD\n' > "$C/home/.gemini/AGENTS.md"
+  fi
   printf '%s\n' "$script" > "$C/script.json"
   start_stub "$C" "$ws" "${STUB_MODE:-script}"
   mark "case $name start"
@@ -80,6 +85,8 @@ run_case() {
     echo "db model strings:"; for db in "$C"/home/.gemini/antigravity-cli/conversations/*.db; do [ -f "$db" ] && python3 "$SPIKE_DIR/dbdump.py" "$db" && python3 "$SPIKE_DIR/pbdump.py" "$db" > "$C/pb.txt" 2>&1; done
     echo "key canary in home: $(grep -rlF -- "${KEY:-$CANARY_KEY}" "$C/home" 2>/dev/null | sed "s|$C/||" | tr '\n' ' ')"
     echo "tokens.log:"; cat "$C/tokens.log" 2>/dev/null
+    for m in HOME-GEMINI-MD AGY-GEMINI-MD HOME-AGENTS-MD; do echo "marker $m in bodies: $(grep -l "ROLE-MARKER-$m" "$C"/bodies/* 2>/dev/null | wc -l)"; done
+    echo "tool results:"; for b in "$C"/bodies/*; do jq -c '[.contents[]?.parts[]? | .functionResponse // empty] | .[-1] // empty' "$b" 2>/dev/null | cut -c1-600; done | sort -u
     echo "home tree:"; (cd "$C/home" && find . -type f | grep -v '/cache/' | head -30)
     for f in PreInvocation PostInvocation SessionStart Stop PostToolUse pretool; do [ -f "$C/$f-stdin.jsonl" ] && { echo "payload $f:"; head -n 1 "$C/$f-stdin.jsonl" | cut -c1-900; }; done
     echo "stdout tail:"; tail -c 1500 "$C/stdout.txt"; echo
@@ -183,6 +190,14 @@ if printf ' %s ' "$ONLY" | grep -q ' K '; then
   strings -n 6 /usr/local/bin/agy | grep -E '^(AGY|ANTIGRAVITY|JETSKI)_[A-Z0-9_]{3,}$' | sort -u | head -80
   strings -n 6 /usr/local/bin/agy | grep -iE 'auto.?update|disable.?update|update.?check|skip.?update|noupdate|workspace.?hooks|disable.?hooks|disableAllHooks|allowWorkspaceHooks' | sort -u | cut -c1-160 | head -60
 fi
+# E: which file is the user-level instruction; the file tools and search_web under permissions.deny.
+E_SCRIPT=$(jq -nc --arg ws "$R/E2/ws" '[{op:"tool",name:"write_file",args:{Path:($ws+"/x.txt"),Content:"written\n"}},
+  {op:"tool",name:"read_file",args:{Path:($ws+"/README")}},{op:"tool",name:"read_file",args:{Path:($ws+"/.env")}},
+  {op:"tool",name:"search_web",args:{query:"lights-out spike"}},{op:"final",text:"done"}]')
+ROLE_MARKERS=1 run_case E1 shim "$FINAL" -p "Do the task." --output-format stream-json --dangerously-skip-permissions --model "$MODEL" --print-timeout 120s
+SETTINGS_EXTRA='{"permissions":{"deny":["search_web"]}}' run_case E2 shim "$E_SCRIPT" -p "Do the task." --output-format stream-json --dangerously-skip-permissions --model "$MODEL" --print-timeout 120s
+echo "E2 x.txt: $(cat "$R/E2/ws/x.txt" 2>/dev/null)" | tee -a "$R/E2/summary.txt"
+run_case E3 shim "$(printf %s "$E_SCRIPT" | sed "s#/E2/#/E3/#g")" -p "Do the task." --output-format stream-json --dangerously-skip-permissions --model "$MODEL" --print-timeout 120s
 # D: the tool schemas and the gen_metadata fields; D2 the file tools by schema; D3 tokens seen mid-run.
 run_case D shim "$FINAL" -p "Do the task." --output-format stream-json --dangerously-skip-permissions --model "$MODEL" --print-timeout 120s
 if [ -f "$R/D/tools.json" ]; then

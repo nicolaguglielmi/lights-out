@@ -21,7 +21,7 @@ jobs:
           sudo sh -c 'nohup tcpdump -i any -nn -tt -l "udp port 53 or tcp port 53" > results/dns.log 2>/dev/null &'
           sleep 2
       - name: cases on the runner (uid 1001)
-        run: INSTALL=1 SPIKE_ONLY="D D2 D3" SPIKE_RESULTS=$PWD/results bash spike/agy/run.sh
+        run: INSTALL=1 SPIKE_ONLY="E1 E2 E3" SPIKE_RESULTS=$PWD/results bash spike/agy/run.sh
       - name: case B as root in a container
         if: false
         run: |
