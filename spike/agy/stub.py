@@ -116,6 +116,13 @@ class H(BaseHTTPRequestHandler):
             script = json.load(f)
         cwd = os.environ.get("SPIKE_CWD", ".")
         idx = responses_in(body)
+        contents = body.get("contents") or []
+        with open(os.path.join(WORK, "tail.log"), "a") as f:
+            f.write("req idx=%d tail=%s\n" % (idx, json.dumps(contents[-2:])[:2500]))
+        lastpart = (contents[-1].get("parts") or [{}])[-1] if contents else {}
+        if "functionResponse" in lastpart and "background task" in json.dumps(lastpart):
+            log(dict(rec, op="bgwait"), raw)
+            return self.reply({"text": "Waiting for the command to finish."}, served, (900, 100))
         step = script[min(idx, len(script) - 1)]
         rec["step"] = idx
         rec["op"] = step["op"]
