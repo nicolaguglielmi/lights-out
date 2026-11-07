@@ -16,7 +16,7 @@ jobs:
     runs-on: ubuntu-latest
     if: github.server_url == 'https://github.com'
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
       - run: ./go ci
@@ -30,7 +30,7 @@ jobs:
     runs-on: ubuntu-latest
     if: github.server_url == 'https://github.com'
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
       - run: ./go demo
@@ -69,7 +69,7 @@ jobs:
           done
           ls -l console-shots
       - if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: console-snapshot
           path: |
@@ -93,7 +93,7 @@ jobs:
     runs-on: ubuntu-latest
     if: github.server_url == 'https://github.com'
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
       - run: ./go demo-gates
@@ -146,7 +146,7 @@ jobs:
     runs-on: ubuntu-latest
     if: github.server_url == 'https://github.com'
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
       # demo-launch, like demo-rollback, runs against a plane already up.
@@ -184,7 +184,7 @@ jobs:
     runs-on: ubuntu-latest
     if: github.server_url == 'https://github.com'
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
       - run: ./go up
@@ -209,7 +209,7 @@ jobs:
     runs-on: ubuntu-latest
     if: github.server_url == 'https://github.com'
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
       - run: ./go demo-mainline
@@ -226,7 +226,7 @@ jobs:
     runs-on: ubuntu-latest
     if: github.server_url == 'https://github.com'
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
       - run: ./go demo-seam
@@ -241,7 +241,7 @@ jobs:
     runs-on: ubuntu-latest
     if: github.server_url == 'https://github.com'
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
       - run: ./go demo-init
@@ -258,7 +258,7 @@ jobs:
     runs-on: ubuntu-latest
     if: github.server_url == 'https://github.com'
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0
       - run: ./go harness-conformance

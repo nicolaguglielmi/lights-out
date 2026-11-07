@@ -20,7 +20,7 @@ jobs:
     runs-on: ubuntu-latest
     if: github.server_url == 'https://github.com'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       # ./go hands workbench podman's API socket; the runner does not start
