@@ -24,7 +24,9 @@
 #              checks: write, and none still uses ./action; packages: write
 #              and id-token: write only package.yml's publish (v* tag or
 #              workflow_dispatch), which runs a keyless cosign sign, and
-#              id-token: write also its pypi job (ADR 0075 §2); every job
+#              id-token: write also its pypi job (ADR 0075 §2) and the
+#              job of scorecard.yml that runs the Scorecard Action (ADR
+#              0096 §5); every job
 #              has the github.com guard (ADR 0039).
 #   first run  (docs/adr/0064 §2, §4) the first-run reason, `the repository has no
 #              .lights-out/workload.env committed; lights-out init drafts one`,
@@ -244,6 +246,7 @@ import copy, glob, json, os, re, sys, yaml
 
 root, mode = sys.argv[1], sys.argv[2]
 PKG, ACT, OLD = ".github/workflows/package.yml", "action.yml", "action/action.yml"
+SC = ".github/workflows/scorecard.yml"
 SHIMS = ("actions/test-proof", "actions/test-integrity")
 S = "github.server_url == 'https://github.com'"
 TAG, DISP = r"startsWith\(github\.ref, 'refs/tags/v'\)", r"github\.event_name == 'workflow_dispatch'"
@@ -329,6 +332,9 @@ def flaws(d):
                 if perm(p, k) and not (path == PKG and (n == "publish" or (n == "pypi" and k == "id-token"))):
                     # The one other id-token: write is a GitHub Pages deploy (pages: write, site.yml), which signs nothing.
                     if k == "id-token" and path != PKG and isinstance(p, dict) and p.get("pages") == "write":
+                        continue
+                    # And Scorecard's job, which publishes its results with it (ADR 0096 §5): scorecard.yml, a job that runs the Action.
+                    if k == "id-token" and path == SC and any(str(s.get("uses", "")).startswith("ossf/scorecard-action@") for s in j.get("steps") or []):
                         continue
                     yield "%s: job %s holds %s: write; only package.yml's publish may" % (path, n, k)
             if stale(j):
@@ -442,6 +448,8 @@ CASES = [
     ("another job holds id-token: write", lambda d: Q(d).update(permissions={"id-token": "write"}), "holds id-token: write; only package.yml's publish"),
     ("another workflow holds id-token: write", lambda d: other(d, **{"id-token": "write"}), "holds id-token: write; only package.yml's publish"),
     ("a package.yml job holds pages: write and id-token: write", lambda d: Q(d).update(permissions={"pages": "write", "id-token": "write"}), "holds id-token: write; only package.yml's publish"),
+    ("scorecard.yml's job holds id-token: write and does not run Scorecard", lambda d: Y(d)[SC]["jobs"]["analysis"].update(steps=[s for s in Y(d)[SC]["jobs"]["analysis"]["steps"] if not str(s.get("uses", "")).startswith("ossf/scorecard-action@")]), "scorecard.yml: job analysis holds id-token: write"),
+    ("another workflow runs Scorecard with id-token: write", lambda d: Y(d).update({".github/workflows/o.yml": copy.deepcopy(Y(d)[SC])}), "o.yml: job analysis holds id-token: write"),
     ("another workflow's job holds id-token: write and nothing for Pages", lambda d: other(d, **{"id-token": "write", "contents": "read"}), "holds id-token: write; only package.yml's publish"),
     ("pypi holds packages: write", lambda d: J(d).setdefault("pypi", {"if": S, "steps": []}).update(permissions={"id-token": "write", "packages": "write"}), "job pypi holds packages: write; only package.yml's publish"),
     ("a job named pypi in another workflow holds id-token: write", lambda d: Y(d).update({".github/workflows/o.yml": {"jobs": {"pypi": {"permissions": {"id-token": "write"}, "steps": []}}}}), "job pypi holds id-token: write; only package.yml's publish"),

@@ -17,7 +17,11 @@
 #             logs in, pushes, signs or verifies runs only when not
 #             inputs.dry_run, and the job runs `cosign verify` with an exact
 #             identity and GitHub's issuer, and outputs version, gates and
-#             full; elsewhere every step that pushes, uploads or creates a
+#             full; publish also signs the release files with `cosign
+#             sign-blob --bundle <file>.sigstore.json`, verifies each with
+#             `cosign verify-blob`, an exact identity and GitHub's issuer, and
+#             release attaches them (assets/*) to the release it creates
+#             (ADR 0096 §6); elsewhere every step that pushes, uploads or creates a
 #             release runs only on a v* tag; dist runs uv build, the wheel's
 #             version, uploads dist/ at the Action's pin of upload-artifact.
 #   sync      package/sync-action.sh against local bare repositories, for
@@ -137,8 +141,16 @@ def flaws(d):
         if re.search(r"--push\b|cosign (sign|verify)\b|docker login", r) and "!inputs.dry_run" not in cond(s.get("if")).replace(" ", ""):
             yield "publish: the step %r logs in, pushes, signs or verifies without if: !inputs.dry_run (ADR 0075 §5)" % s.get("name", r[:40])
     prun = "\n".join(live(s.get("run")) for s in pub.get("steps") or [])
-    if not (re.search(r"cosign verify\b[^\n]*(\\\n[^\n]*)*--certificate-identity\s", prun) and ISSUER in prun):
+    if not (re.search(r"cosign verify(?!-)\b[^\n]*(\\\n[^\n]*)*--certificate-identity\s", prun) and ISSUER in prun):
         yield "publish does not run cosign verify with an exact --certificate-identity and GitHub's issuer (ADR 0075 §1)"
+    # ADR 0096 §6: the wheel and the sdist signed keyless into <file>.sigstore.json, each bundle verified, handed to release.
+    if not re.search(r"cosign sign-blob\b[^\n]*--bundle\s+\S*\.sigstore\.json", prun):
+        yield "publish does not sign the release files with cosign sign-blob --bundle <file>.sigstore.json (ADR 0096 §6)"
+    if not re.search(r"cosign verify-blob\b[^\n]*(\\\n[^\n]*)*--certificate-identity\s[^\n]*(\\\n[^\n]*)*" + re.escape(ISSUER), prun):
+        yield "publish does not verify each bundle with cosign verify-blob, an exact --certificate-identity and GitHub's issuer (ADR 0096 §6)"
+    rrun = "\n".join(live(s.get("run")) for s in jobs["release"].get("steps") or [])
+    if not re.search(r"gh release create\b[^\n]*assets/\*", rrun):
+        yield "release does not attach the signed files (assets/*) to the release it creates (ADR 0096 §6)"
     if not {"version", "gates", "full"} <= set(pub.get("outputs") or {}):
         yield "publish does not output version, gates and full (ADR 0075 §1)"
     for n, j in jobs.items():
@@ -190,6 +202,11 @@ CASES = [
     ("publish signs in a dry run", lambda d: step(d, "publish", "cosign sign").pop("if"), "without if: !inputs.dry_run"),
     ("publish does not verify", lambda d: step(d, "publish", "cosign verify").update(run="true"), "does not run cosign verify"),
     ("publish verifies by a regexp only", lambda d: step(d, "publish", "cosign verify").update(run=step(d, "publish", "cosign verify")["run"].replace("--certificate-identity ", "--certificate-identity-regexp ")), "does not run cosign verify"),
+    ("publish does not sign the release files", lambda d: step(d, "publish", "cosign sign-blob").update(run="true"), "cosign sign-blob --bundle"),
+    ("publish signs them into another name", lambda d: step(d, "publish", "cosign sign-blob").update(run=step(d, "publish", "cosign sign-blob")["run"].replace(".sigstore.json", ".bundle")), "cosign sign-blob --bundle"),
+    ("publish does not verify the bundles", lambda d: step(d, "publish", "cosign sign-blob").update(run=step(d, "publish", "cosign sign-blob")["run"].replace("cosign verify-blob", "true")), "cosign verify-blob"),
+    ("publish signs the files in a dry run", lambda d: step(d, "publish", "cosign sign-blob").pop("if"), "without if: !inputs.dry_run"),
+    ("release attaches nothing", lambda d: step(d, "release", "gh release create").update(run=step(d, "release", "gh release create")["run"].replace(' "$RUNNER_TEMP"/assets/*', "")), "does not attach the signed files"),
     ("publish has no digest outputs", lambda d: J(d)["publish"]["outputs"].pop("gates"), "output version, gates and full"),
     ("actions pushes on a dispatch", lambda d: step(d, "actions", "--push").pop("if"), "outside a v* tag"),
     ("actions pushes when not a tag", lambda d: step(d, "actions", "--push").update({"if": "!" + TAG}), "outside a v* tag"),

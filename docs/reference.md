@@ -185,6 +185,15 @@ cosign verify ghcr.io/nicolaguglielmi/lights-out-gates:0.7.0 \
 ```
 
   The identity matches a tag publish. A manual dispatch with `dry_run` off publishes `:sha-<commit>` with another identity, which this command does not accept. Tags are mutable: to pin, set `LIGHTS_OUT_IMAGE` to a digest. From a clone, `LIGHTS_OUT_IMAGE=localhost/lights-out-gates:dev` points the wrapper at a local build.
+
+  The same job signs the wheel and the sdist ([ADR 0096](adr/0096-project-governance-and-supply-chain-hygiene.md) §6): a Sigstore bundle each, `<file>.sigstore.json`, attached beside them to this repository's GitHub release, starting with the first tag after 0.7.0. To check a file downloaded from the release:
+
+```sh
+cosign verify-blob lights_out_gates-<version>-py3-none-any.whl \
+  --bundle lights_out_gates-<version>-py3-none-any.whl.sigstore.json \
+  --certificate-identity-regexp '^https://github.com/nicolaguglielmi/lights-out/.github/workflows/package.yml@refs/tags/v' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+```
 - **The wrapper.** `lights-out`, version 0.7.0, a POSIX script at the repository root. The host needs podman or docker, and git. Download it by raw URL, or copy it from a clone onto your PATH.
 
 ```sh

@@ -1,5 +1,7 @@
 # lights-out
 
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/nicolaguglielmi/lights-out/badge)](https://scorecard.dev/viewer/?uri=github.com/nicolaguglielmi/lights-out)
+
 ![lights-out: six agents ship it, one human turns the lights back on](docs/assets/lights-out.jpg)
 
 **The safety system for a dark factory of AI coding agents.** A lights-out factory runs in the dark because its safety systems are trusted. lights-out is that system, the guardrails for agents that write and ship code, with Claude Code, Gemini CLI or Codex at the keyboard.
@@ -233,6 +235,7 @@ Every item, level by level: [what is real and what is recorded, in full](docs/re
 - [How it works, every command, every level, the coding harnesses](docs/reference.md)
 - [Architecture](docs/ARCHITECTURE.md) and [decisions](docs/adr/)
 - [Contributing](CONTRIBUTING.md) and [roadmap](ROADMAP.md)
+- [Code of conduct](CODE_OF_CONDUCT.md), [governance](GOVERNANCE.md), [maintainers](MAINTAINERS.md) and [security](SECURITY.md)
 
 ## License
 

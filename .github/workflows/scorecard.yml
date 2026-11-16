@@ -1,0 +1,53 @@
+# OpenSSF Scorecard (docs/adr/0096 §5): the official Action, pinned by SHA,
+# on every push to main, weekly, and when a branch rule changes; the results
+# published to api.scorecard.dev (the README's badge reads them) and uploaded
+# to code scanning. The Action refuses a push to any other branch ("only
+# default branch is supported"), so a branch proves this file through a pull
+# request into main, where it runs the checks and publishes nothing.
+# Publishing binds the job to Scorecard's workflow restrictions: no env or
+# defaults, no write permission at the top, id-token: write in this job
+# only, and only checkout, upload-artifact, upload-sarif and the Action as
+# steps. GitHub-only: the L0 Gitea runner reads this directory too and holds
+# the engine socket (docs/adr/0039).
+name: scorecard
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  schedule:
+    - cron: '17 4 * * 1'
+  branch_protection_rule:
+
+permissions:
+  contents: read
+
+jobs:
+  analysis:
+    runs-on: ubuntu-latest
+    if: github.server_url == 'https://github.com'
+    permissions:
+      contents: read
+      actions: read
+      security-events: write
+      id-token: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: ossf/scorecard-action@fa7117db83c52d787ae5a89f350999701505d78e # v2.5.0
+        with:
+          results_file: results.sarif
+          results_format: sarif
+          publish_results: true
+      - if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: scorecard
+          path: results.sarif
+          retention-days: 5
+      - if: always()
+        uses: github/codeql-action/upload-sarif@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
+        with:
+          sarif_file: results.sarif

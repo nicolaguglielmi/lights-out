@@ -4,10 +4,11 @@
 # built and both measured, and the root Action's own test with each of its
 # three `gates` values. On a v* tag: the release, six jobs (docs/adr/0075,
 # 0077): dist (the wheel built and checked), publish (both images to
-# ghcr.io, signed keyless and verified), pypi (trusted publishing, no
-# token), actions (the two Action repositories synced and tagged, their
-# releases drafted), release (this repository's release drafted with the
-# digests) and wiki (the wiki rendered from the tag and pushed). A manual
+# ghcr.io, signed keyless and verified; the wheel and the sdist signed
+# keyless, 0096 §6), pypi (trusted publishing, no token), actions (the two
+# Action repositories synced and tagged, their releases drafted), release
+# (this repository's release drafted with the digests, the wheel, the sdist
+# and their Sigstore bundles attached) and wiki (the wiki rendered from the tag and pushed). A manual
 # dispatch is a dry run unless dry_run is false: every job shows what it
 # would do and nothing leaves the runner. GitHub-only, every job: the L0
 # Gitea runner reads this directory too and holds the engine socket
@@ -381,7 +382,9 @@ jobs:
               echo "PACKAGE_FLAVOUR=$f sh package/build.sh \"docker buildx\" $img:$TAG --platform linux/amd64,linux/arm64 --push --metadata-file \$RUNNER_TEMP/$f.json"
               echo "cosign sign --yes $img@<digest>"
               echo "cosign verify $img@<digest> --certificate-identity https://github.com/$GITHUB_WORKFLOW_REF --certificate-oidc-issuer https://token.actions.githubusercontent.com"
-            done; echo '```'; } | tee -a "$GITHUB_STEP_SUMMARY"
+            done
+            echo "for f in <dist>/*.whl <dist>/*.tar.gz: cosign sign-blob --yes --bundle \$f.sigstore.json \$f, then cosign verify-blob against this workflow"
+            echo '```'; } | tee -a "$GITHUB_STEP_SUMMARY"
       - if: ${{ !inputs.dry_run }}
         uses: docker/setup-qemu-action@99012661954931238ded8c8b007157a8430204e1 # v4.4.0
       - if: ${{ !inputs.dry_run }}
@@ -430,6 +433,31 @@ jobs:
             cosign verify "$name@$digest" --certificate-identity "https://github.com/$GITHUB_WORKFLOW_REF" --certificate-oidc-issuer https://token.actions.githubusercontent.com >/dev/null
             printf '%s@%s verified\n' "$name" "$digest" | tee -a "$GITHUB_STEP_SUMMARY"
           done
+      # docs/adr/0096 §6: the wheel and the sdist signed keyless too, one
+      # Sigstore bundle each (<file>.sigstore.json, a name Scorecard's
+      # Signed-Releases check reads), verified against this workflow at this
+      # ref, and handed to the release job, which attaches them to the draft.
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        if: ${{ !inputs.dry_run }}
+        with:
+          name: dist
+          path: ${{ runner.temp }}/assets
+      - name: Sign the wheel and the sdist keyless, verify each bundle
+        if: ${{ !inputs.dry_run }}
+        run: |
+          set -eu
+          for f in "$RUNNER_TEMP"/assets/*.whl "$RUNNER_TEMP"/assets/*.tar.gz; do
+            cosign sign-blob --yes --bundle "$f.sigstore.json" "$f" >/dev/null
+            cosign verify-blob --bundle "$f.sigstore.json" --certificate-identity "https://github.com/$GITHUB_WORKFLOW_REF" \
+              --certificate-oidc-issuer https://token.actions.githubusercontent.com "$f" >/dev/null
+            printf '%s signed and verified\n' "${f##*/}" | tee -a "$GITHUB_STEP_SUMMARY"
+          done
+      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        if: ${{ !inputs.dry_run }}
+        with:
+          name: release-assets
+          path: ${{ runner.temp }}/assets/
+          if-no-files-found: error
 
   # docs/adr/0075 §2: the light tier to PyPI by trusted publishing. PyPI
   # trusts this repository, package.yml and the environment pypi; the job
@@ -533,9 +561,14 @@ jobs:
       - name: "A dry run: the draft the tag makes"
         if: ${{ !startsWith(github.ref, 'refs/tags/v') }}
         run: |
-          echo "at the tag: gh release create v$VERSION --draft --verify-tag --title \"lights-out $VERSION\" --notes-file notes.md" | tee -a "$GITHUB_STEP_SUMMARY"
+          echo "at the tag: gh release create v$VERSION --draft --verify-tag --title \"lights-out $VERSION\" --notes-file notes.md <the wheel, the sdist and their .sigstore.json bundles>" | tee -a "$GITHUB_STEP_SUMMARY"
           cat "$RUNNER_TEMP/notes.md"
-      - name: Draft the release
+      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        if: startsWith(github.ref, 'refs/tags/v')
+        with:
+          name: release-assets
+          path: ${{ runner.temp }}/assets
+      - name: Draft the release, the signed wheel and sdist attached
         if: startsWith(github.ref, 'refs/tags/v')
         env:
           GH_TOKEN: ${{ github.token }}
@@ -544,7 +577,7 @@ jobs:
           if gh release view "v$VERSION" >/dev/null 2>&1; then
             echo "a release v$VERSION exists, left as it is" | tee -a "$GITHUB_STEP_SUMMARY"
           else
-            gh release create "v$VERSION" --draft --verify-tag --title "lights-out $VERSION" --notes-file "$RUNNER_TEMP/notes.md"
+            gh release create "v$VERSION" --draft --verify-tag --title "lights-out $VERSION" --notes-file "$RUNNER_TEMP/notes.md" "$RUNNER_TEMP"/assets/*
             echo "draft release v$VERSION created; publish it, with the Marketplace box ticked, by hand" | tee -a "$GITHUB_STEP_SUMMARY"
           fi
 

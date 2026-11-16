@@ -1169,6 +1169,21 @@ M24 su Gemini ha perso tre ticket su dieci a `TOKEN_BUDGET` e nessuno poteva ved
 
 *Stato 2026-11-14, seconda correzione (approvata dall'owner, "Sì, tutto"):* la mappa dell'architect è quella del solo workload (`INTAKE_SCOPE` da `WORKLOAD`), le ricerche sono al massimo due, e il registro ADK conta i token di thinking come output (ADR 0083, emendamento: $0,046 → $0,057 sul run misurato). Test prima, NO-GO su 0073afa e GO dopo. La nuova registrazione dell'architect, approvata dall'owner (≤ $0,10), è riuscita al primo tentativo: quattro turni, due ricerche, sei percorsi in `app/` per ticket, tutti e due `GO: spec` come bozze; 18.888 token in ingresso e 9.808 in uscita, $0,051 a listino.
 
+### Sprint 2026-11-16 (M58–M63)
+
+#### M63 — Igiene del progetto: CoC, governance, Scorecard (ADR 0096)
+
+*Aggiunto 2026-11-16, decisione dell'owner.* File piccoli, pubblici, utili a chi arriva: chi decide, come si entra, come si segnala un problema, e le pratiche di supply chain che il repo ha già rese misurabili da fuori.
+
+- **Criteri di accettazione, scritti prima del codice:**
+  - `CODE_OF_CONDUCT.md` adotta il CNCF Code of Conduct v1.3 per riferimento, con una sezione di segnalazione propria: nessun indirizzo email, solo canali GitHub (decisione dell'owner del 2026-11-16), prima risposta entro 14 giorni; linkato dal README e da `CONTRIBUTING.md`.
+  - `MAINTAINERS.md` con la tabella Name | GitHub | Organization | Area (oggi una riga) e come si diventa reviewer e poi maintainer; `GOVERNANCE.md` corto: chi decide oggi, come si decide con due o più maintainer, la direzione che non dipende da un fornitore di modelli, come cambia il documento; nessun contenuto di roadmap.
+  - `SECURITY.md`: prima risposta entro 14 giorni (criterio OpenSSF `vulnerability_report_response`), chi gestisce le segnalazioni, e una strada che funziona anche finché la segnalazione privata di GitHub è spenta.
+  - `.github/workflows/scorecard.yml`: l'Action ufficiale pinnata per SHA, risultati pubblicati e caricati in code scanning, badge nel README; `ci/package.sh` ammette il suo `id-token: write` e prova di saper ancora fallire.
+  - `package.yml` firma keyless wheel e sdist (`<file>.sigstore.json`, verificati) e `release` li allega alla release; `ci/release.sh` lo prova con cinque difetti piantati. La provenienza SLSA è il piano scritto nell'ADR, non codice.
+  - Impostazioni del repository (segnalazione privata, ruleset su `main`, bestpractices.dev): preparate nell'handoff, fatte dall'owner.
+  - `./go ci` verde da un clone pieno; il branch pushato con ogni workflow verde, il run di Scorecard compreso (su una pull request: l'Action rifiuta i push fuori da `main`).
+
 ### Dopo
 
 M16 (la rete, decisa), M17 e M11 (board e console), i track cloud di M8 e M10: quando esiste un consumatore esterno, come in §14. La sequenza dopo M35 (attestazione, giuria, loop chiuso, toolbelt, stack) è nella roadmap di adozione, §7.

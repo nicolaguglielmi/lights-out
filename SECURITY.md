@@ -2,14 +2,30 @@
 
 ## Reporting a vulnerability
 
-Report it privately: the repository's **Security** tab, then **Report a
-vulnerability**. Please do not open a public issue for it.
+There is one channel, GitHub's private vulnerability reporting: the
+repository's **Security** tab, then **Report a vulnerability**. Please
+do not put the details in a public issue. The project publishes no email
+address.
 
-lights-out is maintained by one person in their spare time. You will get
-an answer, but not within hours.
+Until that button is there (private reporting is being turned on), open
+an issue titled **"security contact request"** with no details in it,
+only a request for a private channel. The maintainer opens a draft
+security advisory, which only you and the maintainers can read, adds you
+to it, and you report there.
 
-Only the latest commit on `main` is supported, and once there are
-releases, the latest release.
+## Who answers, and when
+
+The maintainers listed in [MAINTAINERS.md](MAINTAINERS.md) handle every
+report; today that is one person, in their spare time.
+
+- **First response within 14 days** of the report: that it was received,
+  and whether it is in scope.
+- Then an assessment and, for a confirmed vulnerability, a fix plan with
+  a date. You are told before anything about it is published.
+- The fix is released, and the advisory published with credit to you
+  unless you prefer otherwise.
+
+Only the latest release and the latest commit on `main` are supported.
 
 ## What to report privately
 

@@ -3,6 +3,11 @@
 Thanks for looking. lights-out is a harness people let agents loose
 behind, so the bar for a change is that it can be checked by a machine.
 
+Everyone in the project's spaces follows the
+[Code of Conduct](CODE_OF_CONDUCT.md). Who decides, and how you become a
+reviewer or a maintainer: [GOVERNANCE.md](GOVERNANCE.md) and
+[MAINTAINERS.md](MAINTAINERS.md).
+
 ## Before you open a pull request
 
 You need podman, git and a POSIX shell. Everything else runs in the
