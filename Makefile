@@ -1607,7 +1607,7 @@ gitlab-conformance: ## The CodeHost conformance suite on adapters/gitlab, agains
 # beside it; the worker image is built on the workbench, not the workload's
 # toolchain. CONFORMANCE_HARNESS=<name> runs one. The suite is proved first,
 # on a made-up harness and a stand-in for compose, to accept a good harness
-# and refuse fifty-four wrong ones (two good runs), its probe proved one way out at a time
+# and refuse fifty-nine wrong ones (three good runs), its probe proved one way out at a time
 # and its port picker under the proxy's load
 # (gates/harness-conformance/proof.sh): a
 # suite that cannot fail would say GO to everything.
