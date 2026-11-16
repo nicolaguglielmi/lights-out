@@ -5,9 +5,11 @@
 # 0041 §8), written from the ADR and the adapter contract, never from an
 # adapter. A CLI harness is an adapters/<name>/ with run.sh, Containerfile
 # and a pin, package-lock.json or release.env (docs/adr/0050 §2):
-# discovered, never listed. For each one, eleven cases
-# in a fixed order, the first disagreement a NO-GO naming the harness and
-# the case:
+# discovered, never listed. For each one, and for each of its conformance
+# files (docs/adr/0092 §2: conformance.env, its first provider, then each
+# conformance.<provider>.env, sorted), eleven cases in a fixed order, the
+# first disagreement a NO-GO naming the harness, its provider and the case
+# (`<harness> (<provider>): case <n>: ...`):
 #   0 pairing      1 valid PR          2 push denied        3 secrets read denied
 #   4 the workspace cannot switch the guard off            5 MAX_TURNS
 #   6 TOKEN_BUDGET 7 TIMEOUT_S         9 confinement        10 agents
@@ -50,12 +52,18 @@
 # conformance-model). So it proves a harness's plumbing, never a model's
 # ability and never the vendors' real wire: only an L1 recording does that.
 #
-# The adapter contract, each key read from adapters/<name>/conformance.env
-# (PROVIDER, MODEL, KEY_VAR, THINKING_PATH, EGRESS) and thinking.env, never from
-# a list here. Every harness's KEY_VAR is exported with a random canary before
+# The adapter contract, each key read from the run's conformance file under
+# adapters/<name>/ (PROVIDER, MODEL, KEY_VAR, THINKING_PATH, EGRESS; BASE_URL,
+# a sixth, is the adapter's and never read here: MODEL_BASE_URL, always set,
+# overrides it) and thinking.env, whose key for a run is <PROVIDER>_<THINKING>,
+# never from a list here. Case 0 offers the provider the harness runs in none of
+# its files, and the refusal must name a harness with a file for it. Every
+# harness's every file's KEY_VAR is exported with a random canary before
 # compose starts, because compose falls back to the project's .env for a
 # variable missing from the environment, and on the owner's machine that file
-# holds a real key.
+# holds a real key. A run's directories are .crew/conformance/<harness>/<case>
+# for the first provider and .crew/conformance/<harness>/<provider>/<case> for
+# each further one.
 #
 # Provenance of the numbers (docs/adr/0041 §8, each a decision, not a
 # measurement): MAX_TURNS=2 is the smallest limit that lets a run make more
@@ -152,6 +160,14 @@ conf_get() {  # FILE KEY: the value of KEY= in FILE, one pair of quotes dropped
   grep "^$2=" "$1" 2>/dev/null | head -n1 | cut -d= -f2- | sed -e 's/^"\(.*\)"$/\1/' -e "s/^'\(.*\)'\$/\1/"
 }
 upper() { printf '%s' "$1" | tr '[:lower:]' '[:upper:]'; }
+# A harness's conformance files (docs/adr/0092 §2): conformance.env, its first
+# provider, then each further provider's conformance.<provider>.env, in the
+# glob's sorted order. Discovered, never listed.
+conf_files() {  # H
+  printf '%s\n' "adapters/$1/conformance.env"
+  for f in "adapters/$1"/conformance.*.env; do [ ! -f "$f" ] || printf '%s\n' "$f"; done
+}
+providers_of() { for f in $(conf_files "$1"); do conf_get "$f" PROVIDER; done | tr '\n' ' '; }
 
 all=""
 for d in adapters/*/; do
@@ -171,19 +187,25 @@ if [ -n "${CONFORMANCE_HARNESS:-}" ]; then
   esac
 fi
 
-# Each selected harness's contract, read once and checked for shape (the
-# engine-free half, ci/harness-shape.sh, checks it for everyone on every
-# ./go ci; a harness that is run here must not be able to skip it).
+# Each selected harness's contract, every one of its conformance files, read
+# once and checked for shape (the engine-free half, ci/harness-shape.sh, checks
+# it for everyone on every ./go ci; a harness that is run here must not be able
+# to skip it). The suite runs once per (harness, file): $runs, "h:file" pairs.
+# BASE_URL, a file's optional sixth key, is the adapter's: the suite always sets
+# MODEL_BASE_URL, which overrides it, and never reads it.
+runs="" ran=""
 for h in $selected; do
-  cf=adapters/$h/conformance.env
-  [ -f "$cf" ] || nogo "$h: $cf is missing (PROVIDER, MODEL, KEY_VAR, THINKING_PATH, EGRESS)"
-  for k in PROVIDER MODEL KEY_VAR THINKING_PATH EGRESS; do
-    [ -n "$(conf_get "$cf" "$k")" ] || nogo "$h: $cf has no $k="
-  done
-  case "$(conf_get "$cf" KEY_VAR)" in
-    ''|*[!A-Z0-9_]*|[0-9_]*) nogo "$h: $cf KEY_VAR is not a variable name" ;;
-  esac
   [ -f "adapters/$h/thinking.env" ] || nogo "$h: adapters/$h/thinking.env is missing"
+  for cf in $(conf_files "$h"); do
+    [ -f "$cf" ] || nogo "$h: $cf is missing (PROVIDER, MODEL, KEY_VAR, THINKING_PATH, EGRESS)"
+    for k in PROVIDER MODEL KEY_VAR THINKING_PATH EGRESS; do
+      [ -n "$(conf_get "$cf" "$k")" ] || nogo "$h: $cf has no $k="
+    done
+    case "$(conf_get "$cf" KEY_VAR)" in
+      ''|*[!A-Z0-9_]*|[0-9_]*) nogo "$h: $cf KEY_VAR is not a variable name" ;;
+    esac
+    runs="$runs $h:$cf"
+  done
 done
 
 # --- the canaries -------------------------------------------------------------
@@ -195,8 +217,8 @@ canary="canary-$(rand)"
 canary2="canary-$(rand)"
 CONFORMANCE_CANARY=$canary
 export CONFORMANCE_CANARY
-for h in $all; do
-  kv=$(conf_get "adapters/$h/conformance.env" KEY_VAR)
+for cf in $(for h in $all; do conf_files "$h"; done); do
+  kv=$(conf_get "$cf" KEY_VAR)
   case "$kv" in
     ''|*[!A-Z0-9_]*|[0-9_]*) continue ;;
   esac
@@ -284,16 +306,16 @@ done
 evidence=""  # more for fail() to print: case 9 puts the proxy's decisions here
 
 fail() {  # WHAT: NO-GO naming the running harness and case, with the evidence
-  nogo "$h case $n: $1" \
+  nogo "$h ($provider): case $n: $1" \
     "--- run.sh's stderr, last 30 lines ($errf)" \
     "$(tail -n 30 "$errf" 2>/dev/null || true)" \
     "--- the scripted model's requests ($reqlog)" \
-    "$(jq -c '{n, kind, auth, requested, tools, step, op, hooked, reported_tokens, peer, sink, path, declared}' "$reqlog" 2>/dev/null | head -n 40 || true)" \
+    "$(jq -c '{n, kind, auth, requested, tools, step, op, hooked, reported_tokens, reported_cached, peer, sink, path, declared}' "$reqlog" 2>/dev/null | head -n 40 || true)" \
     "$evidence"
 }
 
 set_case() {  # STEPS_JSON: the script the stub plays for the running case
-  jq -n --arg case "$h/$n" --arg cwd "/crew/$ticket/workspace" --argjson steps "$1" \
+  jq -n --arg case "$slot/$n" --arg cwd "/crew/$ticket/workspace" --argjson steps "$1" \
     '{case: $case, cwd: $cwd, steps: $steps}' > "$conf/model/case.json.tmp" \
     || fail "could not build the stub's case file"
   mv "$conf/model/case.json.tmp" "$conf/model/case.json" || fail "could not write the stub's case file"
@@ -305,13 +327,13 @@ prepare() {  # H N: a fresh workspace, a bare origin and the ticket; sets the pa
   evidence=""
   case_role=dev-worker  # invoke()'s ROLE; case 10a runs the test-reviewer
   case_mcp=""           # invoke()'s CREW_MCP; set by case 10 as core/crew.sh sets it
-  ticket=conformance/$h/$n
-  dir=$(pwd)/$conf/$h/$n
+  ticket=conformance/$slot/$n
+  dir=$(pwd)/$conf/$slot/$n
   ws=$dir/workspace
   out=$dir/out
   tfile=$dir/ticket.md
   errf=$dir/stderr.log
-  reqdir=$conf/model/$h/$n
+  reqdir=$conf/model/$slot/$n
   reqlog=$reqdir/requests.jsonl
   mkdir -p "$ws" "$out" "$reqdir/bodies"
   : > "$reqlog"
@@ -583,6 +605,12 @@ check_valid_pr() {  # the artefact contract of ADR 0017 §1 and ADR 0041: cases 
   field .model "$model-conformance"
   field .thinking "$role_thinking"
   field .tokens.total "$want_tokens"
+  # docs/adr/0092 §6: tokens.cached is the part of the input the vendor served from its cache,
+  # where the harness reports it. Absent, or the sum of the cached part the scripted model
+  # reported over the run's requests, never another number.
+  want_cached=$(rq '[.[] | .reported_cached] | add // 0')
+  jq -e --argjson w "$want_cached" '.tokens | (has("cached") | not) or .cached == $w' "$rj" >/dev/null \
+    || fail "run.json .tokens.cached is $(jq -c '.tokens.cached' "$rj"), want absent or $want_cached (the sum of the cached part the scripted model reported, docs/adr/0092 §6)"
   field .input_sha256 "$(sha256sum "$tfile" | cut -d' ' -f1)"
   field .exit_code 0
   jq -e '(.turns | type) == "number" and .turns >= 1' "$rj" >/dev/null || fail "run.json .turns is not a number of at least 1"
@@ -636,39 +664,47 @@ crew_mcp() {  # as core/crew.sh does it: check, then mcp for this harness; sets 
 with_mcp_sh=$(for f in adapters/*/mcp.sh; do [ ! -f "$f" ] || basename "$(dirname "$f")"; done | sort | tr '\n' ' ' | sed 's/ *$//')
 
 # --- the cases, one harness at a time ---------------------------------------------
-for h in $selected; do
-  cf=adapters/$h/conformance.env
+for hc in $runs; do
+  h=${hc%%:*} cf=${hc#*:}
   provider=$(conf_get "$cf" PROVIDER)
   model=$(conf_get "$cf" MODEL)
   key_var=$(conf_get "$cf" KEY_VAR)
   thinking_path=$(conf_get "$cf" THINKING_PATH)
   thinking_key="$(upper "$provider")_$(upper "$role_thinking")"
   want_thinking=$(conf_get "adapters/$h/thinking.env" "$thinking_key")
-  [ -n "$want_thinking" ] || nogo "$h: adapters/$h/thinking.env has no $thinking_key= line"
+  [ -n "$want_thinking" ] || nogo "$h ($provider): adapters/$h/thinking.env has no $thinking_key= line"
+  # What names this run's directories: the harness for its first provider, and
+  # under it the provider for each further one (docs/adr/0092 §2).
+  slot=$h
+  [ "$cf" = "adapters/$h/conformance.env" ] || slot=$h/$provider
+  ran="$ran, $h ($provider)"
   printf 'harness-conformance: %s (provider %s, model %s)\n' "$h" "$provider" "$model" >&2
 
   # The image first, so a build that fails is one NO-GO naming it, not eight cases
   # of an adapter that cannot start, and the cases' timings do not hold a build.
   docker-compose --profile crew build "$h" >&2 \
-    || nogo "$h: its image did not build (docker-compose --profile crew build $h)"
+    || nogo "$h ($provider): its image did not build (docker-compose --profile crew build $h)"
 
-  # Provider and harness pairing: the other provider offered to case 0, and the
-  # harnesses one of whose names the refusal line must carry. A harness that exists
-  # names itself by discovery, and a provider may have more than one (gemini has
-  # gemini-cli and antigravity-cli, docs/adr/0050 §1); with none yet, ADR 0041 §2's
-  # pairing.
-  case "$provider" in
-    gemini) other=anthropic ;;
-    *) other=gemini ;;
-  esac
+  # Provider and harness pairing (docs/adr/0092 §2): the other provider offered
+  # to case 0 is the first of the four this harness runs in no conformance file,
+  # and the harnesses one of whose names the refusal line must carry are those
+  # with any conformance file for it. A harness that exists names itself by
+  # discovery, and a provider may have more than one (gemini has gemini-cli and
+  # antigravity-cli, docs/adr/0050 §1); with none yet, ADR 0041 §2's pairing.
+  mine=$(providers_of "$h")
+  other=""
+  for p in gemini anthropic openai zai; do
+    case " $mine" in *" $p "*) ;; *) other=$p; break ;; esac
+  done
+  [ -n "$other" ] || nogo "$h ($provider): it runs every provider in its conformance files, so case 0 has none to refuse"
   fitting=""
   for o in $all; do
-    [ "$(conf_get "adapters/$o/conformance.env" PROVIDER)" = "$other" ] && fitting="$fitting $o"
+    case " $(providers_of "$o")" in *" $other "*) fitting="$fitting $o" ;; esac
   done
   fitting=${fitting# }
   if [ -z "$fitting" ]; then
     case "$other" in
-      anthropic) fitting=claude-code ;;
+      anthropic|zai) fitting=claude-code ;;
       openai) fitting=codex ;;
       *) fitting=gemini-cli ;;
     esac
@@ -949,19 +985,19 @@ EOF
   # ---- case 8: no key in the artefacts, over every case ----------------------
   n=8
   for c in 1 2 3 4 5 6 7 9 $tens; do
-    reqdir=$conf/model/$h/$c
+    reqdir=$conf/model/$slot/$c
     reqlog=$reqdir/requests.jsonl
-    errf=$conf/$h/$c/stderr.log
+    errf=$conf/$slot/$c/stderr.log
     check_auth
     leaked=$(grep -rlF -- "$canary" "$reqdir/bodies" 2>/dev/null | head -n 1 || true)
     [ -z "$leaked" ] || fail "the key canary is in a request body ($leaked, case $c): the key left the auth header"
-    leaked=$(grep -rlF -- "$canary" "$conf/$h/$c/out" 2>/dev/null | head -n 1 || true)
+    leaked=$(grep -rlF -- "$canary" "$conf/$slot/$c/out" 2>/dev/null | head -n 1 || true)
     [ -z "$leaked" ] || fail "the key canary is in the artefacts ($leaked, case $c)"
   done
-  [ "$(jq -s '[.[] | select(.auth == "ok")] | length' "$conf/model/$h/1/requests.jsonl")" -ge 1 ] \
+  [ "$(jq -s '[.[] | select(.auth == "ok")] | length' "$conf/model/$slot/1/requests.jsonl")" -ge 1 ] \
     || fail "no request carried the key canary at all: the key did not come from $key_var"
 done
 
 elapsed=$(($(date +%s) - t0))
 pass=1
-go_with "$selected, against a scripted model, ${elapsed} s"
+go_with "${ran#, }, against a scripted model, ${elapsed} s"

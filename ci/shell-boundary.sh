@@ -31,8 +31,8 @@ core/steps/release.sh 56
 core/steps/review.sh 71
 core/steps/rework.sh 51
 core/toolchain.sh 126
-gates/harness-conformance.sh 693
-gates/harness-conformance/proof.sh 738
+gates/harness-conformance.sh 709
+gates/harness-conformance/proof.sh 767
 '
 
 # flaws ROOT HOST DEBT: what is wrong under ROOT/core and ROOT/gates, one

@@ -58,7 +58,15 @@ Requests
 that carry no tools are the CLI's own side requests (a title, a classification):
 they get a short text answer, count as no step, and report 0 tokens. Every
 answered request that carries tools reports exactly 1,000 tokens, split 900
-input and 100 output, whatever the protocol calls them.
+input and 100 output, whatever the protocol calls them. Of the 900 input, half,
+450, is reported as served from the vendor's cache (docs/adr/0092 §6; a decision:
+nonzero, and neither none nor all of the input, so a harness that sums the wrong
+field, or the input for the cached part, is off): Anthropic splits it
+into `input_tokens` 450 and `cache_read_input_tokens` 450 (`cache_creation_input_tokens`
+stays 0), Gemini reports `cachedContentTokenCount` 450 inside a `promptTokenCount`
+of 900, OpenAI `input_tokens_details.cached_tokens` 450 inside an `input_tokens`
+of 900. The total of a request, input plus output, is 1,000 on every protocol,
+as before; each request's record carries `reported_cached`.
 
 Per case, under /work/<case>/: requests.jsonl, one record per request (never a
 header value, and the `key` query parameter is dropped from the path; `declared`
@@ -93,6 +101,7 @@ CANARY = os.environ.get("CONFORMANCE_CANARY", "")
 SUFFIX = "-conformance"
 SINK = "conformance-sink"  # compose.yaml's alias for this container, the name case 9's probe tries
 IN_TOKENS, OUT_TOKENS = 900, 100
+CACHED_TOKENS = IN_TOKENS // 2  # the part of the input reported as served from the cache
 LAST_RESULT_MAX = 4000
 AGY_WAIT_MS = 10000  # run_command's WaitMsBeforeAsync: its documented maximum; 60000 was clamped to it (verified)
 AGY_BACKGROUND = "running as a background task"
@@ -472,8 +481,8 @@ def send_sse(h, events):
 
 def respond_anthropic(h, body, served, rendering, tokens):
     mid = "msg_%d" % next(IDS)
-    usage = {"input_tokens": tokens[0], "output_tokens": tokens[1],
-             "cache_creation_input_tokens": 0, "cache_read_input_tokens": 0}
+    usage = {"input_tokens": tokens[0] - tokens[2], "output_tokens": tokens[1],
+             "cache_creation_input_tokens": 0, "cache_read_input_tokens": tokens[2]}
     if rendering[0] == "text":
         block = {"type": "text", "text": ""}
         delta = {"type": "text_delta", "text": rendering[1]}
@@ -515,7 +524,7 @@ def respond_openai(h, body, served, rendering, tokens):
                 "name": rendering[1], "arguments": json.dumps(rendering[2])}
         if len(rendering) > 3 and rendering[3]:
             item["namespace"] = rendering[3]
-    usage = {"input_tokens": tokens[0], "input_tokens_details": {"cached_tokens": 0},
+    usage = {"input_tokens": tokens[0], "input_tokens_details": {"cached_tokens": tokens[2]},
              "output_tokens": tokens[1], "output_tokens_details": {"reasoning_tokens": 0},
              "total_tokens": tokens[0] + tokens[1]}
     resp = {"id": rid, "object": "response", "model": served, "status": "completed",
@@ -536,7 +545,7 @@ def respond_gemini(h, path, served, rendering, tokens):
         part = {"functionCall": {"name": rendering[1], "args": rendering[2]}}
     chunk = {"candidates": [{"content": {"role": "model", "parts": [part]}, "finishReason": "STOP", "index": 0}],
              "usageMetadata": {"promptTokenCount": tokens[0], "candidatesTokenCount": tokens[1],
-                               "totalTokenCount": tokens[0] + tokens[1]},
+                               "cachedContentTokenCount": tokens[2], "totalTokenCount": tokens[0] + tokens[1]},
              "modelVersion": served}
     if not urlsplit(path).path.endswith(":streamGenerateContent"):
         return send_json(h, 200, chunk)
@@ -647,7 +656,7 @@ class Handler(BaseHTTPRequestHandler):
         rec = {"method": "POST", "path": clean_path(self.path), "protocol": proto, "kind": kind,
                "auth": auth, "requested": requested, "tools": bool(request_tools(body)),
                "declared": declared_names(proto, body),
-               "step": None, "op": None, "hooked": None, "reported_tokens": 0, "last_result": ""}
+               "step": None, "op": None, "hooked": None, "reported_tokens": 0, "reported_cached": 0, "last_result": ""}
         rec.update(self.origin())
         if kind == "other":
             log_request(case, raw, rec)
@@ -667,7 +676,7 @@ class Handler(BaseHTTPRequestHandler):
             return send_json(self, 200, {"totalTokens": 10} if proto == "gemini" else {"input_tokens": 10})
         served = (requested or "unknown") + SUFFIX
         rec["served"] = served
-        tokens = (0, 0)
+        tokens = (0, 0, 0)
         if rec["tools"]:
             idx = len(results)
             step = steps[min(idx, len(steps) - 1)]
@@ -682,8 +691,9 @@ class Handler(BaseHTTPRequestHandler):
             else:
                 op, hooked, rendering = render(proto, step, cwd, body)
             rec["op"], rec["hooked"] = op, hooked
-            tokens = (IN_TOKENS, OUT_TOKENS)
+            tokens = (IN_TOKENS, OUT_TOKENS, CACHED_TOKENS)
             rec["reported_tokens"] = IN_TOKENS + OUT_TOKENS
+            rec["reported_cached"] = CACHED_TOKENS
         else:
             rendering = ("text", "ok")
         log_request(case, raw, rec)

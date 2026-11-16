@@ -15,15 +15,22 @@
 #     an https URL that names VERSION as a path segment, and SHA256_<arch>, 64
 #     lowercase hex digits;
 #   - thinking.env with <PROVIDER>_LOW, _MEDIUM and _HIGH, the provider
-#     upper-cased (docs/adr/0040 §2);
-#   - conformance.env with exactly PROVIDER, MODEL, KEY_VAR, THINKING_PATH and
-#     EGRESS (the fifth, docs/adr/0046 §4), a provider among gemini, anthropic
-#     and openai (one per harness; a provider may have more than one harness
-#     since docs/adr/0050 §1, AGENT_HARNESS chooses), and a KEY_VAR
-#     that .env.example names. EGRESS is the only host:port the egress proxy
-#     opens for the harness besides the workload's own: one or more `name:port`,
-#     a lowercase DNS name with a dot, no IP literal, no `*`, a port from 1 to
-#     65535 (egress_flaw in ci/lib.sh);
+#     upper-cased (docs/adr/0040 §2), for every provider the harness runs;
+#   - conformance.env, and every conformance.<provider>.env beside it (a
+#     harness may run more than one provider, docs/adr/0092 §2; discovered by
+#     glob), each with exactly PROVIDER, MODEL, KEY_VAR, THINKING_PATH and
+#     EGRESS (the fifth, docs/adr/0046 §4), or those and BASE_URL; a provider
+#     among gemini, anthropic, openai and zai (a provider may have more than one
+#     harness since docs/adr/0050 §1, AGENT_HARNESS chooses; and each harness
+#     file has its own: a further file is named for its PROVIDER, which differs
+#     from every other file's of that harness), and a KEY_VAR that .env.example
+#     names. EGRESS is the only host:port the egress proxy opens for the
+#     harness besides the workload's own: one or more `name:port`, a lowercase
+#     DNS name with a dot, no IP literal, no `*`, a port from 1 to 65535
+#     (egress_flaw in ci/lib.sh). BASE_URL, the vendor endpoint the adapter
+#     points the CLI at for that provider, is `https://<host>/...` where
+#     `<host>:443` is exactly the file's EGRESS (so a single host, and the
+#     proxy opens it);
 #   - hooks/guard.sh byte-identical to adapters/gemini-cli/hooks/guard.sh,
 #     the reference: each image's build context is its own directory, so the
 #     guard is copied, and `cmp` is what stops three lists drifting (§11).
@@ -123,49 +130,75 @@ shape_flaw() {
       if [ -n "$pin" ]; then printf '%s: %s' "$h" "$pin"; return; fi
     fi
 
-    # The facts the suite reads.
-    cf=$a/conformance.env
-    if [ ! -f "$cf" ]; then printf '%s: conformance.env is missing' "$h"; return; fi
-    keys=$(grep -vE '^[[:space:]]*(#|$)' "$cf" | cut -d= -f1 | sort | tr '\n' ' ')
-    if [ "$keys" != "EGRESS KEY_VAR MODEL PROVIDER THINKING_PATH " ]; then
-      printf '%s: conformance.env has the keys [%s], want exactly PROVIDER MODEL KEY_VAR THINKING_PATH EGRESS' "$h" "${keys% }"
-      return
-    fi
-    for k in PROVIDER MODEL KEY_VAR THINKING_PATH EGRESS; do
-      if [ -z "$(conf_get "$cf" "$k")" ]; then printf '%s: conformance.env has an empty %s' "$h" "$k"; return; fi
-    done
-    provider=$(conf_get "$cf" PROVIDER)
-    case "$provider" in
-      gemini|anthropic|openai) ;;
-      *) printf '%s: conformance.env PROVIDER is %s, want gemini, anthropic or openai' "$h" "$provider"; return ;;
-    esac
-    key_var=$(conf_get "$cf" KEY_VAR)
-    if ! printf '%s' "$key_var" | grep -Eq '^[A-Z][A-Z0-9_]*$'; then
-      printf '%s: conformance.env KEY_VAR %s is not a variable name' "$h" "$key_var"
-      return
-    fi
-    if ! grep -q "^$key_var=" "$root/.env.example" 2>/dev/null; then
-      printf '%s: conformance.env KEY_VAR %s is not named in .env.example' "$h" "$key_var"
-      return
-    fi
-    if ! conf_get "$cf" THINKING_PATH | grep -q '^\.'; then
-      printf '%s: conformance.env THINKING_PATH is not a jq path (it starts with a dot)' "$h"
-      return
-    fi
-    egress_bad=$(egress_flaw "$(conf_get "$cf" EGRESS)")
-    if [ -n "$egress_bad" ]; then
-      printf '%s: conformance.env EGRESS: %s (docs/adr/0046 §4: lowercase name.tld:port, no IP, no *)' "$h" "$egress_bad"
-      return
-    fi
-
-    # The thinking map: three levels for its provider.
-    prefix=$(printf '%s' "$provider" | tr '[:lower:]' '[:upper:]')
-    if [ ! -f "$a/thinking.env" ]; then printf '%s: thinking.env is missing' "$h"; return; fi
-    for level in LOW MEDIUM HIGH; do
-      if [ -z "$(conf_get "$a/thinking.env" "${prefix}_$level")" ]; then
-        printf '%s: thinking.env has no %s_%s= line' "$h" "$prefix" "$level"
+    # The facts the suite reads: conformance.env, the first provider, and each
+    # conformance.<provider>.env beside it (docs/adr/0092 §2), in that order.
+    if [ ! -f "$a/conformance.env" ]; then printf '%s: conformance.env is missing' "$h"; return; fi
+    seen=""
+    for cf in "$a/conformance.env" "$a"/conformance.*.env; do
+      [ -f "$cf" ] || continue
+      cn=${cf##*/}
+      keys=$(grep -vE '^[[:space:]]*(#|$)' "$cf" | cut -d= -f1 | sort | tr '\n' ' ')
+      case "$keys" in
+        "EGRESS KEY_VAR MODEL PROVIDER THINKING_PATH "|"BASE_URL EGRESS KEY_VAR MODEL PROVIDER THINKING_PATH ") ;;
+        *) printf '%s: %s has the keys [%s], want exactly PROVIDER MODEL KEY_VAR THINKING_PATH EGRESS, and BASE_URL besides if it has one' "$h" "$cn" "${keys% }"; return ;;
+      esac
+      for k in PROVIDER MODEL KEY_VAR THINKING_PATH EGRESS; do
+        if [ -z "$(conf_get "$cf" "$k")" ]; then printf '%s: %s has an empty %s' "$h" "$cn" "$k"; return; fi
+      done
+      provider=$(conf_get "$cf" PROVIDER)
+      case "$provider" in
+        gemini|anthropic|openai|zai) ;;
+        *) printf '%s: %s PROVIDER is %s, want gemini, anthropic, openai or zai' "$h" "$cn" "$provider"; return ;;
+      esac
+      # A further file is named for its provider, and no two files of a harness share one.
+      if [ "$cn" != conformance.env ] && [ "$cn" != "conformance.$provider.env" ]; then
+        printf '%s: %s has PROVIDER %s, so it must be named conformance.%s.env (docs/adr/0092 §2)' "$h" "$cn" "$provider" "$provider"
         return
       fi
+      case " $seen " in
+        *" $provider "*) printf '%s: %s has PROVIDER %s, which another conformance file of %s has: one file per provider (docs/adr/0092 §2)' "$h" "$cn" "$provider" "$h"; return ;;
+      esac
+      seen="$seen $provider"
+      key_var=$(conf_get "$cf" KEY_VAR)
+      if ! printf '%s' "$key_var" | grep -Eq '^[A-Z][A-Z0-9_]*$'; then
+        printf '%s: %s KEY_VAR %s is not a variable name' "$h" "$cn" "$key_var"
+        return
+      fi
+      if ! grep -q "^$key_var=" "$root/.env.example" 2>/dev/null; then
+        printf '%s: %s KEY_VAR %s is not named in .env.example' "$h" "$cn" "$key_var"
+        return
+      fi
+      if ! conf_get "$cf" THINKING_PATH | grep -q '^\.'; then
+        printf '%s: %s THINKING_PATH is not a jq path (it starts with a dot)' "$h" "$cn"
+        return
+      fi
+      egress_bad=$(egress_flaw "$(conf_get "$cf" EGRESS)")
+      if [ -n "$egress_bad" ]; then
+        printf '%s: %s EGRESS: %s (docs/adr/0046 §4: lowercase name.tld:port, no IP, no *)' "$h" "$cn" "$egress_bad"
+        return
+      fi
+      # BASE_URL: https://<host>/..., and <host>:443 is exactly EGRESS, the one host the proxy opens.
+      if grep -q '^BASE_URL=' "$cf"; then
+        url=$(conf_get "$cf" BASE_URL)
+        case "$url" in
+          https://*/*) url_host=${url#https://}; url_host=${url_host%%/*} ;;
+          *) printf '%s: %s BASE_URL "%s" is not https://<host>/... (docs/adr/0092 §2)' "$h" "$cn" "$url"; return ;;
+        esac
+        if [ "$url_host:443" != "$(conf_get "$cf" EGRESS)" ]; then
+          printf '%s: %s BASE_URL names the host %s, and its EGRESS is %s: want exactly %s:443, the one host the proxy opens (docs/adr/0092 §2)' "$h" "$cn" "$url_host" "$(conf_get "$cf" EGRESS)" "$url_host"
+          return
+        fi
+      fi
+
+      # The thinking map: three levels for its provider.
+      prefix=$(printf '%s' "$provider" | tr '[:lower:]' '[:upper:]')
+      if [ ! -f "$a/thinking.env" ]; then printf '%s: thinking.env is missing' "$h"; return; fi
+      for level in LOW MEDIUM HIGH; do
+        if [ -z "$(conf_get "$a/thinking.env" "${prefix}_$level")" ]; then
+          printf '%s: thinking.env has no %s_%s= line' "$h" "$prefix" "$level"
+          return
+        fi
+      done
     done
 
     # The guard, copied and identical.
@@ -215,11 +248,16 @@ cp -R adapters/gemini-cli "$good/adapters/gemini-cli"
 cp -R adapters/gemini-cli "$good/adapters/other-cli"
 cp -R adapters/antigravity-cli "$good/adapters/bin-cli"
 cp .env.example "$good/.env.example"
+# The fourth provider's key, named in the good tree's example whatever the real one holds.
+printf 'ZAI_API_KEY=replace-me\n' >> "$good/.env.example"
 o=$good/adapters/other-cli
 grep -v '^PROVIDER=\|^KEY_VAR=\|^EGRESS=' "$o/conformance.env" > "$o/conformance.env.new"
 printf 'PROVIDER=anthropic\nKEY_VAR=ANTHROPIC_API_KEY\nEGRESS=api.other.example:443 cdn.other.example:8443\n' >> "$o/conformance.env.new"
 mv "$o/conformance.env.new" "$o/conformance.env"
-printf 'ANTHROPIC_LOW=low\nANTHROPIC_MEDIUM=medium\nANTHROPIC_HIGH=high\n' > "$o/thinking.env"
+# other-cli runs a second provider (docs/adr/0092 §2): its own file, with a BASE_URL on its one host.
+grep -v '^PROVIDER=\|^KEY_VAR=\|^EGRESS=' "$o/conformance.env" > "$o/conformance.zai.env"
+printf 'PROVIDER=zai\nKEY_VAR=ZAI_API_KEY\nEGRESS=api.zother.example:443\nBASE_URL=https://api.zother.example/api/anthropic\n' >> "$o/conformance.zai.env"
+printf 'ANTHROPIC_LOW=low\nANTHROPIC_MEDIUM=medium\nANTHROPIC_HIGH=high\nZAI_LOW=low\nZAI_MEDIUM=high\nZAI_HIGH=max\n' > "$o/thinking.env"
 for f in compose.yaml app/compose.yaml workloads/m/.lights-out/compose.yaml; do
   printf 'services:\n  gemini-cli:\n    image: x\n  other-cli: &worker\n    image: x\n  bin-cli: *worker\n' > "$good/$f"
 done
@@ -356,7 +394,76 @@ expect_flaw "no conformance.env" "conformance.env is missing"
 
 fresh
 set_conf PROVIDER mistral
-expect_flaw "a provider outside the three" "want gemini, anthropic or openai"
+expect_flaw "a provider outside the four" "want gemini, anthropic, openai or zai"
+
+# A harness's further provider files (docs/adr/0092 §2): other-cli's conformance.zai.env, which
+# the good tree has and shape_flaw judged good above, broken one rule at a time. Every rule
+# above holds for it too; the messages name the file.
+set_zai() {  # KEY VALUE: other-cli's conformance.zai.env with KEY=VALUE, the key's old line replaced
+  drop_line "$bad/adapters/other-cli/conformance.zai.env" "^$1="
+  printf '%s=%s\n' "$1" "$2" >> "$bad/adapters/other-cli/conformance.zai.env"
+}
+zf=$bad/adapters/other-cli
+
+fresh
+set_zai PROVIDER mistral
+expect_flaw "a provider outside the four in a further file" "conformance.zai.env PROVIDER is mistral"
+
+fresh
+mv "$zf/conformance.zai.env" "$zf/conformance.glm.env"
+expect_flaw "a provider file named for something else than its provider" "conformance.glm.env has PROVIDER zai, so it must be named conformance.zai.env"
+
+fresh
+cp "$zf/conformance.env" "$zf/conformance.anthropic.env"
+expect_flaw "a second file for the provider conformance.env has" "conformance.anthropic.env has PROVIDER anthropic, which another conformance file of other-cli has"
+
+fresh
+cp "$zf/conformance.zai.env" "$zf/conformance.openai.env"
+expect_flaw "a second file for a provider under another provider's name" "conformance.openai.env has PROVIDER zai, so it must be named conformance.zai.env"
+
+fresh
+printf 'EXTRA=1\n' >> "$zf/conformance.zai.env"
+expect_flaw "a sixth key that is not BASE_URL" "conformance.zai.env has the keys"
+
+fresh
+set_zai KEY_VAR NOT_IN_THE_EXAMPLE
+expect_flaw "a further file's key variable .env.example does not name" "conformance.zai.env KEY_VAR NOT_IN_THE_EXAMPLE is not named in .env.example"
+
+fresh
+set_zai EGRESS "1.1.1.1:443"
+expect_flaw "an IP literal in a further file's EGRESS" "conformance.zai.env EGRESS: '1.1.1.1:443' is an IP literal"
+
+fresh
+drop_line "$zf/thinking.env" '^ZAI_HIGH='
+expect_flaw "no thinking map for a further provider" "thinking.env has no ZAI_HIGH= line"
+
+fresh
+set_zai BASE_URL "https://api.elsewhere.example/api/anthropic"
+expect_flaw "a BASE_URL host that is not the file's EGRESS host" "conformance.zai.env BASE_URL names the host api.elsewhere.example"
+
+fresh
+set_conf BASE_URL "https://api.elsewhere.example/v1"
+expect_flaw "a BASE_URL host that is not EGRESS's, in conformance.env" "conformance.env BASE_URL names the host api.elsewhere.example"
+
+fresh
+set_zai BASE_URL "https://api.zother.example:8443/api/anthropic"
+expect_flaw "a BASE_URL with a port other than EGRESS's 443" "conformance.zai.env BASE_URL names the host api.zother.example:8443"
+
+fresh
+set_zai EGRESS "api.zother.example:443 cdn.zother.example:443"
+expect_flaw "a BASE_URL beside an EGRESS of more than one host" "conformance.zai.env BASE_URL names the host api.zother.example, and its EGRESS is api.zother.example:443 cdn.zother.example:443"
+
+fresh
+set_zai BASE_URL "http://api.zother.example/api/anthropic"
+expect_flaw "a BASE_URL over http" "conformance.zai.env BASE_URL \"http://api.zother.example/api/anthropic\" is not https://<host>/..."
+
+fresh
+set_zai BASE_URL "https://api.zother.example"
+expect_flaw "a BASE_URL with no path" "conformance.zai.env BASE_URL \"https://api.zother.example\" is not https://<host>/..."
+
+fresh
+set_zai BASE_URL ""
+expect_flaw "an empty BASE_URL" "conformance.zai.env BASE_URL \"\" is not https://<host>/..."
 
 # The release pin (docs/adr/0050 §2), on bin-cli.
 set_rel() {  # KEY VALUE: bin-cli's release.env with KEY=VALUE, the key's old line replaced

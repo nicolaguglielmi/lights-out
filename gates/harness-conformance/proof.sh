@@ -204,15 +204,25 @@ defect=${FAKE_DEFECT:-}
 here=$(cd "$(dirname "$0")" && pwd)
 
 if [ "$defect" = late-refusal ]; then docker-compose --profile crew run --rm fake-cli >&2 || :; fi
-if [ "${MODEL_PROVIDER:-}" != anthropic ] && [ "$defect" != no-refusal ]; then
+# The file whose PROVIDER is MODEL_PROVIDER, over every conformance file (docs/adr/0092 §2).
+# `one-provider` reads conformance.env alone, so it refuses the second provider; `no-refusal`
+# takes the first file for a provider no file declares.
+files=$here/conformance.env
+[ "$defect" = one-provider ] || files="$files $here/conformance.*.env"
+conf=""
+for f in $files; do
+  [ -f "$f" ] && [ "$(grep '^PROVIDER=' "$f" | cut -d= -f2-)" = "${MODEL_PROVIDER:-}" ] && { conf=$f; break; }
+done
+[ -n "$conf" ] || [ "$defect" != no-refusal ] || conf=$here/conformance.env
+if [ -z "$conf" ]; then
   [ "$defect" != more-lines ] || printf 'harness-fake-cli: starting up\n' >&2
-  printf 'harness-fake-cli: MODEL_PROVIDER=%s needs the codex or gemini-cli harness; this harness runs anthropic only\n' "${MODEL_PROVIDER:-}" >&2
+  printf 'harness-fake-cli: MODEL_PROVIDER=%s needs the codex or gemini-cli harness; this harness runs anthropic and zai only\n' "${MODEL_PROVIDER:-}" >&2
   exit 1
 fi
 
 # The one way out of the internal network (docs/adr/0046 §4), as every real run.sh
 # asks for it: after its refusals, before it runs the container.
-sh core/egress.sh "$(grep '^EGRESS=' "$here/conformance.env" | head -n1 | cut -d= -f2-)" || exit 1
+sh core/egress.sh "$(grep '^EGRESS=' "$conf" | head -n1 | cut -d= -f2-)" || exit 1
 port=${MODEL_BASE_URL##*:}
 case "$defect" in
   allow-sink|sink-touch) printf 'conformance-sink:%s\n' "$port" >> .crew/egress/allow ;;
@@ -235,10 +245,17 @@ case "$defect" in
   *) NETSHIM_OPEN="" ;;
 esac
 
-effort=$(grep "^ANTHROPIC_$(printf '%s' "$THINKING" | tr '[:lower:]' '[:upper:]')=" "$here/thinking.env" | cut -d= -f2)
+# The thinking map of the file's provider (`map-of-first` reads the first provider's for every one),
+# and the key from the file's KEY_VAR, which the suite exports for every conformance file.
+up() { printf '%s' "$1" | tr '[:lower:]' '[:upper:]'; }
+prefix=$(up "$MODEL_PROVIDER")
+[ "$defect" != map-of-first ] || prefix=ANTHROPIC
+effort=$(grep "^${prefix}_$(up "$THINKING")=" "$here/thinking.env" | cut -d= -f2)
+key_var=$(grep '^KEY_VAR=' "$conf" | cut -d= -f2-)
+eval "key=\${$key_var:?}"
 mkdir -p "$OUT"
-[ "$defect" != key-in-probe-case ] || [ ! -f "$WORKSPACE/probe.py" ] || printf '%s\n' "$FAKE_KEY_VALUE" > "$OUT/leak.log"
-[ "$defect" != key-in-review ] || [ "$ROLE" != test-reviewer ] || printf '%s\n' "$FAKE_KEY_VALUE" > "$OUT/leak.log"
+[ "$defect" != key-in-probe-case ] || [ ! -f "$WORKSPACE/probe.py" ] || printf '%s\n' "$key" > "$OUT/leak.log"
+[ "$defect" != key-in-review ] || [ "$ROLE" != test-reviewer ] || printf '%s\n' "$key" > "$OUT/leak.log"
 
 # The repository's MCP servers (docs/adr/0073 §8), as core/crew.sh hands them
 # over: CREW_MCP holds decl.json; mcp.sh translates it into OUT/mcp, and the
@@ -257,7 +274,7 @@ export CREW_MCP_DIR CREW_MCP_ALLOW
 sha=$(sha256sum "$TICKET_FILE" | cut -d' ' -f1)
 start=$(date +%s)
 rc=0
-FAKE_EFFORT=$effort FAKE_KEY=$FAKE_KEY_VALUE FAKE_GUARD="$here/hooks/guard.sh" \
+FAKE_EFFORT=$effort FAKE_KEY=$key FAKE_GUARD="$here/hooks/guard.sh" \
   python3 "$here/fake_cli.py" > "$OUT/transcript.json" 2> "$OUT/stderr.log" || rc=$?
 duration=$(($(date +%s) - start))
 
@@ -271,7 +288,7 @@ if [ "$rc" -ne 0 ]; then
     *) reason="fake-cli exited $rc: $(tail -n 1 "$OUT/stderr.log")" ;;
   esac
   [ "$defect" != wrong-stop-phrase ] || reason="stopped: budget"
-  [ "$defect" != key-on-stop ] || printf '%s\n' "$FAKE_KEY_VALUE" > "$OUT/stop.log"
+  [ "$defect" != key-on-stop ] || printf '%s\n' "$key" > "$OUT/stop.log"
   printf 'harness-fake-cli: %s\n' "$reason" >&2
   exit 1
 fi
@@ -322,11 +339,17 @@ served=$(jq -r '.served' "$OUT/transcript.json")
 [ "$defect" != raw-model ] || served=$MODEL
 tokens=$(jq -r '.tokens' "$OUT/transcript.json")
 [ "$defect" != tokens-doubled ] || tokens=$((tokens * 2))
+# tokens.cached (docs/adr/0092 §6): what the model reported cached, or no key (`omit-cached`, as
+# a harness that does not report it); `cached-wrong` is one token too many.
+cached=$(jq -r '.cached' "$OUT/transcript.json")
+[ "$defect" != cached-wrong ] || cached=$((cached + 1))
+[ "$defect" != omit-cached ] || cached=null
 jq -n --arg harness fake-cli --arg provider "$MODEL_PROVIDER" --arg model "$served" --arg thinking "$THINKING" \
   --argjson turns "$(jq '.turns' "$OUT/transcript.json")" --arg insha "$sha" --argjson tokens "$tokens" \
-  --argjson duration "$duration" --arg endpoint "${MODEL_BASE_URL:-}" --argjson mcp "$mcp" \
+  --argjson cached "$cached" --argjson duration "$duration" --arg endpoint "${MODEL_BASE_URL:-}" --argjson mcp "$mcp" \
   '{harness: $harness, provider: $provider, model: $model, thinking: $thinking, turns: $turns,
-    tokens: {input: ($tokens * 9 / 10 | floor), output: ($tokens / 10 | floor), total: $tokens},
+    tokens: ({input: ($tokens * 9 / 10 | floor), output: ($tokens / 10 | floor), total: $tokens}
+             + (if $cached == null then {} else {cached: $cached} end)),
     duration_s: $duration, exit_code: 0, input_sha256: $insha, endpoint: $endpoint, mcp: $mcp}' > "$OUT/run.json"
 if [ "$defect" = no-endpoint ]; then
   jq 'del(.endpoint)' "$OUT/run.json" > "$OUT/run.json.new" && mv "$OUT/run.json.new" "$OUT/run.json"
@@ -368,7 +391,7 @@ if defect == "input-cut":
 system = None if defect in ("no-prompt", "prompt-after-ticket") else prompt
 messages = [{"role": "user", "content": ticket + "\n\n" + prompt if defect == "prompt-after-ticket" else ticket}]
 tools = [{"name": n} for n in ("Bash", "Read", "Write")]
-tokens = turns = 0
+tokens = turns = cached = 0
 served = ""
 secret = env["FAKE_KEY"]
 
@@ -489,11 +512,13 @@ while True:
         sys.exit("model said %s: %s" % (e.code, e.read().decode()[:200]))
     turns += 1
     served = resp["model"]
-    tokens += resp["usage"]["input_tokens"] + resp["usage"]["output_tokens"]
+    usage = resp["usage"]
+    cached += usage.get("cache_read_input_tokens", 0)
+    tokens += usage["input_tokens"] + usage.get("cache_read_input_tokens", 0) + usage["output_tokens"]
     uses = [b for b in resp["content"] if b["type"] == "tool_use"]
     if not uses:
         text = "".join(b.get("text", "") for b in resp["content"])
-        print(json.dumps({"final": text, "served": served, "turns": turns, "tokens": tokens}))
+        print(json.dumps({"final": text, "served": served, "turns": turns, "tokens": tokens, "cached": cached}))
         break
     messages.append({"role": "assistant", "content": resp["content"]})
     results = []
@@ -740,8 +765,12 @@ build_tree() {
   cp "$fake/guard.sh" "$t/adapters/fake-cli/hooks/guard.sh"
   printf '{}\n' > "$t/adapters/fake-cli/package-lock.json"
   printf 'FROM scratch\n' > "$t/adapters/fake-cli/Containerfile"
-  printf 'ANTHROPIC_LOW=low\nANTHROPIC_MEDIUM=medium\nANTHROPIC_HIGH=high\n' > "$t/adapters/fake-cli/thinking.env"
+  # Two providers (docs/adr/0092 §2), their maps different where the suite's role asks (high):
+  # a run that reads the first provider's map for the second sends the wrong value.
+  printf 'ANTHROPIC_LOW=low\nANTHROPIC_MEDIUM=medium\nANTHROPIC_HIGH=high\nZAI_LOW=low\nZAI_MEDIUM=high\nZAI_HIGH=max\n' > "$t/adapters/fake-cli/thinking.env"
   printf 'PROVIDER=anthropic\nMODEL=fake-model-1\nKEY_VAR=FAKE_KEY_VALUE\nTHINKING_PATH=.output_config.effort\nEGRESS=api.fake-provider.example:443\n' > "$t/adapters/fake-cli/conformance.env"
+  # The second provider: its own key variable, model and host, and a BASE_URL, which the suite never reads.
+  printf 'PROVIDER=zai\nMODEL=fake-model-2\nKEY_VAR=FAKE_KEY_VALUE_ZAI\nTHINKING_PATH=.output_config.effort\nEGRESS=api.fake-zai.example:443\nBASE_URL=https://api.fake-zai.example/api/anthropic\n' > "$t/adapters/fake-cli/conformance.zai.env"
 }
 
 # --- the port picker, under the proxy's load -------------------------------------
@@ -894,10 +923,14 @@ prove() {
   case "$3" in
     GO)
       case "$verdict" in
-        "GO: harness-conformance — fake-cli, against a scripted model, "*) [ "$rc" -eq 0 ] || verdict="exit $rc" ;;
+        "GO: harness-conformance — fake-cli (anthropic), fake-cli (zai), against a scripted model, "*) [ "$rc" -eq 0 ] || verdict="exit $rc" ;;
         *) rc=1 ;;
       esac
       [ "$rc" -eq 0 ] || nogo "the good fake-cli was refused ($1)" "got: $verdict" "$(tail -n 40 "$errfile")"
+      # Both providers ran, one progress line each on stderr naming the harness and the provider.
+      { grep -qF 'harness-conformance: fake-cli (provider anthropic, model fake-model-1)' "$errfile" \
+        && grep -qF 'harness-conformance: fake-cli (provider zai, model fake-model-2)' "$errfile"; } \
+        || nogo "the good fake-cli's run has no progress line for each of its two providers ($1)" "$(tail -n 40 "$errfile")"
       # Once at its start, so a proxy from an earlier run does not serve this one, and once on exit.
       [ "$(awk 'END{print NR}' "$t/.proof/egress.removed" 2>/dev/null)" = 2 ] \
         || nogo "the good fake-cli's run did not remove egress exactly at its start and on exit ($1)" ;;
@@ -916,38 +949,43 @@ tweak=""
 prove "good fake-cli" "" GO
 
 # One defect each: a real harness's way of being wrong, and the case that must say so.
-prove "answers another provider after starting a container" late-refusal "fake-cli case 0:"
-prove "writes a second line before refusing" more-lines "fake-cli case 0:"
-prove "runs a model it was not paired with" no-refusal "fake-cli case 0:"
-prove "forgets the thinking value" no-thinking "fake-cli case 1:"
-prove "forgets the role prompt" no-prompt "fake-cli case 1:"
-prove "records the requested model, not the served one" raw-model "fake-cli case 1:"
-prove "reports other tokens than the model spent" tokens-doubled "fake-cli case 1:"
-prove "drops the endpoint from run.json" no-endpoint "fake-cli case 1:"
-prove "hooks that log a denial and let the call through" log-only "fake-cli case 2:"
-prove "no hook at all" no-hook "fake-cli case 1: OUT/hooks.log"
-prove "ignores MAX_TURNS" no-turn-limit "fake-cli case 5:"
-prove "stops on TOKEN_BUDGET with its own words" wrong-stop-phrase "fake-cli case 5:"
-prove "never stops on TOKEN_BUDGET" no-token-limit "fake-cli case 6:"
-prove "leaves no run.json when it stops on TOKEN_BUDGET" no-run-on-stop "fake-cli case 6: the over-budget run left no run.json"
-prove "the key reaches a request body" key-in-body "fake-cli case 3:"
+prove "answers another provider after starting a container" late-refusal "fake-cli (anthropic): case 0:"
+prove "writes a second line before refusing" more-lines "fake-cli (anthropic): case 0:"
+prove "accepts a provider none of its files declares" no-refusal "fake-cli (anthropic): case 0:"
+prove "forgets the thinking value" no-thinking "fake-cli (anthropic): case 1:"
+prove "forgets the role prompt" no-prompt "fake-cli (anthropic): case 1:"
+prove "records the requested model, not the served one" raw-model "fake-cli (anthropic): case 1:"
+prove "reports other tokens than the model spent" tokens-doubled "fake-cli (anthropic): case 1:"
+prove "drops the endpoint from run.json" no-endpoint "fake-cli (anthropic): case 1:"
+prove "writes a tokens.cached the model did not report" cached-wrong "fake-cli (anthropic): case 1: run.json .tokens.cached is"
+prove "a harness that reports no tokens.cached" omit-cached GO
+# A second provider (docs/adr/0092 §2): the good fake passed both; each defect fails the second alone.
+prove "ignores the second file's provider and refuses it" one-provider "fake-cli (zai): case 1: run.sh exited 1, want 0"
+prove "sends the first provider's thinking value for the second" map-of-first "fake-cli (zai): case 1: the first request carries 'high' at .output_config.effort, want 'max' (thinking.env's ZAI_HIGH)"
+prove "hooks that log a denial and let the call through" log-only "fake-cli (anthropic): case 2:"
+prove "no hook at all" no-hook "fake-cli (anthropic): case 1: OUT/hooks.log"
+prove "ignores MAX_TURNS" no-turn-limit "fake-cli (anthropic): case 5:"
+prove "stops on TOKEN_BUDGET with its own words" wrong-stop-phrase "fake-cli (anthropic): case 5:"
+prove "never stops on TOKEN_BUDGET" no-token-limit "fake-cli (anthropic): case 6:"
+prove "leaves no run.json when it stops on TOKEN_BUDGET" no-run-on-stop "fake-cli (anthropic): case 6: the over-budget run left no run.json"
+prove "the key reaches a request body" key-in-body "fake-cli (anthropic): case 3:"
 
 # Confinement (docs/adr/0046). Case 1 meets what any case would: a request that did not come
 # from the proxy, one that reached the sink's name, one that went to /exfil.
-prove "reaches the model around the proxy" direct-model "fake-cli case 1: the stub saw requests from"
-prove "talks to the sink through a list that lets it through" sink-touch "fake-cli case 1: 1 request(s) reached conformance-sink or /exfil"
-prove "posts to /exfil on the model's own host" exfil-path "fake-cli case 1: 1 request(s) reached conformance-sink or /exfil"
+prove "reaches the model around the proxy" direct-model "fake-cli (anthropic): case 1: the stub saw requests from"
+prove "talks to the sink through a list that lets it through" sink-touch "fake-cli (anthropic): case 1: 1 request(s) reached conformance-sink or /exfil"
+prove "posts to /exfil on the model's own host" exfil-path "fake-cli (anthropic): case 1: 1 request(s) reached conformance-sink or /exfil"
 # Case 9: each way the probe tries, left open in turn, and a proxy that took one host too many.
-prove "a list that lets the sink through (probe ways a, b)" allow-sink "fake-cli case 9: channel a is open"
-prove "a list that lets the model's name through on another port (c)" allow-model-port "fake-cli case 9: channel c is open"
-prove "a list that lets example.com through (d)" allow-example "fake-cli case 9: channel d is open"
-prove "a container that reaches the sink's address directly (e)" open-sink-direct "fake-cli case 9: channel e is open"
-prove "a container that reaches 1.1.1.1 directly (g)" open-public "fake-cli case 9: channel g is open"
-prove "a container whose DNS resolves example.com (h)" open-dns "fake-cli case 9: channel h is open"
-prove "a probe that cannot reach the proxy, so tried nothing" probe-cut-off "fake-cli case 9: the proxy's log holds no DENY"
-prove "a proxy that takes a host of the harness's own" side-host "fake-cli case 9: the proxy took a host other than the scripted model"
-prove "a tool result cut short, so the probe's last ways are not seen" cut-output "fake-cli case 9: the tool result has no 'egress-probe d' line"
-prove "the key in an artefact of case 9 alone" key-in-probe-case "fake-cli case 8:"
+prove "a list that lets the sink through (probe ways a, b)" allow-sink "fake-cli (anthropic): case 9: channel a is open"
+prove "a list that lets the model's name through on another port (c)" allow-model-port "fake-cli (anthropic): case 9: channel c is open"
+prove "a list that lets example.com through (d)" allow-example "fake-cli (anthropic): case 9: channel d is open"
+prove "a container that reaches the sink's address directly (e)" open-sink-direct "fake-cli (anthropic): case 9: channel e is open"
+prove "a container that reaches 1.1.1.1 directly (g)" open-public "fake-cli (anthropic): case 9: channel g is open"
+prove "a container whose DNS resolves example.com (h)" open-dns "fake-cli (anthropic): case 9: channel h is open"
+prove "a probe that cannot reach the proxy, so tried nothing" probe-cut-off "fake-cli (anthropic): case 9: the proxy's log holds no DENY"
+prove "a proxy that takes a host of the harness's own" side-host "fake-cli (anthropic): case 9: the proxy took a host other than the scripted model"
+prove "a tool result cut short, so the probe's last ways are not seen" cut-output "fake-cli (anthropic): case 9: the tool result has no 'egress-probe d' line"
+prove "the key in an artefact of case 9 alone" key-in-probe-case "fake-cli (anthropic): case 8:"
 
 # A guard that only knows git push: pushes are refused, secrets are readable.
 # shellcheck disable=SC2329 # invoked by name through $tweak in prove
@@ -965,11 +1003,11 @@ exit 0
 GUARD
 }
 tweak=push_only_guard
-prove "a guard that knows git push and nothing else" "" "fake-cli case 3:"
+prove "a guard that knows git push and nothing else" "" "fake-cli (anthropic): case 3:"
 
 # A key that leaks into an artefact only when a run is stopped: only case 8 reads every case.
 tweak=""
-prove "the key in an artefact of a stopped run" key-on-stop "fake-cli case 8:"
+prove "the key in an artefact of a stopped run" key-on-stop "fake-cli (anthropic): case 8:"
 
 # A compose project that starts something beside the worker.
 compose_json='{"services":{"conformance-model":{"networks":{"default":{"aliases":["conformance-sink"]}}},"egress":{},"fake-cli":{"depends_on":{"postgres":{}}}}}'
@@ -981,6 +1019,11 @@ prove "a worker whose service starts Postgres with it" "" "would also start post
 no_egress_key() { grep -v '^EGRESS=' "$1/adapters/fake-cli/conformance.env" > "$1/c.new"; mv "$1/c.new" "$1/adapters/fake-cli/conformance.env"; }
 tweak=no_egress_key
 prove "a conformance.env without EGRESS" "" "has no EGRESS="
+# The same for the second provider's file: the suite reads every conformance file, not the first alone.
+# shellcheck disable=SC2329 # invoked by name through $tweak in prove
+no_zai_egress() { grep -v '^EGRESS=' "$1/adapters/fake-cli/conformance.zai.env" > "$1/c.new"; mv "$1/c.new" "$1/adapters/fake-cli/conformance.zai.env"; }
+tweak=no_zai_egress
+prove "a conformance.zai.env without EGRESS" "" "conformance.zai.env has no EGRESS="
 tweak=""
 
 # A project without the proxy, or without the sink's name: case 9 would prove nothing.
@@ -992,25 +1035,25 @@ compose_json=""
 
 # Case 10 (docs/adr/0073). 10a, the reviewer's role file: the good fake above
 # passed it; each defect leaves case 1 standing and breaks 10a alone.
-prove "commits even when the reviewer changed nothing" commit-always "fake-cli case 10a: run.sh exited 1, want 0"
-prove "puts the role prompt after the ticket" prompt-after-ticket "fake-cli case 10a: the first request holds the role prompt, the role file's marker and the restated output contract out of order"
-prove "sends the input's first twenty lines only" input-cut "fake-cli case 10a: the first request lacks the restated output contract"
-prove "writes final.md under a heading of its own" final-md-header "fake-cli case 10a: final.md's first line is 'Final answer:', want APPROVED"
+prove "commits even when the reviewer changed nothing" commit-always "fake-cli (anthropic): case 10a: run.sh exited 1, want 0"
+prove "puts the role prompt after the ticket" prompt-after-ticket "fake-cli (anthropic): case 10a: the first request holds the role prompt, the role file's marker and the restated output contract out of order"
+prove "sends the input's first twenty lines only" input-cut "fake-cli (anthropic): case 10a: the first request lacks the restated output contract"
+prove "writes final.md under a heading of its own" final-md-header "fake-cli (anthropic): case 10a: final.md's first line is 'Final answer:', want APPROVED"
 # 10b, the dev-worker's calls.
-prove "offers the model no MCP tool" mcp-undeclared "fake-cli case 10b: the first request declares no tool ending with search_notes"
-prove "says the unnamed tools are hidden while offering them" mcp-says-hidden "fake-cli case 10b: run.json says the unnamed tools are hidden, and the first request declares count_notes"
-prove "writes no mcp into run.json" mcp-null "fake-cli case 10b: run.json .mcp.unlisted is 'absent'"
-prove "a guard that lets an unnamed MCP tool through" mcp-guard-open "fake-cli case 10b: hooks.log has no DENY for count_notes"
-prove "logs the denial of an unnamed MCP tool and calls it anyway" mcp-log-only "fake-cli case 10b: count_notes's answer reached the model"
-prove "hands the model no server answer" mcp-no-result "fake-cli case 10b: no request's tool result carries notes-hit:"
-prove "starts the server in its own directory, not the workspace" mcp-own-cwd "fake-cli case 10b: the tool result does not name the workspace"
-prove "counts the calls without reading hooks.log" mcp-calls-unread "fake-cli case 10b: run.json .mcp.calls is [], want"
+prove "offers the model no MCP tool" mcp-undeclared "fake-cli (anthropic): case 10b: the first request declares no tool ending with search_notes"
+prove "says the unnamed tools are hidden while offering them" mcp-says-hidden "fake-cli (anthropic): case 10b: run.json says the unnamed tools are hidden, and the first request declares count_notes"
+prove "writes no mcp into run.json" mcp-null "fake-cli (anthropic): case 10b: run.json .mcp.unlisted is 'absent'"
+prove "a guard that lets an unnamed MCP tool through" mcp-guard-open "fake-cli (anthropic): case 10b: hooks.log has no DENY for count_notes"
+prove "logs the denial of an unnamed MCP tool and calls it anyway" mcp-log-only "fake-cli (anthropic): case 10b: count_notes's answer reached the model"
+prove "hands the model no server answer" mcp-no-result "fake-cli (anthropic): case 10b: no request's tool result carries notes-hit:"
+prove "starts the server in its own directory, not the workspace" mcp-own-cwd "fake-cli (anthropic): case 10b: the tool result does not name the workspace"
+prove "counts the calls without reading hooks.log" mcp-calls-unread "fake-cli (anthropic): case 10b: run.json .mcp.calls is [], want"
 # 10c, a server that exits at start.
-prove "goes on without a server that did not start" mcp-down-ignored "fake-cli case 10c: run.sh exited 0 with a server that exits at start, want 1"
-prove "fails without naming the server or ADR 0073 §8" mcp-down-vague "fake-cli case 10c: run.sh's stderr has no line naming the server notes and ADR 0073 §8"
-prove "fails after writing pr.json" mcp-down-late "fake-cli case 10c: a run whose declared server did not start left OUT/pr.json"
+prove "goes on without a server that did not start" mcp-down-ignored "fake-cli (anthropic): case 10c: run.sh exited 0 with a server that exits at start, want 1"
+prove "fails without naming the server or ADR 0073 §8" mcp-down-vague "fake-cli (anthropic): case 10c: run.sh's stderr has no line naming the server notes and ADR 0073 §8"
+prove "fails after writing pr.json" mcp-down-late "fake-cli (anthropic): case 10c: a run whose declared server did not start left OUT/pr.json"
 # Case 8 reads case 10's artefacts too.
-prove "the key in an artefact of the reviewer's run alone" key-in-review "fake-cli case 8: the key canary is in the artefacts"
+prove "the key in an artefact of the reviewer's run alone" key-in-review "fake-cli (anthropic): case 8: the key canary is in the artefacts"
 
 # 10r: a harness with no mcp.sh, beside an adapter that is no CLI harness and has
 # one (replay's shape). Good, then agents.py's refusal wrong each way 10r reads it.
@@ -1029,11 +1072,11 @@ agents_shim() {
 tweak=no_mcp_sh
 prove "fake-cli without an mcp.sh" "" GO
 tweak=agents_shim
-prove "agents.py accepts a harness with no mcp.sh" agents-mcp-accepts "fake-cli case 10r: core/agents.py mcp --harness fake-cli exited 0 for a harness with no mcp.sh, want 1"
-prove "agents.py's refusal has a second line" agents-mcp-chatty "fake-cli case 10r: core/agents.py mcp's refusal is 2 lines on stdout, want one"
-prove "agents.py refuses in other words" agents-mcp-other-words "fake-cli case 10r: core/agents.py mcp's refusal is not ADR 0073 §8's line"
-prove "agents.py names a harness with no mcp.sh" agents-mcp-wrong-list "fake-cli case 10r: the refusal lists 'fake-cli fake-replay', want the harnesses that have adapters/<name>/mcp.sh: 'fake-replay'"
-prove "agents.py refuses and writes decl.json" agents-mcp-writes-decl "fake-cli case 10r: core/agents.py mcp refused and still wrote decl.json"
+prove "agents.py accepts a harness with no mcp.sh" agents-mcp-accepts "fake-cli (anthropic): case 10r: core/agents.py mcp --harness fake-cli exited 0 for a harness with no mcp.sh, want 1"
+prove "agents.py's refusal has a second line" agents-mcp-chatty "fake-cli (anthropic): case 10r: core/agents.py mcp's refusal is 2 lines on stdout, want one"
+prove "agents.py refuses in other words" agents-mcp-other-words "fake-cli (anthropic): case 10r: core/agents.py mcp's refusal is not ADR 0073 §8's line"
+prove "agents.py names a harness with no mcp.sh" agents-mcp-wrong-list "fake-cli (anthropic): case 10r: the refusal lists 'fake-cli fake-replay', want the harnesses that have adapters/<name>/mcp.sh: 'fake-replay'"
+prove "agents.py refuses and writes decl.json" agents-mcp-writes-decl "fake-cli (anthropic): case 10r: core/agents.py mcp refused and still wrote decl.json"
 tweak=""
 
 go
