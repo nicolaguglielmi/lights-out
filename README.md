@@ -205,7 +205,7 @@ What exists today, each opt-in, none yet run end to end on a repository of yours
 - **GitLab as a code host.** `CODE_HOST=gitlab` ([`adapters/gitlab/`](adapters/gitlab/), GitLab CE 19.5.5-ce.0). `./go gitlab-conformance` starts GitLab in a compose project of its own, runs the ten cases and removes it. It took about 224 s to serve and held 2.4 GB resident (measured 2026-11-13). The full tower on GitLab is not proven: it does not fit beside the plane on a 4.5 GiB VM.
 - **Jenkins as a surface.** [`surfaces/jenkins/Jenkinsfile`](surfaces/jenkins/Jenkinsfile) runs `lights-out gates` on a Jenkins agent and posts the line as the commit status `lights-out/jenkins`. The tower never reads it. `./go demo-jenkins` proves it with Jenkinsfile Runner against a Gitea of its own. Not proven on a real Jenkins controller.
 - **GitLab CI and CircleCI as surfaces.** [`surfaces/gitlab-ci/.gitlab-ci.yml`](surfaces/gitlab-ci/.gitlab-ci.yml) posts `lights-out/gitlab-ci` on merge requests; `./go demo-gitlab-ci` proves it with a real gitlab-runner on a local GitLab (a `docker:dind` runner not proven). [`surfaces/circleci/config.yml`](surfaces/circleci/config.yml) posts `lights-out/circleci`; `./go demo-circleci` validates it and runs its step against a local Gitea PR, which is not a CircleCI run: `circleci local execute` cannot run its machine job ([ADR 0095](docs/adr/0095-flagger-under-the-launchpads-gates-and-two-more-ci-surfaces.md)).
-- **Your metrics.** `./go verify METRICS_URL=<any Prometheus-compatible endpoint> CANARY_VERSION=<v> STABLE_VERSION=<s>` judges your own canary with the unchanged `verify/slo.promql`. "Any Prometheus-compatible endpoint" means one that answers `/api/v1/query` with the OTel HTTP semconv histogram joined to `target_info{service_version}`. On other metrics the answer is NO-GO with "no data". An auth header goes in `.env` as `METRICS_AUTH_HEADER`.
+- **Your metrics.** `./go verify METRICS_URL=<any Prometheus-compatible endpoint> CANARY_VERSION=<v> STABLE_VERSION=<s>` judges your own canary with the active `slo.promql` (`verify/slo.promql` expects Envoy upstream cluster metrics `envoy_cluster_upstream_rq_*` with `envoy_cluster_name="stable"|"canary"`; pass `SLO_PROMQL=` or `DELIVERY=argo-rollouts` for OTel HTTP semconv histograms joined to `target_info{service_version}`). On other metrics the answer is NO-GO with "no data". An auth header goes in `.env` as `METRICS_AUTH_HEADER`.
 
 Two commands say how far you are:
 
@@ -217,7 +217,7 @@ Two commands say how far you are:
 `./go production-readiness` is GO only with all four:
 
 - **Delivery:** the adapter in `DELIVERY` has a `rollback.sh` and passed its conformance suite here, for the adapter's files as they are now.
-- **Metrics:** `METRICS=promql`, and `METRICS_URL` answers `count(target_info)`.
+- **Metrics:** `METRICS=promql`, and `METRICS_URL` answers the readiness count query derived from the active `slo.promql` (`count(envoy_cluster_upstream_rq_completed)` by default, or `count(target_info)` when `target_info` appears).
 - **Secrets:** `.env` holds no value for a key ending `_KEY`, `_TOKEN`, `_SECRET` or `_PASSWORD`, nor for `METRICS_AUTH_HEADER`. `./go` passes those keys from your shell's environment, by name.
 - **Human gate:** `GO_FOR_LAUNCH` is not preset, and the console runs with `CONSOLE_AUTH=proxy`, a `CONSOLE_IDENTITY_HEADER` and named `CONSOLE_LAUNCHERS`.
 

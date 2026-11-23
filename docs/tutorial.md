@@ -215,18 +215,11 @@ Nothing in the plane half is drafted for you, on purpose: a guessed
 compose file would bring up a plane whose canary cannot be judged (ADR
 0097 §4). Start from the example instead, which works:
 
-1. Copy `workloads/minimal/.lights-out/compose.yaml`, `flags/flags.json`,
-   `smoke.sh` and `load.sh` into your `.lights-out/`, and change the
-   service's build context and port.
-2. Your service answers `GET /healthz` and `GET /metrics` on `:8000`
-   (`workloads/minimal/minimal/app.py` does both).
-3. Its metrics are the OTel HTTP server histogram with
-   `target_info{service_version}`: `./go verify` reads exactly that
-   (`verify/slo.promql`), and `GO: metric-shape` below checks it first.
-4. It reads one kill switch from flagd, on for `CANARY_VERSION`
-   (`WORKLOAD_KILL_SWITCH` in `workload.env`): that is how the demo makes
-   a canary fail. Add one fixture under `fixtures/gates/`, a `git
-   format-patch` and the verdict you expect.
+1. Copy `workloads/plain/.lights-out/compose.yaml` (or `workloads/minimal/.lights-out/compose.yaml` if using flagd), `flags/flags.json`,
+   `smoke.sh` and `load.sh` into your `.lights-out/`, and set the service's build context.
+2. Your service answers the probe declared in `WORKLOAD_HEALTH_PROBE` (defaults to `GET /healthz`, 2xx–3xx, or `tcp:<port>`) on `:8000` (`workloads/plain/` uses `http:/ok` with zero OTel, `/metrics`, or JSON `/healthz`; Kubernetes adapters still read `/healthz` and `/metrics`).
+3. On L0 Envoy, traffic, 5xx, and p95 latency come straight from the proxy (`verify/slo.promql`), verified first by `GO: metric-shape` (`./go demo-seam-plain` proves this without app instrumentation).
+4. Optionally, an app can read a kill-switch flag from flagd, on for `CANARY_VERSION` (`WORKLOAD_KILL_SWITCH` in `workload.env`, as `workloads/minimal/` does), and expose fixtures under `fixtures/gates/` (`git format-patch` + expected verdict).
 
 ```sh
 ./go attach ~/code/your-repo
@@ -1485,11 +1478,14 @@ incident other than the committed one exists, so no output is shown.
 ./go verify METRICS_URL=<endpoint> CANARY_VERSION=<v> STABLE_VERSION=<s>
 ```
 
-This runs the unchanged `verify/slo.promql` against any
-Prometheus-compatible endpoint. That means one that answers
-`/api/v1/query`, with the OTel HTTP semconv histogram joined to
-`target_info{service_version}`. On other metrics the answer is NO-GO with
-"no data". `METRICS_URL` is the base that `/api/v1/query` is appended to.
+This runs the active `slo.promql` (`verify/slo.promql` by default, or
+`adapters/$DELIVERY/slo.promql` / `SLO_PROMQL`) against any
+Prometheus-compatible endpoint (`/api/v1/query`). By default
+`verify/slo.promql` reads Envoy's `envoy_cluster_upstream_rq_*` series
+by `envoy_cluster_name`; set `DELIVERY=argo-rollouts` (or `SLO_PROMQL`)
+for the OTel HTTP semconv histogram joined to `target_info{service_version}`.
+On other metrics the answer is NO-GO with "no data". `METRICS_URL` is the
+base that `/api/v1/query` is appended to.
 An auth header goes in `.env` as `METRICS_AUTH_HEADER` and is never
 printed. Both versions must be set.
 

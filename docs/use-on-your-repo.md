@@ -167,7 +167,7 @@ first.
 
 | File | What it is |
 |---|---|
-| `workload.env` | The twelve keys, below, each under a provenance line |
+| `workload.env` | The twelve required keys below (plus optional `WORKLOAD_HEALTH_PROBE`), each under a provenance line |
 | `worker.md` | The dev-worker's brief: `## Scope` (the paths it may change) and `## Tests` (the exact command, and where to run it) |
 | `policy.env` | Your thresholds. A draft overrides none: every threshold is the platform default (section 3) |
 | `runners/` | The stack's runners, copied from `stacks/<stack>/runners/`: cosmic-ray and bandit for python, StrykerJS and eslint with eslint-plugin-security for javascript. Each set is pinned by its own lockfile |
@@ -185,16 +185,16 @@ The plane half is in section 2.
 
 ### The twelve keys
 
-`ci/workloads.sh` checks these twelve keys. The first seven are ADR 0030's
+`ci/workloads.sh` checks these twelve keys (plus optional `WORKLOAD_HEALTH_PROBE`). The first seven are ADR 0030's
 contract, `WORKLOAD_TEST_PATHS` is ADR 0053's, and the last four are ADR
 0042's runner contract.
 
 | Key | What it says |
 |---|---|
-| `CANARY_VERSION` | The version string your flag file targets as the failing release. Plane half: empty in a draft |
+| `CANARY_VERSION` | The version string your flag file targets as the failing release (or your canary label). Plane half: empty in a draft |
 | `MUTATION_BASELINE` | Your suite's measured mutation score (section 1, provenance). `./go init` measures it |
-| `WORKLOAD_KILL_SWITCH` | The flag that turns the risky feature off. Plane half: empty in a draft |
-| `WORKLOAD_SAMPLE_PATH` | One read-only, instrumented `GET` route. Plane half: empty in a draft |
+| `WORKLOAD_KILL_SWITCH` | Optional kill-switch flag name (`release-freeze` alone is required when empty, rollback returns traffic to stable). Plane half: empty in a draft |
+| `WORKLOAD_SAMPLE_PATH` | One read-only `GET` route `verify/metric-shape.sh` probes to verify app reachability and warm proxy metrics. Plane half: empty in a draft |
 | `WORKLOAD_LOCKFILES` | Lockfiles for the dependency gate, `:`-separated |
 | `WORKLOAD_MUTATION_SCOPE` | The source directory the mutation gate reads |
 | `WORKLOAD_TEST_ROOT` | The prefix stripped to address lines in the compose test image (may be empty). On the workbench and image forms, the directory the three commands run from |
@@ -204,7 +204,9 @@ contract, `WORKLOAD_TEST_PATHS` is ADR 0053's, and the last four are ADR
 | `SAST_CMD` | The static analysis command, one `sh -c` line. It prints one line, `{"findings": N, "items": [{"rule", "file", "line"}]}`, with `file` relative to the directory the command runs from. The gate judges the diff: a finding HEAD has and the base does not is a NO-GO, an inherited one is listed on stderr (ADR 0072 §1). A runner that prints no `items`, such as a copy made before ADR 0072, keeps the whole-tree verdict until `./go init` refreshes it. A non-zero exit with no findings parsed is a NO-GO too |
 | `MUTATION_CMD` | The mutation command, one `sh -c` line. It reads `MUTATION_LINES` (`all` for the whole scope, as init uses it) and prints one line, `{"total","killed","survived","score"}`. The gate compares the score with `MUTATION_BASELINE` and `MUTATION_MARGIN`. The python runner splits the mutants into `MUTATION_SHARDS` parallel shards, one per processor by default, with the same score as a single run; each mutant runs only the `unittest.TestCase` tests that executed its statement in the clean run (`MUTATION_SELECT=off` runs the whole suite for every mutant). The python runner's quoted test command is run by cosmic-ray without a shell, so it cannot start with `VAR=value`: put the variable before the runner (`VAR=value sh .lights-out/runners/mutation.sh …`). A test command cosmic-ray cannot start is a failed run, not a score |
 
-A key that is empty or names a missing path makes its gate answer NO-GO and
+Optional key: `WORKLOAD_HEALTH_PROBE` (`http:/<path>`, `tcp`, or `tcp:<port>`; empty or unset defaults to `http:/healthz`), preserved by `./go init` if present in your committed `workload.env` (ADR 0098).
+
+A key that is empty (other than optional `WORKLOAD_KILL_SWITCH` or `WORKLOAD_TEST_ROOT`) or names a missing path makes its gate answer NO-GO and
 name the key. A typo never turns into a silent GO.
 
 A ticket that removes tests on purpose (a dead feature, a refactor that
@@ -418,10 +420,13 @@ instruction. Do not list `registry.npmjs.org`, or any host that accepts
 uploads, without reading why: `npm publish` with an injected token sends
 anything out through it.
 
-The rest of the port is ADR 0030 §3: three compose services (`backend`,
+The rest of the port is ADR 0030 §3 as amended by [ADR 0098](adr/0098-verify-from-the-proxy.md): three compose services (`backend`,
 `backend-canary` with profile `canary` and image `${CANARY_IMAGE}`, and
-`backend-test` with profile `test`), and `GET /healthz` and `GET /metrics`
-on `:8000`. ADR 0042 amends the runners part of §3. `SAST_CMD` and
+`backend-test` with profile `test`), and answering `WORKLOAD_HEALTH_PROBE`
+(default `GET /healthz`, 2xx–3xx, or `tcp` / `tcp:<port>`) on `:8000` (inside Compose).
+On the L0 Envoy path, neither `/metrics` nor a JSON `/healthz` version is
+required (`workloads/plain/` and `./go demo-seam-plain` prove this without
+OTel or OpenFeature; Kubernetes adapters still read `/metrics` and `/healthz`). ADR 0042 amends the runners part of §3. `SAST_CMD` and
 `MUTATION_CMD` name whatever runners you have. `workloads/minimal/` keeps its
 two in `tests/sast/run.sh` and `tests/mutation/run.sh`, in its test image.
 
