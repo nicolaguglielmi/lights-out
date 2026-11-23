@@ -382,7 +382,7 @@ def infer(repo):
 
 def render_workload_env(d, committed, today, commit):
     kept = {k: committed.get(k, "") for k in PLANE_KEYS}
-    has_committed = any(kept.values())
+    has_committed = any(kept.values()) or ("WORKLOAD_HEALTH_PROBE" in committed)
     lines = [
         f"# .lights-out/workload.env, drafted by ./go init on {today} at {commit} (docs/adr/0042 §6):",
         "# the twelve keys the platform reads (docs/adr/0030 §2, 0042 §1, 0053 §1), each under",
@@ -403,6 +403,12 @@ def render_workload_env(d, committed, today, commit):
             key(name, kept[name], "kept: from the committed .lights-out/workload.env; the plane half is not drafted")
         else:
             key(name, "", "default: empty, the plane half is not drafted (docs/adr/0042 §7); fill in to run the plane")
+    if "WORKLOAD_HEALTH_PROBE" in committed:
+        key(
+            "WORKLOAD_HEALTH_PROBE",
+            committed["WORKLOAD_HEALTH_PROBE"],
+            "kept: from the committed .lights-out/workload.env; optional health probe (ADR 0098 §3)",
+        )
     key("MUTATION_BASELINE", "", "measurement: not yet measured; ./go init measures it (docs/adr/0042 §6)")
     key("WORKLOAD_LOCKFILES", d["lockfiles"], f"inferred: {d['lockfiles_evidence']}")
     key("WORKLOAD_MUTATION_SCOPE", d["scope"], f"inferred: {d['scope_evidence']}")

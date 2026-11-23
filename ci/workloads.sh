@@ -454,14 +454,25 @@ if "TOOLCHAIN_IMAGE" in values:
         print(f"{path}: TOOLCHAIN_IMAGE={image!r} is none of workbench, compose:<service> or an image reference (docs/adr/0042 §2)")
         sys.exit(1)
 
+if "WORKLOAD_HEALTH_PROBE" in values:
+    probe = values["WORKLOAD_HEALTH_PROBE"]
+    ok_probe = probe == "" or bool(re.fullmatch(r"http:/\S*", probe)) or probe == "tcp"
+    if not ok_probe:
+        m = re.fullmatch(r"tcp:([0-9]+)", probe)
+        ok_probe = bool(m and 1 <= int(m.group(1)) <= 65535)
+    if not ok_probe:
+        print(f"{path}: WORKLOAD_HEALTH_PROBE={probe!r} must be empty, http:/<path>, tcp or tcp:<port> (docs/adr/0098)")
+        sys.exit(1)
+
 seen = set()
 dupes = sorted({k for k in keys if k in seen or seen.add(k)})
 if dupes:
     print(f"{path} defines a key more than once: {', '.join(dupes)}")
     sys.exit(1)
 
+optional_keys = {"WORKLOAD_HEALTH_PROBE"}
 actual = set(keys)
-extra = sorted(actual - expected)
+extra = sorted(actual - expected - optional_keys)
 missing = sorted(expected - actual)
 if extra or missing:
     bits = []
@@ -469,7 +480,7 @@ if extra or missing:
         bits.append("extra: " + ", ".join(extra))
     if missing:
         bits.append("missing: " + ", ".join(missing))
-    print(f"{path} must define exactly the twelve docs/adr/0030 §2, 0042 §1 and 0053 §1 keys ({'; '.join(bits)})")
+    print(f"{path} must define the twelve docs/adr/0030 §2, 0042 §1 and 0053 §1 keys plus optional WORKLOAD_HEALTH_PROBE ({'; '.join(bits)})")
     sys.exit(1)
 PY
   ) && ok=1 || ok=0
@@ -570,11 +581,10 @@ PY
     crew_selfchecked=1
   fi
 
-  # (c) the flag file defines release-freeze and this workload's own kill
-  # switch -- read from this workload's own file, never the ambient
-  # $WORKLOAD_KILL_SWITCH, which only reflects the enclosing make's WORKLOAD.
+  # (c) the flag file defines release-freeze and, when non-empty, this
+  # workload's own kill switch -- read from this workload's own file, never
+  # the ambient $WORKLOAD_KILL_SWITCH, which only reflects the enclosing make's WORKLOAD.
   kill_switch=$(grep -v '^[[:space:]]*#' "$f" | sed -n 's/^WORKLOAD_KILL_SWITCH=//p')
-  [ -n "$kill_switch" ] || nogo "$f: WORKLOAD_KILL_SWITCH is empty"
 
   flags_file="$cd_/flags/flags.json"
   [ -f "$flags_file" ] || nogo "$flags_file does not exist"
@@ -592,7 +602,8 @@ with open(path) as f:
         sys.exit(1)
 
 flags = data.get("flags", {})
-missing = [n for n in ("release-freeze", kill_switch) if n not in flags]
+required = ["release-freeze"] + ([kill_switch] if kill_switch else [])
+missing = [n for n in required if n not in flags]
 if missing:
     print(f"{path} does not define flag(s): {', '.join(missing)}")
     sys.exit(1)

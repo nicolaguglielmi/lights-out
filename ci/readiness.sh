@@ -8,7 +8,9 @@
 # sets, against a .env file and a conformance directory the case builds
 # (READINESS_ENV_FILE, CONFORMANCE_DIR) and, for `promql`, a stub endpoint
 # on 127.0.0.1 (python3's http.server) that answers the PromQL instant
-# query `count(target_info)` with one sample, none, a refusal without the
+# queries derived from the active slo.promql (`count(target_info)` for
+# argo-rollouts, `count(envoy_cluster_upstream_rq_completed)` by default)
+# with one sample, none, a refusal without the
 # auth header, or not at all (a port nobody listens on).
 #   hash       adapter_hash (ci/lib.sh): one sha256 hex digest; the same twice,
 #              for a copy at the same relative path elsewhere and after a
@@ -180,6 +182,7 @@ import http.server, json, os, sys, urllib.parse
 mode, portfile = sys.argv[1:3]
 SAMPLE = {"status": "success", "data": {"resultType": "vector", "result": [{"metric": {}, "value": [0, "1"]}]}}
 EMPTY = {"status": "success", "data": {"resultType": "vector", "result": []}}
+VALID_QUERIES = ("count(target_info)", "count(envoy_cluster_upstream_rq_completed)")
 
 
 class H(http.server.BaseHTTPRequestHandler):
@@ -192,7 +195,7 @@ class H(http.server.BaseHTTPRequestHandler):
         if mode == "auth" and self.headers.get("Authorization") != "Bearer CANARY-2":
             self.send_error(401)
             return
-        body = SAMPLE if mode in ("good", "auth") and q == "count(target_info)" else EMPTY
+        body = SAMPLE if mode in ("good", "auth") and q in VALID_QUERIES else EMPTY
         data = json.dumps(body).encode()
         self.send_response(200)
         self.send_header("Content-Type", "application/json")

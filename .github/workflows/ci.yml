@@ -360,12 +360,11 @@ jobs:
         env:
           CONTAINER_ENGINE: docker
 
-  # The Workload port's own acceptance (docs/adr/0030 §7), and attach's
-  # since M13 (docs/adr/0037 §10): workloads/minimal/ copied into a fresh
-  # git repository, attached, then down, up, smoke, verify, demo-rollback,
-  # demo-gates, down on it instead of app/. Same shape as launch: needs the plane, GitHub-only until M5
-  # decides the Gitea runner's own engine access (docs/adr/0012
-  # consequences).
+  # The Workload port's own acceptance (docs/adr/0030 §7), attach's since
+  # M13 (docs/adr/0037 §10), and proxy SLO rollback without instrumentation
+  # (docs/adr/0098): workloads/minimal + demo-seam, then workloads/plain +
+  # demo-seam-plain. Needs the plane, GitHub-only until M5 decides the Gitea
+  # runner's own engine access (docs/adr/0012 consequences).
   seam:
     runs-on: ubuntu-latest
     needs: plan
@@ -375,6 +374,9 @@ jobs:
         with:
           fetch-depth: 0
       - run: ./go demo-seam
+        env:
+          CONTAINER_ENGINE: docker
+      - run: ./go demo-seam-plain
         env:
           CONTAINER_ENGINE: docker
 

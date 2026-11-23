@@ -44,7 +44,13 @@ effective_policy "$policy"
 ERROR_RATE_MAX_DELTA=$(sed -n 's/^ERROR_RATE_MAX_DELTA=//p' "$policy")
 LATENCY_P95_MAX_DELTA=$(sed -n 's/^LATENCY_P95_MAX_DELTA=//p' "$policy")
 
-promql=verify/slo.promql
+if [ -n "${SLO_PROMQL:-}" ]; then
+  promql=$SLO_PROMQL
+elif [ -n "${DELIVERY:-}" ] && [ -f "adapters/$DELIVERY/slo.promql" ]; then
+  promql="adapters/$DELIVERY/slo.promql"
+else
+  promql=verify/slo.promql
+fi
 [ -f "$promql" ] || nogo "$promql not found"
 
 reason=$(python3 - "$promql" "$METRICS_QUERY" "$canary_version" "$stable_version" \
@@ -112,7 +118,14 @@ try:
             )
         result: dict[str, float] = {}
         for item in payload.get("data", {}).get("result", []):
-            version = item.get("metric", {}).get("service_version")
+            metric = item.get("metric", {})
+            version = metric.get("service_version")
+            if version is None and "envoy_cluster_name" in metric:
+                cluster = metric["envoy_cluster_name"]
+                if cluster == "canary":
+                    version = sys.argv[3]
+                elif cluster == "stable":
+                    version = sys.argv[4]
             if version is None:
                 continue
             try:

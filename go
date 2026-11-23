@@ -15,6 +15,7 @@
 #   ./go demo-dast      prove the passive DAST scan at staging: the stable against itself GO, a leaky canary rolled back
 #   ./go demo-gates     prove every PR gate GO and NO-GO on the committed fixtures
 #   ./go demo-seam      prove attach and the Workload port on workloads/minimal as its own repository
+#   ./go demo-seam-plain prove attach and proxy SLO rollback on uninstrumented workloads/plain
 #   ./go attach <path>  make a repository of yours the workload (its .lights-out/ is the contract, if it has one)
 #   ./go try <path>     your repository in one command: its contract drafted, the eight gates on its last commit, how to keep the draft (ADR 0093)
 #   ./go init [<path>]  draft the attached repository's .lights-out/ in the clone, baseline measured (ADR 0042)
@@ -354,7 +355,7 @@ socket_flags=""
 socket_optional=""
 case "$cmd" in gates|init|try|mutation-baseline|demo-init|console|logbook|network|dora) socket_optional=1 ;; esac
 case "$cmd" in
-  up|down|test|demo|release|demo-rollback|demo-hold|demo-dast|demo-seam|demo-network|e2e|resume|shell|gates|demo-gates|mutation-baseline|assign|demo-crew|record|demo-launch|review|demo-review|record-review|delivery-conformance|argo-conformance|flagger-conformance|flagger-proof|harness-conformance|codehost-conformance|gitlab-conformance|unsigned-refused|board|demo-rework|demo-mainline|init|try|demo-init|console|logbook|network|dora|demo-console|request|answer)
+  up|down|test|demo|release|demo-rollback|demo-hold|demo-dast|demo-seam|demo-seam-plain|demo-network|e2e|resume|shell|gates|demo-gates|mutation-baseline|assign|demo-crew|record|demo-launch|review|demo-review|record-review|delivery-conformance|argo-conformance|flagger-conformance|flagger-proof|harness-conformance|codehost-conformance|gitlab-conformance|unsigned-refused|board|demo-rework|demo-mainline|init|try|demo-init|console|logbook|network|dora|demo-console|request|answer)
     sock=""
     if [ "$engine" = podman ]; then
       sock=$(podman info --format '{{.Host.RemoteSocket.Path}}'); sock=${sock#unix://}

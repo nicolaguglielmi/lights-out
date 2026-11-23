@@ -431,19 +431,30 @@ set_ctl "{\"mode\":\"slo\",\"vectors\":{\"traffic\":[$ok_t],\"error_rate\":[[\"$
 run_slo METRICS_URL="$url"
 want_slo h-not-a-verdict 1 "NO-GO: slo — cannot judge: latency_p95: status error: execution: *"
 
-# (i) docs/adr/0066 §2: each of the three queries joins target_info through
-# max by (job, instance, service_version) (target_info), never the bare series.
-join='group_left (service_version) max by (job, instance, service_version) (target_info)'
+# (i) docs/adr/0098 amends docs/adr/0066 §2: verify/slo.promql reads Envoy
+# upstream cluster metrics without target_info, while the Kubernetes
+# adapters (argo-rollouts, flagger) retain the target_info join.
 sed -n '/^[^#]/p' verify/slo.promql > "$work/queries.txt"
 [ "$(awk 'END{print NR}' "$work/queries.txt")" -eq 3 ] || fail_case i-premise "verify/slo.promql does not hold three query lines"
-while IFS= read -r line; do
-  case "$line" in *"$join"*) : ;; *) fail_case i-join "a query does not contain: $join -- $line" ;; esac
-  stripped=$(printf '%s' "$line" | sed 's/max by (job, instance, service_version) (target_info)//g')
-  case "$stripped" in *target_info*) fail_case i-bare "a query still uses a bare target_info: $line" ;; esac
-done < "$work/queries.txt"
+grep -q 'envoy_cluster_upstream_rq_completed' "$work/queries.txt" || fail_case i-envoy "verify/slo.promql missing envoy_cluster_upstream_rq_completed"
+grep -q 'envoy_cluster_upstream_rq_xx{envoy_response_code_class="5"}' "$work/queries.txt" || fail_case i-envoy "verify/slo.promql missing envoy_cluster_upstream_rq_xx{envoy_response_code_class=\"5\"}"
+grep -q 'envoy_cluster_upstream_rq_time_bucket' "$work/queries.txt" || fail_case i-envoy "verify/slo.promql missing envoy_cluster_upstream_rq_time_bucket"
+! grep -q 'target_info' "$work/queries.txt" || fail_case i-envoy "verify/slo.promql still references target_info"
 
-# (j) verify/metric-shape.sh accepts that query text against a scrape with no
-# job/instance labels, and still rejects a by (...) label the scrape lacks.
+join='group_left (service_version) max by (job, instance, service_version) (target_info)'
+for k8s_promql in adapters/argo-rollouts/slo.promql adapters/flagger/slo.promql; do
+  [ -f "$k8s_promql" ] || fail_case i-k8s-missing "$k8s_promql does not exist"
+  sed -n '/^[^#]/p' "$k8s_promql" > "$work/k8s_queries.txt"
+  [ "$(awk 'END{print NR}' "$work/k8s_queries.txt")" -eq 3 ] || fail_case i-premise "$k8s_promql does not hold three query lines"
+  while IFS= read -r line; do
+    case "$line" in *"$join"*) : ;; *) fail_case i-join "$k8s_promql does not contain: $join -- $line" ;; esac
+    stripped=$(printf '%s' "$line" | sed 's/max by (job, instance, service_version) (target_info)//g')
+    case "$stripped" in *target_info*) fail_case i-bare "$k8s_promql still uses a bare target_info: $line" ;; esac
+  done < "$work/k8s_queries.txt"
+done
+
+# (j) verify/metric-shape.sh checks both target_info app scrapes (K8s path)
+# and Envoy proxy scrapes (L0 default path).
 cat > "$work/scrape.txt" <<'EOS'
 # HELP http_server_request_duration_seconds Duration of HTTP server requests.
 # TYPE http_server_request_duration_seconds histogram
@@ -459,12 +470,9 @@ set_ctl "{\"mode\":\"fixed\",\"body_file\":\"$work/scrape.txt\"}"
 mkdir -p "$work/shape/ci" "$work/shape/verify"
 cp ci/lib.sh "$work/shape/ci/lib.sh"
 cp verify/metric-shape.sh "$work/shape/verify/metric-shape.sh"
-# The ADR's query text, whatever verify/slo.promql holds today: (i) above is
-# what judges the file; this judges metric-shape's reading of the text.
-sed 's/group_left (service_version) target_info/group_left (service_version) max by (job, instance, service_version) (target_info)/g' \
-  verify/slo.promql > "$work/shape/verify/slo.promql"
+cp adapters/argo-rollouts/slo.promql "$work/shape/verify/slo.promql"
 run_shape() {
-  ( cd "$work/shape" && env -i PATH="$PATH" HOME="$work" NO_COLOR=1 APP_URL="$url" WORKLOAD_SAMPLE_PATH=/healthz \
+  ( cd "$work/shape" && env -i PATH="$PATH" HOME="$work" NO_COLOR=1 APP_URL="$url" ENVOY_ADMIN_URL="$url" WORKLOAD_SAMPLE_PATH=/healthz WORKLOAD_KILL_SWITCH="${SHAPE_KS-waitlist}" \
       sh verify/metric-shape.sh >"$stdout_f" 2>"$stderr_f" </dev/null ) && rc=0 || rc=$?
   out=$(cat "$stdout_f")
   nlines=$(awk 'END{print NR}' "$stdout_f")
@@ -475,6 +483,26 @@ sed 's/sum by (service_version/sum by (zzz_no_such_label, service_version/' "$wo
 mv "$work/shape/q2" "$work/shape/verify/slo.promql"
 run_shape
 want_slo j-rejects-unknown-by-label 1 'NO-GO: metric-shape — *zzz_no_such_label*'
+
+cat > "$work/envoy-scrape.txt" <<'EOS'
+# TYPE envoy_cluster_upstream_rq_completed counter
+envoy_cluster_upstream_rq_completed{envoy_cluster_name="stable"} 3
+# TYPE envoy_cluster_upstream_rq_xx counter
+envoy_cluster_upstream_rq_xx{envoy_response_code_class="2",envoy_cluster_name="stable"} 3
+# TYPE envoy_cluster_upstream_rq_time histogram
+envoy_cluster_upstream_rq_time_bucket{envoy_cluster_name="stable",le="0.5"} 3
+envoy_cluster_upstream_rq_time_bucket{envoy_cluster_name="stable",le="3600000"} 3
+envoy_cluster_upstream_rq_time_bucket{envoy_cluster_name="stable",le="+Inf"} 3
+EOS
+set_ctl "{\"mode\":\"fixed\",\"body_file\":\"$work/envoy-scrape.txt\"}"
+cp verify/slo.promql "$work/shape/verify/slo.promql"
+SHAPE_KS="" run_shape
+want_slo j-envoy-accepts 0 'GO: metric-shape*'
+grep -q 'WORKLOAD_KILL_SWITCH is empty' "$stderr_f" || fail_case j-envoy-empty-ks "stderr did not report empty WORKLOAD_KILL_SWITCH"
+sed 's/sum by (envoy_cluster_name/sum by (zzz_no_such_label, envoy_cluster_name/' "$work/shape/verify/slo.promql" > "$work/shape/q2"
+mv "$work/shape/q2" "$work/shape/verify/slo.promql"
+run_shape
+want_slo j-envoy-rejects-unknown-by-label 1 'NO-GO: metric-shape — *zzz_no_such_label*'
 
 settled=1
 [ -z "$mismatch" ] || nogo "case $mismatch disagrees with docs/adr/0044 §8 or §9"

@@ -24,7 +24,7 @@ The `Delivery` adapter for a Kubernetes cluster that runs [Argo Rollouts](https:
 - **`/healthz` answering `{"version": "..."}`** on `ARGO_HEALTH_PORT` (default 8000, the Workload port's). The adapter reads it from each revision's pod through the API server's pod proxy, not through the router.
 - **The version.** `deploy.sh <version> <image>` sets the first container's image and the pod-template annotation `lights-out.dev/version`. If your image reports its own version, ignore the annotation. If one image serves several versions, read it into an environment variable through the downward API.
 - **The image.** `deploy.sh` receives a verified `repo@digest` from the Registry port and prefixes it with `ARGO_REGISTRY_HOST` (default `localhost:5050`, the L0 Zot). The cluster must be able to pull that reference.
-- **Metrics.** `verify/slo.sh` compares the canary and stable revisions by `service_version`, through whatever the `METRICS` adapter queries. Your Prometheus must scrape both revisions' pods.
+- **Metrics (declared limit, ADR 0098).** Unlike L0 `envoy-canary` (which reads `verify/slo.promql` from Envoy proxy stats), `adapters/argo-rollouts/slo.promql` still compares the canary and stable revisions by `service_version` using app `/metrics` and `target_info`, until a Kubernetes proxy/gateway adapter replaces it. Your Prometheus must scrape both revisions' pods.
 
 ## The verbs
 

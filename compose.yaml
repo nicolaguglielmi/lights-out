@@ -172,7 +172,7 @@ services:
     ports:
       - "${METRICS_PORT:-9090}:9090"
     depends_on:
-      - backend
+      - envoy
 
   # The flag file is the one bind mount in the plane; flagd polls it, so a
   # host-side edit is live within seconds (M3's kill switch). label=disable
@@ -270,6 +270,16 @@ services:
       PYTHONDONTWRITEBYTECODE: "1"
       STUB_WORK: /work
       CONFORMANCE_CANARY: ${CONFORMANCE_CANARY:-}
+
+  # Ephemeral workload health probe inside the Compose network (ADR 0098 §4):
+  # keeps python3/curl out of attached workload images and avoids host ports
+  # or Envoy stats noise when checking backend / backend-canary directly.
+  probe:
+    image: ${WORKBENCH_IMAGE:?set by ./go}
+    profiles: ["probe"]
+    networks:
+      - default
+    command: ["true"]
 
 # The harnesses' network (docs/adr/0046 §1): internal, so no gateway and no
 # route out; `egress` is the one service on it and on `default`, and a

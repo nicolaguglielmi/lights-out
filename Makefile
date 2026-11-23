@@ -32,6 +32,12 @@ else
 WORKLOAD_CONTRACT := $(WORKLOAD)/.lights-out
 WORKLOAD_ATTACHED := 1
 endif
+# Clear optional contract keys unless set on the command line so an export from
+# a parent make invocation (demo-seam / demo-seam-plain) does not leak across
+# workloads whose workload.env omits them.
+ifneq ($(origin WORKLOAD_HEALTH_PROBE),command line)
+WORKLOAD_HEALTH_PROBE :=
+endif
 # `init` and `try` are the goals that may start without a contract: they
 # draft one (docs/adr/0042 §6, docs/adr/0093 §5). Every other goal stops
 # here, naming the file.
@@ -452,7 +458,7 @@ demo-console: ## Prove go-for-launch pressed from the console: a held canary rol
 	CONSOLE_LISTEN=$(DEMO_CONSOLE_PORT) CONSOLE_PORT=$(DEMO_CONSOLE_PORT) CONSOLE_AUTH=loopback python3 console/serve.py 2>.crew/demo-console.log & \
 	console_pid=$$!; \
 	$(MAKE) --no-print-directory kill-switch || exit 1; \
-	stable=$$(curl -fsS --connect-timeout 1 --max-time 3 "$(APP_URL)/healthz" | jq -r .version); \
+	stable=$$(sh "adapters/$(DELIVERY)/status.sh" | jq -er .stable); \
 	printf '[demo-console] stable is %s; releasing %s with %s off\n' "$$stable" "$(CANARY_VERSION)" "$(WORKLOAD_KILL_SWITCH)" >&2; \
 	post() { curl -sS --max-time 600 -X POST "$$url/v1/go-for-launch" -H 'Content-Type: application/json' -H "Origin: $$url" -d "$$1"; }; \
 	launch() { curl -fsS --max-time 10 "$$url/v1/logbook.json" | jq -c .launch; }; \
@@ -529,7 +535,7 @@ smoke: ## Run the workload's happy path through Envoy (its contract's smoke.sh)
 
 .PHONY: down
 down: ## Stop the app, including a held canary revision if one is running
-	@$(COMPOSE) --profile test --profile canary --profile crew --profile emulators down --remove-orphans
+	@$(COMPOSE) --profile test --profile canary --profile probe --profile crew --profile emulators down --remove-orphans
 
 .PHONY: test
 test: ## Run the backend test suite against compose Postgres (docs/adr/0010)
@@ -539,6 +545,9 @@ test: ## Run the backend test suite against compose Postgres (docs/adr/0010)
 verify: ## Check verify/slo.promql: against the live app's scrape, or with METRICS_URL=<endpoint> CANARY_VERSION=<v> STABLE_VERSION=<s> against any Prometheus-compatible endpoint (docs/adr/0044 §8)
 	@if [ -n "$(METRICS_URL)" ]; then \
 		METRICS=promql METRICS_URL="$(METRICS_URL)" CANARY_VERSION="$(CANARY_VERSION)" STABLE_VERSION="$(STABLE_VERSION)" sh verify/slo.sh; \
+		if [ -z "$(WORKLOAD_KILL_SWITCH)" ]; then \
+			printf 'verify: WORKLOAD_KILL_SWITCH is empty — rollback returns traffic to stable only\n' >&2; \
+		fi; \
 	else \
 		APP_URL="$(APP_URL)" sh verify/metric-shape.sh; \
 	fi
@@ -792,9 +801,9 @@ release: ## Deploy CANARY_VERSION at CANARY_TAG and run the controller through s
 
 .PHONY: demo-rollback
 demo-rollback: ## Release the failing default and prove the canary rolls back on its own (docs/adr/0013 §4)
-	@stable=$$(curl -fsS --connect-timeout 1 --max-time 3 "$(APP_URL)/healthz" | jq -er .version) \
-		|| { printf 'NO-GO: demo-rollback — no stable version at %s/healthz; run ./go up\n' "$(APP_URL)"; exit 1; }; \
-	printf '[demo-rollback] stable is %s; releasing %s (%s targeted on)\n' "$$stable" "$(CANARY_VERSION)" "$(WORKLOAD_KILL_SWITCH)" >&2; \
+	@stable=$$(sh "adapters/$(DELIVERY)/status.sh" | jq -er .stable) \
+		|| { printf 'NO-GO: demo-rollback — could not read stable version from adapters/%s/status.sh; run ./go up\n' "$(DELIVERY)"; exit 1; }; \
+	printf '[demo-rollback] stable is %s; releasing %s (%s targeted on)\n' "$$stable" "$(CANARY_VERSION)" "$(or $(WORKLOAD_KILL_SWITCH),proxy SLO only)" >&2; \
 	rm -f "$(RELEASE_RECORD)"; \
 	if $(MAKE) --no-print-directory release CANARY_VERSION=$(CANARY_VERSION); then \
 		printf 'NO-GO: demo-rollback — release passed; expected a NO-GO at 5%%\n'; \
@@ -803,23 +812,30 @@ demo-rollback: ## Release the failing default and prove the canary rolls back on
 	failed=$$(jq -r '.stages[-1].verdict // empty' "$(RELEASE_RECORD)" 2>/dev/null); \
 	case "$$failed" in \
 		"NO-GO: slo — error_rate "*) : ;; \
-		*) printf 'NO-GO: demo-rollback — the canary was rolled back for [%s], want the kill switch'"'"'s error_rate verdict (docs/adr/0066 §5)\n' "$$failed"; exit 1 ;; \
+		*) printf 'NO-GO: demo-rollback — the canary was rolled back for [%s], want the error_rate verdict (docs/adr/0066 §5)\n' "$$failed"; exit 1 ;; \
 	esac; \
-	canary_w=$$(curl -fsS --connect-timeout 1 --max-time 3 "$(ENVOY_ADMIN_URL)/runtime" | jq -r '.entries["weights.canary"].final_value // "none"'); \
+	status_after=$$(sh "adapters/$(DELIVERY)/status.sh") \
+		|| { printf 'NO-GO: demo-rollback — adapters/%s/status.sh failed after rollback\n' "$(DELIVERY)"; exit 1; }; \
+	canary_w=$$(printf '%s' "$$status_after" | jq -r '.weight'); \
 	if [ "$$canary_w" != "0" ]; then \
 		printf 'NO-GO: demo-rollback — Envoy still reports weights.canary=%s after rollback\n' "$$canary_w"; \
 		exit 1; \
 	fi; \
-	ok=0; total=10; i=0; \
-	while [ "$$i" -lt "$$total" ]; do \
-		v=$$(curl -fsS --connect-timeout 1 --max-time 3 "$(APP_URL)/healthz" | jq -r .version); \
-		[ "$$v" = "$$stable" ] && ok=$$((ok + 1)); \
-		i=$$((i + 1)); \
-	done; \
-	if [ "$$ok" -ne "$$total" ]; then \
-		printf 'NO-GO: demo-rollback — only %s/%s healthz through Envoy report the stable version\n' "$$ok" "$$total"; \
-		exit 1; \
-	fi; \
+	probe=$${WORKLOAD_HEALTH_PROBE:-http:/healthz}; \
+	case "$$probe" in \
+		http:/*) \
+			probe_path=$${probe#http:}; ok=0; total=10; i=0; \
+			while [ "$$i" -lt "$$total" ]; do \
+				code=$$(curl -sS -o /dev/null -w '%{http_code}' --connect-timeout 1 --max-time 3 "$(APP_URL)$$probe_path" 2>/dev/null) || code=000; \
+				case "$$code" in 2??|3??) ok=$$((ok + 1)) ;; esac; \
+				i=$$((i + 1)); \
+			done; \
+			if [ "$$ok" -ne "$$total" ]; then \
+				printf 'NO-GO: demo-rollback — only %s/%s probes to %s%s succeeded after rollback\n' "$$ok" "$$total" "$(APP_URL)" "$$probe_path"; \
+				exit 1; \
+			fi ;; \
+		*) sh "adapters/$(DELIVERY)/ready.sh" || { printf 'NO-GO: demo-rollback — ready.sh failed after rollback\n'; exit 1; } ;; \
+	esac; \
 	printf 'GO: demo-rollback\n'
 
 # The passive DAST scan at staging, both verdicts, at L0 with no key
@@ -835,8 +851,8 @@ demo-rollback: ## Release the failing default and prove the canary rolls back on
 DAST_RUNS ?= 2
 .PHONY: demo-dast
 demo-dast: ## Prove the passive DAST scan at staging both ways at L0: the stable against itself GO, a leaky canary rolled back (docs/adr/0072 §3)
-	@stable=$$(curl -fsS --connect-timeout 1 --max-time 3 "$(APP_URL)/healthz" | jq -er .version) \
-		|| { printf 'NO-GO: demo-dast — no stable version at %s/healthz; run ./go up\n' "$(APP_URL)"; exit 1; }; \
+	@stable=$$(sh "adapters/$(DELIVERY)/status.sh" | jq -er .stable) \
+		|| { printf 'NO-GO: demo-dast — could not read stable version from adapters/%s/status.sh; run ./go up\n' "$(DELIVERY)"; exit 1; }; \
 	[ -f "adapters/$(DELIVERY)/canary-url.sh" ] \
 		|| { printf 'NO-GO: demo-dast — DELIVERY=%s has no canary-url.sh\n' "$(DELIVERY)"; exit 1; }; \
 	patches="$(WORKLOAD_CONTRACT)/fixtures/dast/leaky-header"; \
@@ -910,7 +926,7 @@ demo-hold: ## Same release, kill switch on: verify GO end to end, canary held at
 	trap 'rc=$$?; restore; [ "$$rc" -eq 0 ] || unhold' EXIT; \
 	trap 'exit 130' INT TERM; \
 	$(MAKE) --no-print-directory kill-switch || exit 1; \
-	stable=$$(curl -fsS --connect-timeout 1 --max-time 3 "$(APP_URL)/healthz" | jq -r .version); \
+	stable=$$(sh "adapters/$(DELIVERY)/status.sh" | jq -er .stable); \
 	printf '[demo-hold] stable is %s; releasing %s with %s off\n' "$$stable" "$(CANARY_VERSION)" "$(WORKLOAD_KILL_SWITCH)" >&2; \
 	if ! $(MAKE) --no-print-directory release CANARY_VERSION=$(CANARY_VERSION); then \
 		printf 'NO-GO: demo-hold — release rolled back; expected GO through 25%%\n'; \
@@ -945,7 +961,11 @@ demo-hold: ## Same release, kill switch on: verify GO end to end, canary held at
 # after a rename, with no error.
 .PHONY: kill-switch
 kill-switch: ## Turn the workload's kill switch off for every version, live within seconds, no deploy (docs/adr/0013 §6, 0030 §2)
-	@sh "adapters/$(FLAGS)/set.sh" "$(WORKLOAD_KILL_SWITCH)" off; \
+	@if [ -z "$(WORKLOAD_KILL_SWITCH)" ]; then \
+		printf 'NO-GO: kill-switch — WORKLOAD_KILL_SWITCH is empty; rollback returns traffic to stable only\n'; \
+		exit 1; \
+	fi; \
+	sh "adapters/$(FLAGS)/set.sh" "$(WORKLOAD_KILL_SWITCH)" off; \
 	i=0; v=""; \
 	while [ "$$i" -lt "$(READY_TIMEOUT)" ]; do \
 		v=$$(sh "adapters/$(FLAGS)/evaluate.sh" "$(WORKLOAD_KILL_SWITCH)" "$(CANARY_VERSION)" 2>/dev/null) || v=""; \
@@ -1450,7 +1470,7 @@ demo-launch: ## Prove go-for-launch: held canary, brief, GO → 100%, then the u
 	trap 'rc=$$?; restore; [ "$$rc" -eq 0 ] || sh "adapters/$(DELIVERY)/rollback.sh" >&2' EXIT; \
 	trap 'exit 130' INT TERM; \
 	$(MAKE) --no-print-directory kill-switch || exit 1; \
-	stable=$$(curl -fsS --connect-timeout 1 --max-time 3 "$(APP_URL)/healthz" | jq -r .version); \
+	stable=$$(sh "adapters/$(DELIVERY)/status.sh" | jq -er .stable); \
 	printf '[demo-launch] stable is %s; releasing %s with %s off\n' "$$stable" "$(CANARY_VERSION)" "$(WORKLOAD_KILL_SWITCH)" >&2; \
 	if ! $(MAKE) --no-print-directory release CANARY_VERSION=$(CANARY_VERSION); then \
 		printf 'NO-GO: demo-launch — release rolled back; expected a hold at 25%%\n'; exit 1; \
@@ -1515,6 +1535,62 @@ demo-seam: ## Prove attach and the Workload port on workloads/minimal, as a repo
 	esac; \
 	$(MAKE) --no-print-directory down WORKLOAD="$(ATTACHED)" || exit 1; \
 	printf 'GO: demo-seam\n'
+
+.PHONY: demo-seam-plain
+demo-seam-plain: ## Prove attach and proxy SLO rollback on uninstrumented workloads/plain as its own repository (docs/adr/0098)
+	@if [ -e "$(ATTACHED)" ]; then \
+		printf 'NO-GO: demo-seam-plain — %s is attached at %s; ./go detach first\n' \
+			"$$(git -C "$(ATTACHED)" remote get-url origin 2>/dev/null || echo 'a repository')" "$(ATTACHED)"; \
+		exit 1; \
+	fi
+	@rm -f "$(RELEASE_RECORD)"
+	@src=$$(mktemp -d); wt=$$(mktemp -d); \
+	trap 'rm -rf "$$src" "$$wt" "$(ATTACHED)"' EXIT; \
+	trap 'exit 130' INT TERM; \
+	cp -R workloads/plain/. "$$src/" && \
+	git -C "$$src" init -q -b main && git -C "$$src" add -A && \
+	git -C "$$src" -c user.name=lights-out-demo -c user.email=demo@lights-out.invalid -c commit.gpgsign=false \
+		commit -q -m 'workloads/plain, as a repository of its own' || { printf 'NO-GO: demo-seam-plain — could not make a repository of workloads/plain\n'; exit 1; }; \
+	printf '[demo-seam-plain] workloads/plain is now the repository %s, outside this checkout\n' "$$src" >&2; \
+	sh core/attach.sh "$$src" "$(ATTACHED)" || { printf 'NO-GO: demo-seam-plain — attach refused %s\n' "$$src"; exit 1; }; \
+	for step in attached down up smoke verify; do \
+		env -u APP_TAG -u CANARY_TAG -u CANARY_IMAGE \
+			$(MAKE) --no-print-directory "$$step" WORKLOAD="$(ATTACHED)" || { printf 'NO-GO: demo-seam-plain — %s failed on the attached repository\n' "$$step"; exit 1; }; \
+	done; \
+	patch="$$src/.lights-out/fixtures/canary/broken.patch"; \
+	[ -f "$$patch" ] || { printf 'NO-GO: demo-seam-plain — missing %s\n' "$$patch"; exit 1; }; \
+	cp -R "$$src/." "$$wt/" && \
+	git -C "$$wt" apply "$$patch" && \
+	git -C "$$wt" add -A && \
+	git -C "$$wt" -c user.name=lights-out-demo -c user.email=demo@lights-out.invalid -c commit.gpgsign=false \
+		commit -q -m 'canary broken fault' || { printf 'NO-GO: demo-seam-plain — could not apply broken.patch\n'; exit 1; }; \
+	env -u APP_TAG -u CANARY_TAG -u CANARY_IMAGE \
+		$(MAKE) --no-print-directory publish TAG=plain-broken WORKLOAD="$$wt" >/dev/null \
+		|| { printf 'NO-GO: demo-seam-plain — publish of broken canary failed\n'; exit 1; }; \
+	rm -f "$(RELEASE_RECORD)"; \
+	if env -u APP_TAG -u CANARY_TAG -u CANARY_IMAGE \
+		$(MAKE) --no-print-directory release WORKLOAD="$(ATTACHED)" CANARY_TAG=plain-broken; then \
+		printf 'NO-GO: demo-seam-plain — release passed; expected an error_rate NO-GO\n'; \
+		exit 1; \
+	fi; \
+	verdict=$$(jq -r '.stages[-1].verdict // empty' "$(RELEASE_RECORD)" 2>/dev/null); \
+	case "$$verdict" in \
+		"NO-GO: slo — error_rate "*) : ;; \
+		*) printf 'NO-GO: demo-seam-plain — last release stage was [%s], want NO-GO: slo — error_rate\n' "$$verdict"; exit 1 ;; \
+	esac; \
+	status_after=$$(sh "adapters/$(DELIVERY)/status.sh") \
+		|| { printf 'NO-GO: demo-seam-plain — status.sh failed after rollback\n'; exit 1; }; \
+	canary_w=$$(printf '%s' "$$status_after" | jq -r '.weight'); \
+	[ "$$canary_w" = "0" ] || { printf 'NO-GO: demo-seam-plain — Envoy still reports weights.canary=%s after rollback\n' "$$canary_w"; exit 1; }; \
+	ok=0; total=10; i=0; \
+	while [ "$$i" -lt "$$total" ]; do \
+		code=$$(curl -sS -o /dev/null -w '%{http_code}' --connect-timeout 1 --max-time 3 "$(APP_URL)/ok" 2>/dev/null) || code=000; \
+		case "$$code" in 2??|3??) ok=$$((ok + 1)) ;; esac; \
+		i=$$((i + 1)); \
+	done; \
+	[ "$$ok" -eq "$$total" ] || { printf 'NO-GO: demo-seam-plain — only %s/%s probes to /ok succeeded after rollback\n' "$$ok" "$$total"; exit 1; }; \
+	$(MAKE) --no-print-directory down WORKLOAD="$(ATTACHED)" || exit 1; \
+	printf 'GO: demo-seam-plain\n'
 
 # The M20 acceptance (docs/adr/0042 §10), outside `./go demo` (ADR 0003):
 # each example repository copied into a fresh git repository outside the
