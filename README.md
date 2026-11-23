@@ -142,6 +142,14 @@ On your machine, the `lights-out` wrapper runs init and the gates from the gates
 
 Version 0.3.0 was published on 2026-11-09 by the tag `v0.3.0`. From a clone, `./go package-gates` builds the same image, and `LIGHTS_OUT_IMAGE=localhost/lights-out-gates:dev` points the wrapper at it.
 
+One command installs both the `lights-out` wrapper (for the container gates) and `lights-out-gates` (for the light tier, Python 3.11+):
+
+```sh
+uv tool install lights-out-gates
+```
+
+PyPI `0.8.1` still ships `lights-out-gates` alone; the next release adds `lights-out` to the package (until then, install from `git+https://github.com/nicolaguglielmi/lights-out`, or use the standalone wrapper below). Without Python, or when you want only the POSIX `sh` wrapper:
+
 ```sh
 mkdir -p ~/.local/bin   # any directory on your PATH
 curl -fsSL -o ~/.local/bin/lights-out https://raw.githubusercontent.com/nicolaguglielmi/lights-out/v0.8.1/lights-out
@@ -169,7 +177,7 @@ cosign verify ghcr.io/nicolaguglielmi/lights-out-gates:0.8.1 \
 
 Tags are mutable. To pin the image, set `LIGHTS_OUT_IMAGE` to its digest (in the Action, the `image` input). `lights-out init` prints where the draft is. `LIGHTS_OUT_OUT` moves it. Keep the `/.` in the `cp` command: without it, `cp -R` into an existing `.lights-out/` nests the draft one level deeper. The wrapper mounts your repository read-only and never gives the image your engine's socket. `lights-out gates` judges the last commit, a range (`BASE=` and `HEAD=`), or what is staged (`STAGED=1`). It works with `TOOLCHAIN_IMAGE=workbench` only; a `compose:` or image form is judged from a clone with `./go gates`.
 
-Without an engine, `lights-out-gates --light` runs the gates that need only git and Python in under a second, from a standard-library Python package on PyPI, `uvx lights-out-gates --light`, and its line names the four that need the image ([ADR 0061](docs/adr/0061-gates-without-a-container.md), [the light hook recipes](docs/use-on-your-repo.md#hook-recipes-for-coding-agents)). With git alone, [a `pre-commit` and a `pre-push` hook](docs/use-on-your-repo.md#plain-git-hooks) run the light tier before each commit and the full gates before each push. In Claude Code, the plugin brings the same gates as `/lights-out:gates`, a pre-commit hook and a read-only MCP server over the project map: `claude plugin marketplace add nicolaguglielmi/lights-out`, then `claude plugin install lights-out@lights-out` ([ADR 0069](docs/adr/0069-the-agents-own-toolbelt.md), [the plugin](docs/use-on-your-repo.md#the-claude-code-plugin)). Codex and Gemini CLI get the same two commands and the hook: [the Codex plugin](docs/use-on-your-repo.md#the-codex-plugin), [the Gemini CLI extension](docs/use-on-your-repo.md#the-gemini-cli-extension).
+Without an engine, `lights-out-gates --light` runs the gates that need only git and Python in under a second from the same `lights-out-gates` package on PyPI, or `uvx lights-out-gates --light` with no install at all, and its line names the four that need the image ([ADR 0061](docs/adr/0061-gates-without-a-container.md), [ADR 0099](docs/adr/0099-one-install-via-lights-out-gates.md), [the light hook recipes](docs/use-on-your-repo.md#hook-recipes-for-coding-agents)). With git alone, [a `pre-commit` and a `pre-push` hook](docs/use-on-your-repo.md#plain-git-hooks) run the light tier before each commit and the full gates before each push. In Claude Code, the plugin brings the same gates as `/lights-out:gates`, a pre-commit hook and a read-only MCP server over the project map: `claude plugin marketplace add nicolaguglielmi/lights-out`, then `claude plugin install lights-out@lights-out` ([ADR 0069](docs/adr/0069-the-agents-own-toolbelt.md), [the plugin](docs/use-on-your-repo.md#the-claude-code-plugin)). Codex and Gemini CLI get the same two commands and the hook: [the Codex plugin](docs/use-on-your-repo.md#the-codex-plugin), [the Gemini CLI extension](docs/use-on-your-repo.md#the-gemini-cli-extension).
 
 ## Agents on your repository
 

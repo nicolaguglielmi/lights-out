@@ -125,7 +125,9 @@ GO: demo, milestone M9, 427s to rollback (budget 900s, plan §2)
 
 **You need:** your repository, Python or JavaScript, with its tests. From
 a clone of lights-out, nothing more. Without one: the GitHub Action on
-your pull requests, or the `lights-out` wrapper with podman or docker.
+your pull requests, or `uv tool install lights-out-gates` (which installs
+both the `lights-out` wrapper for podman or docker and `lights-out-gates
+--light`; standalone `curl` fallback below).
 
 **You will see:** a contract drafted for your repository (`.lights-out/`,
 with where every value comes from), the eight gates on your last commit,
@@ -1184,7 +1186,15 @@ run here.
 The same gates run from one script, `lights-out`, and an image.
 
 The image is published: `ghcr.io/nicolaguglielmi/lights-out:0.2.0`.
-Install the wrapper of the same version:
+One install gives you both `lights-out` and `lights-out-gates`:
+
+```sh
+uv tool install lights-out-gates
+```
+
+PyPI `0.8.1` still ships `lights-out-gates` alone until the next release;
+until then, install from `git+https://github.com/nicolaguglielmi/lights-out`
+or download the wrapper of the same version directly with `curl`:
 
 ```sh
 mkdir -p ~/.local/bin   # any directory on your PATH

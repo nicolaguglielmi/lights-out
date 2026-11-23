@@ -151,6 +151,10 @@ def flaws(d):
     dr = "\n".join(live(s.get("run")) for s in jobs["dist"].get("steps") or [])
     if "uv build" not in dr or "lights-out-gates version" not in dr:
         yield "job dist does not run uv build and the wheel's lights-out-gates version (ADR 0075 §1)"
+    if ".data/scripts/lights-out" not in dr:
+        yield "job dist does not verify lights_out_gates-$VERSION.data/scripts/lights-out inside the wheel (ADR 0099 §4)"
+    if not re.search(r"\buv tool run\b[^\n]*\blights-out --version\b", dr):
+        yield "job dist does not run uv tool run ... lights-out --version on the wheel (ADR 0099 §4)"
     if UP not in [str(s.get("uses", "")) for s in jobs["dist"].get("steps") or []]:
         yield "job dist does not upload dist/ with %s (ADR 0075 §1)" % UP
 
@@ -194,7 +198,9 @@ CASES = [
     ("actions pushes on a dispatch", lambda d: step(d, "actions", "--push").pop("if"), "outside a v* tag"),
     ("actions pushes when not a tag", lambda d: step(d, "actions", "--push").update({"if": "!" + TAG}), "outside a v* tag"),
     ("release creates on a dispatch", lambda d: step(d, "release", "gh release create").update({"if": "always()"}), "outside a v* tag"),
-    ("dist does not try the wheel", lambda d: J(d)["dist"]["steps"].__setitem__(slice(None), [s for s in J(d)["dist"]["steps"] if "lights-out-gates version" not in live(s.get("run"))]), "lights-out-gates version"),
+    ("dist does not try the wheel", lambda d: step(d, "dist", "lights-out-gates version").update(run=step(d, "dist", "lights-out-gates version")["run"].replace("lights-out-gates version", "true")), "lights-out-gates version"),
+    ("dist does not verify lights-out inside the wheel", lambda d: step(d, "dist", ".data/scripts/lights-out").update(run=step(d, "dist", ".data/scripts/lights-out")["run"].replace(".data/scripts/lights-out", "other")), ".data/scripts/lights-out"),
+    ("dist does not try lights-out --version", lambda d: step(d, "dist", "lights-out --version").update(run=step(d, "dist", "lights-out --version")["run"].replace("lights-out --version", "true")), "lights-out --version"),
     ("publish's dry run pushes for real", lambda d: next(s for s in J(d)["publish"]["steps"] if cond(s.get("if")) == "inputs.dry_run").update(run="docker push x --push"), "without if: !inputs.dry_run"),
     ("a dry run of actions pushes", lambda d: next(s for s in J(d)["actions"]["steps"] if cond(s.get("if")) == "!" + TAG).update(run='sh package/sync-action.sh a 1 d --push'), "outside a v* tag"),
     ("dist uploads at another pin", lambda d: step(d, "dist", "actions/upload-artifact@").update(uses="actions/upload-artifact@v4"), "does not upload dist/"),
@@ -283,6 +289,7 @@ notes_flaws() {
     "ghcr.io/nicolaguglielmi/lights-out-gates@$DG" "ghcr.io/nicolaguglielmi/lights-out@$DF" \
     "cosign verify ghcr.io/nicolaguglielmi/lights-out-gates@$DG" "cosign verify ghcr.io/nicolaguglielmi/lights-out@$DF" \
     "lights-out-gates 7.8.9" "https://pypi.org/project/lights-out-gates/7.8.9/" \
+    "uv tool install lights-out-gates==7.8.9" \
     "nicolaguglielmi/test-proof@v7.8.9" "nicolaguglielmi/test-integrity@v7.8.9"; do
     grep -qF -- "$x" "$w/o" || echo "the notes lack '$x'"
   done
@@ -331,5 +338,6 @@ planted package/release-notes.sh notes_flaws "a malformed digest" 'exit 1 # a ma
 planted package/release-notes.sh notes_flaws "identity regexp" '@refs/tags/v' '@refs/heads/'
 planted package/release-notes.sh notes_flaws "does not come first" 'cat "$prose"' ':'
 planted package/release-notes.sh notes_flaws "nicolaguglielmi/test-integrity@v7.8.9" 'test-proof test-integrity' 'test-proof'
+planted package/release-notes.sh notes_flaws "uv tool install lights-out-gates==7.8.9" 'uv tool install lights-out-gates==$v' 'uvx lights-out-gates@$v --light'
 
 go_with "package.yml's release jobs, sync-action.sh and release-notes.sh as ADR 0075 says, each check shown to fail"

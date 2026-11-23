@@ -15,7 +15,8 @@
 #       proves them on scratch repositories.
 #   (b) the light tier on this checkout's last commit is the one line of §5,
 #       never `GO: gates`, and takes under 10 s.
-#   (c) pyproject.toml maps `lights_out` onto core/ (§1) and no core/*.py
+#   (c) pyproject.toml maps `lights_out` onto core/ (§1), ships
+#       `script-files = ["lights-out"]` (ADR 0099 §1), and no core/*.py
 #       imports itself as `core.x` (§2).
 #   (d) the comparison and the scan are shown to fail on a planted wrong
 #       expect, a planted `from core.x import y` and a planted wrong
@@ -118,6 +119,8 @@ for ok, why in [
     (project.get("dependencies") == [], "dependencies is not empty"),
     (project.get("scripts", {}) == {"lights-out-gates": "lights_out.__main__:gates_main"},
      "the scripts are not exactly lights-out-gates = lights_out.__main__:gates_main"),
+    (setuptools.get("script-files") == ["lights-out"],
+     'tool.setuptools.script-files is not ["lights-out"]'),
     (mapping.get("lights_out") == "core", "package-dir does not map lights_out to core"),
     (mapping.get("lights_out.platform_policy") == "policy",
      "package-dir does not map lights_out.platform_policy to policy"),
@@ -192,6 +195,8 @@ name = "lights-out-gates"
 dependencies = []
 [project.scripts]
 lights-out-gates = "lights_out.__main__:gates_main"
+[tool.setuptools]
+script-files = ["lights-out"]
 [tool.setuptools.package-dir]
 lights_out = "core"
 "lights_out.platform_policy" = "policy"
@@ -202,7 +207,9 @@ TOML
 [ -z "$(pyproject_flaw "$t/good.toml")" ] || nogo "the pyproject check flags a good pyproject: $(pyproject_flaw "$t/good.toml")"
 for broken in 's/^name = .*/name = "other"/' 's/^dependencies = .*/dependencies = ["requests"]/' \
   's/^lights_out = "core"/lights_out = "src"/' 's/\["merge.env"\]/["other.env"]/' \
-  's/^lights-out-gates = .*/lights-out = "lights_out.__main__:main"/' 's/^name = .*/name = "lights-out"/'; do
+  's/^lights-out-gates = .*/lights-out = "lights_out.__main__:main"/' 's/^name = .*/name = "lights-out"/' \
+  's/^script-files = .*/script-files = []/' 's/^script-files = .*/script-files = ["lights-out", "other"]/' \
+  '/^script-files = /d'; do
   sed "$broken" "$t/good.toml" >"$t/bad.toml"
   [ -n "$(pyproject_flaw "$t/bad.toml")" ] || nogo "the pyproject check accepted a planted wrong pyproject ($broken)"
 done

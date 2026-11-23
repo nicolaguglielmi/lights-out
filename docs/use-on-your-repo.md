@@ -312,7 +312,17 @@ The gates half also runs from the `lights-out` wrapper, with no clone of
 lights-out. The host needs podman or docker, and git.
 
 The image is `ghcr.io/nicolaguglielmi/lights-out:0.2.0`, public, for amd64
-and arm64. Install the wrapper of the same version:
+and arm64. One install puts both the `lights-out` wrapper and the light
+tier (`lights-out-gates`) on your `PATH`:
+
+```sh
+uv tool install lights-out-gates
+```
+
+PyPI `0.8.1` still ships `lights-out-gates` alone; the next release adds
+`lights-out` to the package (until then, install from
+`git+https://github.com/nicolaguglielmi/lights-out`, or use `curl` below).
+Without Python, download the wrapper of the same version directly:
 
 ```sh
 mkdir -p ~/.local/bin   # any directory on your PATH
@@ -981,8 +991,10 @@ the gates, and exit 2 on a NO-GO. Exit 2 is the deny all three CLIs read
 - **The full gates, from the image**: `lights-out gates STAGED=1` with the
   wrapper (section 1), timeout 300 s. Without an engine, the hook exits 2.
 
-Install the light tier once. It is a Python package, standard library only,
-Python 3.11 or later:
+Install the package once (`uv tool install lights-out-gates`). It is a
+standard-library Python package (Python 3.11 or later) that installs both
+the `lights-out-gates` light CLI and the `lights-out` container wrapper
+([ADR 0099](adr/0099-one-install-via-lights-out-gates.md)):
 
 ```bash
 uv tool install lights-out-gates
@@ -990,10 +1002,11 @@ uv tool install lights-out-gates
 
 `pipx install lights-out-gates` works too, and `uvx lights-out-gates --light
 STAGED=1` in the hook needs no install at all. PyPI refused the name
-`lights-out`, too close to an existing project, so the package and its
-command are `lights-out-gates`, the name of the gates image (ADR 0061,
-amendment 2026-11-09); the image wrapper keeps `lights-out`. To run the
-light tier of an unreleased commit, install it from the repository:
+`lights-out`, too close to an existing project (`lightsout`), so both
+commands ship inside the `lights-out-gates` package (ADR 0061, amendment
+2026-11-09; ADR 0099). PyPI `0.8.1` carries `lights-out-gates` alone until
+the next release; until then, or to run an unreleased commit, install from
+the repository (or use the `curl` fallback under [the wrapper](#without-cloning-lights-out-the-wrapper)):
 
 ```bash
 uv tool install git+https://github.com/nicolaguglielmi/lights-out
@@ -1119,7 +1132,7 @@ repository with a `.lights-out/` contract. There are two recipes:
 - `pre-push` runs the full gates from the image, with the wrapper, on what
   the push sends. It takes minutes and needs podman or docker.
 
-Install the light tier and the wrapper as above.
+Install both commands once with `uv tool install lights-out-gates` (or `curl` for `lights-out` alone, as above).
 
 ```sh
 #!/bin/sh

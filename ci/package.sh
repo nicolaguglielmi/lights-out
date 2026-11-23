@@ -13,7 +13,9 @@
 #              engine is touched (test-proof and test-integrity take BASE=
 #              and HEAD=); with no engine on PATH an engine subcommand exits
 #              non-zero with one stderr line and nothing on stdout; `version`
-#              still works.
+#              still works; `--version` aliases `version` without touching an
+#              engine and matches `pyproject.toml`'s `[project].version`
+#              (ADR 0099).
 #   allowlist  the wrapper's KEY=* case arms equal package/entrypoint.sh's and
 #              each is taken.
 #   yaml       (PyYAML) the Action is action.yml at the repository root, and
@@ -63,7 +65,7 @@ name=package
 
 for t in shellcheck python3; do command -v "$t" >/dev/null 2>&1 || nogo "$t is not on PATH (./go ci runs in the workbench)"; done
 python3 -c 'import yaml' 2>/dev/null || nogo "python3 cannot import yaml (PyYAML, workbench/uv.lock)"
-for f in lights-out package/entrypoint.sh action.yml .github/workflows/package.yml core/doctor.sh; do
+for f in lights-out pyproject.toml package/entrypoint.sh action.yml .github/workflows/package.yml core/doctor.sh; do
   [ -e "$f" ] || nogo "$f not found"
 done
 
@@ -130,6 +132,16 @@ wrapper_flaws() {
   done
   run "$w/tools" "$f" version
   { [ "$rc" -eq 0 ] && grep -qF -- "${v:-?}" "$w/o"; } || echo "version does not work with no engine"
+  cp "$w/o" "$w/ver.out"
+  run "$w/tools" "$f" --version
+  { [ "$rc" -eq 0 ] && [ ! -s "$w/e" ] && cmp -s "$w/o" "$w/ver.out"; } \
+    || echo "--version does not match lights-out version with no engine"
+  run "$w/trip:$w/tools" "$f" --version
+  { [ "$rc" -eq 0 ] && [ ! -e "$w/tripped" ] && cmp -s "$w/o" "$w/ver.out"; } \
+    || echo "--version touched the engine or failed"
+  pv=$(python3 -c 'import sys, tomllib; print(tomllib.load(open(sys.argv[1], "rb")).get("project", {}).get("version", ""))' "$1/pyproject.toml" 2>/dev/null || true)
+  { [ -n "$pv" ] && [ "$v" = "$pv" ]; } \
+    || echo "lights-out version=$v does not match pyproject.toml version=$pv"
   :
 }
 
@@ -521,7 +533,7 @@ judge yaml "$(python3 -I "$w/chk.py" "$root" check)"
 try() {
   rm -rf "$w/m"
   mkdir -p "$w/m/package" "$w/m/core"
-  cp lights-out "$w/m/"
+  cp lights-out pyproject.toml "$w/m/"
   cp package/entrypoint.sh "$w/m/package/"
   cp action.yml "$w/m/"
   cp core/doctor.sh "$w/m/core/"
@@ -559,6 +571,10 @@ try wrapper_flaws "'test-proof NOPE=1' is not refused" 'sed -i "s/^    BASE=\*|/
 try wrapper_flaws "'test-integrity BASEX=1' is not refused" 'sed -i "s/^    BASE=\*|/    *|BASE=*|/" lights-out'
 try wrapper_flaws "test-proof refuses BASE= HEAD=" 'sed -i "s/^    BASE=\*|//" lights-out'
 try wrapper_flaws "test-integrity refuses BASE= HEAD=" 'sed -i "s/^    BASE=\*|//" lights-out'
+try wrapper_flaws "--version does not match lights-out version" 'sed -i "s/--version)/--nonesuch)/" lights-out'
+try wrapper_flaws "--version does not match lights-out version" 'sed -i "s/--version) cmd=version/--version) printf \"lights-out %s (other)\\n\" \"\$version\"; exit 0/" lights-out'
+try wrapper_flaws "--version touched the engine" 'sed -i "s/--version)/--version) podman info;/" lights-out'
+try wrapper_flaws "does not match pyproject.toml version" 'sed -i "s/^version = .*/version = \"9.9.9\"/" pyproject.toml'
 try doctor_flaws "want exit 1" 'sed -i "/^\. ci\/lib.sh/a echo second" core/doctor.sh'
 # The reasons as text (ADR 0064 §2, §4): either copy changed by a word, or only a comment.
 try first_run_flaws "package/entrypoint.sh does not hold the first-run reason" 'sed -i "s/lights-out init drafts one/lights-out init drafts it/" package/entrypoint.sh'
