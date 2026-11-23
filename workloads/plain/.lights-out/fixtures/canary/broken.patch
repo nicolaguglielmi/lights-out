@@ -1,0 +1,11 @@
+--- a/plain/server.py
++++ b/plain/server.py
+@@ -9,7 +9,7 @@ def route(path: str) -> tuple[int, bytes]:
+     if path == "/ok":
+         return 200, b"ok\n"
+     if path == "/":
+-        return 200, b"plain\n"
++        return 500, b"broken\n"
+     return 404, b"not found\n"
+ 
+ 
