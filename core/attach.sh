@@ -38,6 +38,26 @@ fi
 rm -rf "$dest"
 git clone -q "$top" "$dest" \
   || { printf 'attach: git clone %s %s failed\n' "$top" "$dest" >&2; exit 1; }
+# shellcheck disable=SC1007 # CDPATH= is the portable way to neutralise CDPATH
+here=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd -P)
+remote_out=${REMOTE_ENV_OUT:-}
+if [ -z "$remote_out" ]; then
+  # shellcheck disable=SC1007 # CDPATH= is the portable way to neutralise CDPATH
+  dest_parent=$(CDPATH= cd -- "$(dirname -- "$dest")" && pwd -P)
+  if [ "$dest_parent" = "$here" ]; then
+    remote_out="$here/.crew/remote.env"
+  fi
+fi
+if [ -n "$remote_out" ] && command -v python3 >/dev/null 2>&1; then
+  if detected=$(sh "$here/core/remote-env.sh" "$top" "$remote_out"); then
+    if [ -n "$detected" ]; then
+      summary=$(printf '%s\n' "$detected" | tr '\n' ' ' | sed 's/ $//')
+      printf 'attach: detected remote code host (%s) from origin\n' "$summary" >&2
+    fi
+  else
+    printf 'attach: remote detection failed for %s\n' "$top" >&2
+  fi
+fi
 if [ "$contract" = yes ]; then
   printf 'attach: %s at %s is the workload (clone: %s)\n' "$top" "$(git -C "$dest" rev-parse --short HEAD)" "$dest" >&2
 else

@@ -162,7 +162,7 @@ case "$cmd" in
     shift
     try_src=$src ;;
   detach)
-    rm -rf "$attached"
+    rm -rf "$attached" "$here/.crew/remote.env"
     printf 'go: detached; the workload is app/ again (run ./go down first if the plane still serves the attached one)\n' >&2
     exit 0 ;;
   demo)

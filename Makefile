@@ -11,6 +11,9 @@ include profiles/$(PROFILE).env
 # The plane ports ./go's preflight moved off a busy default (docs/adr/0093
 # §1d), before .env so a value there wins.
 -include .crew/ports.env
+# Remote CodeHost detected from the attached repository's origin remote
+# (docs/adr/0101), directly before .env so explicit .env always wins.
+-include .crew/remote.env
 -include .env
 
 # The Workload port (docs/adr/0030 §1): a workload is a directory: not the
@@ -1640,7 +1643,7 @@ demo-init: ## Prove attach, init and gates without the plane on workloads/minima
 			printf 'NO-GO: demo-init — %s: init and gates took %ss, over the %ss budget (plan §16)\n' "$$w" "$$elapsed" "$(INIT_BUDGET_SECONDS)"; exit 1; \
 		fi; \
 		report="$$report$${report:+, }$$w $${elapsed}s in workbench (committed contract: $${committed#GO: gates — })"; \
-		rm -rf "$(ATTACHED)"; \
+		rm -rf "$(ATTACHED)" .crew/remote.env; \
 	done; \
 	printf 'GO: demo-init — %s\n' "$$report"
 
@@ -1671,7 +1674,7 @@ try: ## Your repository in one command: its contract drafted, then the eight gat
 	stack=$$(printf '%s' "$${out#GO: init — }" | cut -d, -f1); \
 	rc=0; gates=$$($(MAKE) --no-print-directory gates WORKLOAD="$(ATTACHED)" GATES_OUT="$(TRY_DIR)/gates") || rc=$$?; \
 	rm -rf "$$draft"; mkdir -p "$$draft"; cp -R "$(ATTACHED)/.lights-out" "$$draft/"; \
-	rm -rf "$(ATTACHED)"; \
+	rm -rf "$(ATTACHED)" .crew/remote.env; \
 	if [ "$$rc" -eq 0 ]; then \
 		printf 'GO: try — %s; the eight gates on your last commit: %s; the draft is in %s/.lights-out\n' "$$stack" "$${gates#GO: gates — }" "$$draft"; \
 	else \
