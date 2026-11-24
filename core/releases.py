@@ -80,6 +80,15 @@ def record(env, verdict, held_at, stages, image, sbom="", dast="", running=None)
     write_record(path, rec)
     if verdict != "in-progress":
         append(log, {"kind": "release", "at": now(), "ticket": env.get("RELEASE_TICKET") or None, "record": rec})
+    if verdict == "rolled-back" and env.get("AUTO_INCIDENT_ON_ROLLBACK") == "on":
+        try:
+            from . import ops_loop
+        except ImportError:  # run as a script: core/ is sys.path[0]
+            import ops_loop
+        try:
+            ops_loop.on_rollback(path, env, strict=False, release_hook=True)
+        except (ops_loop.Refused, OSError) as exc:
+            print(f"[releases] auto-incident skipped: {exc}", file=sys.stderr)
 
 
 # One `slo:` line of verify/slo.sh's stderr (docs/adr/0080 §1).
