@@ -12,7 +12,7 @@ From the brief, chosen stack, service slug, and listen port, design the
 smallest runnable baseline without adding unrequested abstractions,
 frameworks, or external vendors:
 
-1. **Decision record (`docs/adr/0001-initial-architecture.md`):**
+1. **Decision record (`<repo>/docs/adr/0001-initial-architecture.md`):**
    - State Context, Decision, Alternatives considered and rejected,
      Consequences, and a Provenance table for every numeric threshold
      (listen port, response status codes, starter ticket count, and any
@@ -29,7 +29,7 @@ frameworks, or external vendors:
      primary domain endpoint derived from the brief, backed by unit
      tests with concrete assertions that fail when behaviour breaks.
 
-3. **Ordered starter backlog (`tickets/0001.md`..`tickets/NNNN.md`):**
+3. **Ordered starter backlog (`<repo>/tickets/0001.md`..`<repo>/tickets/NNNN.md`):**
    - Emit ordered tickets carrying `- Status: open`,
      `- Feature: <slug>`, `- Priority: P0..P2`, `## Problem`,
      `## Acceptance criteria`, and `## Perimeter`.

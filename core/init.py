@@ -546,7 +546,7 @@ def _write_draft_with_info(repo, out, stacks, today, commit, service=None, basel
     runners_dst = os.path.join(out, "runners")
     if os.path.isdir(runners_dst):
         shutil.rmtree(runners_dst)
-    shutil.copytree(runners_src, runners_dst)
+    shutil.copytree(runners_src, runners_dst, ignore=shutil.ignore_patterns("__pycache__", "*.pyc", "*.pyo"))
     effective_service = d["test_root"].rstrip("/") if d.get("test_root") else ""
     container = init_plane.detect_container(repo, service=effective_service)
     plane = (
@@ -654,6 +654,48 @@ def _read_env_keys(draft_path, keys):
     return values
 
 
+def _run_workspace(
+    repo_path,
+    *,
+    out_dir=None,
+    stacks_dir="stacks",
+    today=None,
+    baseline_mode="incremental",
+    apply_mode=False,
+    branch=None,
+    commit=False,
+    force=False,
+):
+    """Build a multi-service workspace manifest and optionally apply it to `.lights-out/`."""
+    try:
+        from . import epics
+    except ImportError:  # run as a script: core/ is sys.path[0]
+        import epics
+    if not apply_mode:
+        manifest = epics.build_workspace_manifest(
+            repo_path, out_dir=out_dir, stacks_dir=stacks_dir, today=today, baseline_mode=baseline_mode
+        )
+        return manifest, None
+    dest_contract = os.path.realpath(os.path.join(repo_path, ".lights-out"))
+    use_out = bool(out_dir and os.path.realpath(out_dir) != dest_contract)
+    if use_out:
+        manifest = epics.build_workspace_manifest(
+            repo_path, out_dir=out_dir, stacks_dir=stacks_dir, today=today, baseline_mode=baseline_mode
+        )
+        summary = init_apply.apply_draft(
+            out_dir, repo_path, ".lights-out", branch=branch, commit=commit, force=force
+        )
+    else:
+        with tempfile.TemporaryDirectory() as tmp_draft:
+            manifest = epics.build_workspace_manifest(
+                repo_path, out_dir=tmp_draft, stacks_dir=stacks_dir, today=today, baseline_mode=baseline_mode
+            )
+            summary = init_apply.apply_draft(
+                tmp_draft, repo_path, ".lights-out", branch=branch, commit=commit, force=force
+            )
+    return manifest, summary
+
+
 def run_driver(argv, env):
     """Execute the `make init` workflow (draft-in-clone or zero-copy --apply) with baseline measurement."""
     workload = (env.get("WORKLOAD") or "").strip()
@@ -677,7 +719,8 @@ def run_driver(argv, env):
     parser.add_argument("--branch", default=None)
     parser.add_argument("--commit", action="store_true")
     parser.add_argument("--force", action="store_true")
-    parser.add_argument("--baseline-mode", choices=("full", "incremental"), default="full")
+    parser.add_argument("--workspace", action="store_true")
+    parser.add_argument("--baseline-mode", choices=("full", "incremental"), default=None)
     parser.add_argument("--baseline-max-files", type=int, default=10)
     parser.add_argument("--service", default=None)
     ns = parser.parse_args(argv)
@@ -685,6 +728,7 @@ def run_driver(argv, env):
     apply_mode = bool(ns.apply or ns.apply_to)
     if (ns.branch is not None or ns.commit or ns.force) and not apply_mode:
         raise Undraftable("--branch, --commit, and --force require --apply")
+    baseline_mode = ns.baseline_mode or ("incremental" if ns.workspace else "full")
 
     target_workload = os.path.abspath(ns.apply_to) if ns.apply_to else workload
     target_contract = os.path.join(target_workload, ".lights-out") if ns.apply_to else workload_contract
@@ -701,6 +745,34 @@ def run_driver(argv, env):
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
     service = ns.service if ns.service is not None else (env.get("INIT_SERVICE") or None)
 
+    if ns.workspace:
+        manifest, summary = _run_workspace(
+            target_workload,
+            out_dir=None if apply_mode else target_contract,
+            stacks_dir="stacks",
+            today=today,
+            baseline_mode=baseline_mode,
+            apply_mode=apply_mode,
+            branch=ns.branch,
+            commit=bool(ns.commit),
+            force=ns.force,
+        )
+        if apply_mode:
+            target_contract = os.path.join(target_workload, ".lights-out")
+            meta = [f"{len(summary['applied_files'])} file(s)"]
+            if summary["branch"]:
+                meta.append(f"branch={summary['branch']}")
+            if summary["commit_sha"]:
+                meta.append(f"commit={summary['commit_sha'][:7]}")
+            return (
+                f"workspace ({manifest['kind']}, {len(manifest['services'])} service(s)), "
+                f"applied to {target_contract} ({', '.join(meta)})"
+            )
+        return (
+            f"workspace ({manifest['kind']}, {len(manifest['services'])} service(s)), "
+            f"draft in {target_contract}/workspace.json; copy .lights-out/ into your repository and commit it"
+        )
+
     applied_files = []
     active_branch = None
     if apply_mode:
@@ -712,7 +784,7 @@ def run_driver(argv, env):
                 today,
                 commit,
                 service=service,
-                baseline_mode=ns.baseline_mode,
+                baseline_mode=baseline_mode,
                 baseline_max_files=ns.baseline_max_files,
             )
             summary = init_apply.apply_draft(
@@ -734,7 +806,7 @@ def run_driver(argv, env):
             today,
             commit,
             service=service,
-            baseline_mode=ns.baseline_mode,
+            baseline_mode=baseline_mode,
             baseline_max_files=ns.baseline_max_files,
         )
 
@@ -778,7 +850,7 @@ def run_driver(argv, env):
         raise Undraftable(pre.stdout.strip() or "the toolchain preflight failed; see stderr")
     toolchain_where = pre.stdout.strip()
 
-    if ns.baseline_mode == "incremental" and inc_scope is not None and inc_scope.mutation_lines:
+    if baseline_mode == "incremental" and inc_scope is not None and inc_scope.mutation_lines:
         sub_env["MUTATION_LINES"] = inc_scope.mutation_lines
         ml_label = f"{inc_scope.provenance}; MUTATION_LINES={inc_scope.mutation_lines}"
     else:
@@ -877,11 +949,13 @@ def main(argv):
     parser.add_argument("--apply-to", default=None)
     parser.add_argument("--branch", default=None)
     parser.add_argument("--force", action="store_true")
-    parser.add_argument("--baseline-mode", choices=("full", "incremental"), default="full")
+    parser.add_argument("--workspace", action="store_true")
+    parser.add_argument("--baseline-mode", choices=("full", "incremental"), default=None)
     parser.add_argument("--baseline-max-files", type=int, default=10)
     args = parser.parse_args(argv)
     apply_commit = args.commit is True
     header_commit = args.commit if isinstance(args.commit, str) else "HEAD"
+    baseline_mode = args.baseline_mode or ("incremental" if args.workspace else "full")
     try:
         if args.set_baseline:
             set_baseline(*args.set_baseline)
@@ -891,8 +965,31 @@ def main(argv):
         repo = args.repo or args.apply_to
         if not repo:
             parser.error("--repo (or --apply-to) is required")
-        if not args.out and not args.apply_to:
+        if not args.out and not args.apply_to and not args.workspace:
             parser.error("--out (or --apply-to) is required")
+
+        if args.workspace:
+            target_repo = os.path.abspath(args.apply_to) if args.apply_to else repo
+            manifest, summary = _run_workspace(
+                target_repo,
+                out_dir=args.out,
+                stacks_dir=args.stacks,
+                today=args.today,
+                baseline_mode=baseline_mode,
+                apply_mode=bool(args.apply_to),
+                branch=args.branch,
+                commit=apply_commit,
+                force=args.force,
+            )
+            if summary is not None:
+                detail = [f"{len(summary['applied_files'])} file(s)"]
+                if summary["branch"]:
+                    detail.append(f"branch={summary['branch']}")
+                if summary["commit_sha"]:
+                    detail.append(f"commit={summary['commit_sha'][:7]}")
+                print(f"init: applied workspace to {target_repo}/.lights-out ({', '.join(detail)})", file=sys.stderr)
+            print(f"WORKSPACE={manifest['kind']} SERVICES={len(manifest['services'])}")
+            return 0
 
         def run_draft(out_dir):
             return write_draft(
@@ -902,7 +999,7 @@ def main(argv):
                 args.today,
                 header_commit,
                 service=args.service,
-                baseline_mode=args.baseline_mode,
+                baseline_mode=baseline_mode,
                 baseline_max_files=args.baseline_max_files,
             )
 

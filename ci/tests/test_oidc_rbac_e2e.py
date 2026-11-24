@@ -19,10 +19,16 @@ import http.server
 import json
 import os
 import pathlib
+import shutil
+import socket
+import stat
 import subprocess
 import tempfile
 import threading
+import time
 import unittest
+import urllib.error
+import urllib.request
 
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import ec, padding, rsa, utils
@@ -428,6 +434,315 @@ class OidcRbacEndToEndTest(unittest.TestCase):
             prom_srv.shutdown()
             prom_srv.server_close()
             prom_thread.join(timeout=5)
+
+    def test_e2e_live_console_serve_jwt_and_four_tier_rbac(self) -> None:
+        if not shutil.which("make"):
+            self.skipTest("make is required")
+
+        def free_port() -> int:
+            with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+                s.bind(("127.0.0.1", 0))
+                return int(s.getsockname()[1])
+
+        def http_call(
+            url: str,
+            *,
+            method: str = "GET",
+            body: bytes | None = None,
+            headers: dict[str, str] | None = None,
+        ) -> tuple[int, dict]:
+            req = urllib.request.Request(url, data=body, method=method, headers=headers or {})
+            try:
+                with urllib.request.urlopen(req, timeout=10) as resp:
+                    return resp.status, json.loads(resp.read().decode("utf-8"))
+            except urllib.error.HTTPError as err:
+                raw = err.read().decode("utf-8", errors="replace")
+                try:
+                    payload = json.loads(raw)
+                except ValueError:
+                    payload = {"raw": raw}
+                return err.code, payload
+
+        def write_exec(path: pathlib.Path, text: str) -> None:
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(text, encoding="utf-8")
+            path.chmod(path.stat().st_mode | stat.S_IXUSR | stat.S_IXGRP | stat.S_IXOTH)
+
+        with tempfile.TemporaryDirectory(prefix="oidc-console-e2e-") as td:
+            root = pathlib.Path(td)
+            (root / "console").mkdir()
+            shutil.copy2(ROOT / "console" / "serve.py", root / "console" / "serve.py")
+            shutil.copy2(ROOT / "console" / "index.html", root / "console" / "index.html")
+            (root / "core").mkdir()
+            for f in (ROOT / "core").glob("*.py"):
+                (root / "core" / f.name).symlink_to(f)
+            shutil.copy2(ROOT / "core" / "console_ops.sh", root / "core" / "console_ops.sh")
+            (root / "core" / "console_ops.sh").chmod(0o755)
+            (root / "tickets").mkdir()
+
+            book = json.loads((ROOT / "fixtures" / "logbook" / "golden-1.8.json").read_text(encoding="utf-8"))
+            book_file = root / "book.json"
+            book_file.write_text(json.dumps(book), encoding="utf-8")
+            launch_rec = book["launch"]["record"]
+            launch_sha = book["launch"]["brief"]["sha256"]
+
+            write_exec(
+                root / "core" / "logbook.sh",
+                f"#!/bin/sh\nset -eu\ncp {json.dumps(str(book_file))} \"$LOGBOOK_FILE\"\necho 'GO: logbook'\n",
+            )
+            write_exec(
+                root / "core" / "promote.sh",
+                "#!/bin/sh\nset -eu\nprintf 'promote %s %s\\n' \"${GO_FOR_LAUNCH:-}\" \"${GO_FOR_LAUNCH_BY:-}\" >> effects.log\necho 'GO: go-for-launch'\n",
+            )
+            write_exec(root / "gates" / "spec.sh", "#!/bin/sh\necho 'GO: spec'\n")
+            write_exec(
+                root / "adapters" / "stub-flags" / "set.sh",
+                "#!/bin/sh\nset -eu\nprintf 'flag %s %s\\n' \"$1\" \"$2\" >> effects.log\n",
+            )
+            write_exec(
+                root / "adapters" / "stub-delivery" / "rollback.sh",
+                "#!/bin/sh\nset -eu\nprintf 'rollback\\n' >> effects.log\n",
+            )
+            (root / "Makefile").write_text(
+                "request:\n"
+                "\t@printf 'request %s %s %s\\n' \"$(TICKET)\" \"$(REQUEST_BY)\" \"$(REQUEST_VIA)\" >> effects.log\n"
+                "\t@echo 'GO: request'\n",
+                encoding="utf-8",
+            )
+
+            now_live = time.time()
+
+            def live_claims(email: str, groups: list[str] | None = None, **extra: object) -> dict:
+                c: dict[str, object] = {
+                    "iss": "https://idp.example.com/oidc",
+                    "aud": "lights-out-console",
+                    "sub": f"uid:{email}",
+                    "email": email,
+                    "iat": int(now_live) - 5,
+                    "nbf": int(now_live) - 5,
+                    "exp": int(now_live) + 300,
+                }
+                if groups is not None:
+                    c["groups"] = groups
+                c.update(extra)
+                return c
+
+            tok_viewer = _mint_es256(self.ec_k1, "ec-v1", live_claims("viewer@example.com"))
+            tok_dev = _mint_rs256(self.rsa_k1, "rsa-v1", live_claims("dev@example.com", groups=["team-dev"]))
+            tok_ops = _mint_es256(self.ec_k1, "ec-v1", live_claims("ops@example.com", groups=["team-ops"]))
+            tok_launcher = _mint_rs256(self.rsa_k1, "rsa-v1", live_claims("launcher@example.com"))
+            tok_unmapped = _mint_es256(self.ec_k1, "ec-v1", live_claims("stranger@example.com"))
+            tok_expired = _mint_rs256(
+                self.rsa_k1,
+                "rsa-v1",
+                live_claims("launcher@example.com", exp=int(now_live) - 180),
+            )
+            h_b64, p_b64, s_b64 = tok_dev.split(".")
+            tok_tampered = f"{h_b64}.{_b64u(json.dumps(live_claims('launcher@example.com')))}.{s_b64}"
+
+            audit_log = root / "console-audit.jsonl"
+            port = free_port()
+            base = f"http://127.0.0.1:{port}"
+            srv_env = {
+                "PATH": os.environ.get("PATH", ""),
+                "HOME": str(root),
+                "CONSOLE_LISTEN": str(port),
+                "CONSOLE_PORT": str(port),
+                "CONSOLE_POLL_S": "0.2",
+                "CONSOLE_AUTH": "proxy",
+                "CONSOLE_VERIFY_JWT": "on",
+                "CONSOLE_IDENTITY_HEADER": "X-Auth-Request-Email",
+                "CONSOLE_JWKS_URL": self.jwks_url,
+                "CONSOLE_JWT_ISSUER": "https://idp.example.com/oidc",
+                "CONSOLE_JWT_AUDIENCE": "lights-out-console",
+                "CONSOLE_RBAC": "strict",
+                "CONSOLE_VIEWERS": "viewer@example.com",
+                "CONSOLE_LAUNCHERS": "launcher@example.com",
+                "CONSOLE_ROLE_CLAIM": "groups",
+                "CONSOLE_ROLE_MAP": json.dumps({"team-dev": "developer", "team-ops": "operator"}),
+                "CONSOLE_AUDIT_LOG": str(audit_log),
+                "CONSOLE_OPS_LOG": str(root / "ops.jsonl"),
+                "FLAGS": "stub-flags",
+                "DELIVERY": "stub-delivery",
+                "WORKLOAD_KILL_SWITCH": "canary-kill",
+            }
+            proc = subprocess.Popen(
+                ["python3", "-B", "console/serve.py"],
+                cwd=root,
+                env=srv_env,
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+            try:
+                deadline = time.monotonic() + 15.0
+                while time.monotonic() < deadline:
+                    if proc.poll() is not None:
+                        err = proc.stderr.read() if proc.stderr else ""
+                        self.fail(f"console/serve.py exited early ({proc.returncode}): {err}")
+                    try:
+                        st, body = http_call(
+                            f"{base}/v1/console.json",
+                            headers={"Authorization": f"Bearer {tok_viewer}"},
+                        )
+                        if st == 200 and body.get("read_at"):
+                            break
+                    except Exception:
+                        pass
+                    time.sleep(0.1)
+                else:
+                    self.fail("console/serve.py did not become ready in time")
+
+                # 1. Missing/expired/tampered JWT -> 401 even if X-Auth-Request-Email is forged
+                for bad_hdrs, desc in (
+                    ({"X-Auth-Request-Email": "launcher@example.com"}, "missing Bearer JWT with forged proxy header"),
+                    ({"Authorization": f"Bearer {tok_expired}"}, "expired RS256 JWT"),
+                    ({"Authorization": f"Bearer {tok_tampered}"}, "tampered RS256 JWT"),
+                ):
+                    code, _ = http_call(f"{base}/v1/console.json", headers=bad_hdrs)
+                    self.assertEqual(code, 401, desc)
+
+                # 2. Unmapped identity in CONSOLE_RBAC=strict -> 403
+                self.assertEqual(
+                    http_call(f"{base}/v1/console.json", headers={"Authorization": f"Bearer {tok_unmapped}"})[0],
+                    403,
+                )
+
+                # 3. /v1/console.json reports identity, role, and can_launch per tier
+                for tok, want_id, want_role, want_launch in (
+                    (tok_viewer, "viewer@example.com", "viewer", False),
+                    (tok_dev, "dev@example.com", "developer", False),
+                    (tok_ops, "ops@example.com", "operator", False),
+                    (tok_launcher, "launcher@example.com", "launcher", True),
+                ):
+                    st, info = http_call(f"{base}/v1/console.json", headers={"Authorization": f"Bearer {tok}"})
+                    self.assertEqual(st, 200)
+                    self.assertEqual(info["identity"], want_id)
+                    self.assertEqual(info["role"], want_role)
+                    self.assertEqual(info["can_launch"], want_launch)
+
+                def post_as(tok: str, route: str, payload: dict) -> tuple[int, dict]:
+                    return http_call(
+                        f"{base}{route}",
+                        method="POST",
+                        body=json.dumps(payload).encode("utf-8"),
+                        headers={
+                            "Content-Type": "application/json",
+                            "Origin": base,
+                            "Authorization": f"Bearer {tok}",
+                        },
+                    )
+
+                draft_req = {
+                    "title": "Add OIDC console audit",
+                    "context": "Audit trail.",
+                    "criteria": [{"given": "a request", "when": "submitted", "then": "returns status 200"}],
+                    "perimeter": ["core/*.py"],
+                    "feature": "oidc-audit",
+                    "priority": "P1",
+                }
+                freeze_req = {"state": "on", "reason": "maintenance window"}
+                rollback_req = {"reason": "p95 breach"}
+                launch_req = {
+                    "answer": "GO",
+                    "version": launch_rec["version"],
+                    "held_at": launch_rec["held_at"],
+                    "brief_sha256": launch_sha,
+                    "reason": "slo green",
+                }
+
+                # Viewer: allowed /v1/spec-check, denied /v1/request
+                self.assertEqual(post_as(tok_viewer, "/v1/spec-check", draft_req)[0], 200)
+                self.assertEqual(post_as(tok_viewer, "/v1/request", draft_req)[0], 403)
+
+                # Developer: allowed /v1/request, denied /v1/freeze
+                self.assertEqual(post_as(tok_dev, "/v1/request", draft_req)[0], 200)
+                self.assertEqual(post_as(tok_dev, "/v1/freeze", freeze_req)[0], 403)
+
+                # Operator: allowed /v1/freeze, denied /v1/rollback and /v1/go-for-launch
+                self.assertEqual(post_as(tok_ops, "/v1/freeze", freeze_req)[0], 200)
+                self.assertEqual(post_as(tok_ops, "/v1/rollback", rollback_req)[0], 403)
+                self.assertEqual(post_as(tok_ops, "/v1/go-for-launch", launch_req)[0], 403)
+
+                # Launcher: allowed all (/v1/freeze, /v1/rollback, /v1/go-for-launch)
+                self.assertEqual(post_as(tok_launcher, "/v1/freeze", {"state": "off", "reason": "clear"})[0], 200)
+                self.assertEqual(post_as(tok_launcher, "/v1/rollback", rollback_req)[0], 200)
+                self.assertEqual(post_as(tok_launcher, "/v1/go-for-launch", launch_req)[0], 200)
+
+                effects = (root / "effects.log").read_text(encoding="utf-8")
+                self.assertIn("request 0001 dev@example.com console", effects)
+                self.assertIn("promote GO launcher@example.com", effects)
+
+                audit_raw = audit_log.read_text(encoding="utf-8")
+                audit_lines = [json.loads(ln) for ln in audit_raw.splitlines() if ln.strip()]
+                self.assertGreaterEqual(len(audit_lines), 15)
+                for raw_tok in (tok_viewer, tok_dev, tok_ops, tok_launcher, tok_unmapped, tok_expired, tok_tampered):
+                    self.assertNotIn(raw_tok, audit_raw)
+            finally:
+                proc.terminate()
+                try:
+                    proc.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    proc.kill()
+                    proc.wait()
+                if proc.stderr:
+                    proc.stderr.close()
+
+            # Implicit JWT activation when CONSOLE_JWKS_URL + CONSOLE_JWT_HEADER are set without CONSOLE_VERIFY_JWT
+            port2 = free_port()
+            base2 = f"http://127.0.0.1:{port2}"
+            proc2 = subprocess.Popen(
+                ["python3", "-B", "console/serve.py"],
+                cwd=root,
+                env={
+                    "PATH": os.environ.get("PATH", ""),
+                    "HOME": str(root),
+                    "CONSOLE_LISTEN": str(port2),
+                    "CONSOLE_PORT": str(port2),
+                    "CONSOLE_AUTH": "proxy",
+                    "CONSOLE_SNAPSHOT": str(book_file),
+                    "CONSOLE_JWT_HEADER": "X-Goog-IAP-JWT-Assertion",
+                    "CONSOLE_JWKS_URL": self.jwks_url,
+                    "CONSOLE_JWT_ISSUER": "https://idp.example.com/oidc",
+                    "CONSOLE_JWT_AUDIENCE": "lights-out-console",
+                    "CONSOLE_RBAC": "strict",
+                    "CONSOLE_VIEWERS": "viewer@example.com",
+                },
+                stdin=subprocess.DEVNULL,
+                stdout=subprocess.DEVNULL,
+                stderr=subprocess.PIPE,
+                text=True,
+            )
+            try:
+                deadline = time.monotonic() + 15.0
+                while time.monotonic() < deadline:
+                    if proc2.poll() is not None:
+                        err2 = proc2.stderr.read() if proc2.stderr else ""
+                        self.fail(f"console/serve.py (implicit JWT) exited early: {err2}")
+                    try:
+                        st2, info2 = http_call(
+                            f"{base2}/v1/console.json",
+                            headers={"X-Goog-IAP-JWT-Assertion": tok_viewer},
+                        )
+                        if st2 == 200:
+                            self.assertEqual(info2["role"], "viewer")
+                            break
+                    except Exception:
+                        pass
+                    time.sleep(0.1)
+                else:
+                    self.fail("console/serve.py (implicit JWT) did not become ready")
+                self.assertEqual(http_call(f"{base2}/v1/console.json")[0], 401)
+            finally:
+                proc2.terminate()
+                try:
+                    proc2.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    proc2.kill()
+                    proc2.wait()
+                if proc2.stderr:
+                    proc2.stderr.close()
 
 
 if __name__ == "__main__":

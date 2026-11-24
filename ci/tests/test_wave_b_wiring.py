@@ -547,6 +547,106 @@ exit 0
         argv_cb = next(c for c in _read_calls(go_log) if c and c[0] == "run")
         self.assertEqual(argv_cb[-3:], ["make", "console-build", "CONSOLE_BUILD_ARGS=--check"])
 
+    def test_sprint3_wave_b_cli_make_go_and_console_oidc_forwarding(self):
+        help_res = subprocess.run(
+            ["make", "--no-print-directory", "help"],
+            cwd=self.ws, capture_output=True, text=True, check=True,
+        )
+        self.assertIn("genesis", help_res.stdout)
+        self.assertIn("epics", help_res.stdout)
+        go_header = "\n".join((self.ws / "go").read_text(encoding="utf-8").splitlines()[:60])
+        self.assertIn("./go genesis", go_header)
+        self.assertIn("./go epics", go_header)
+        self.assertIn("--workspace", go_header)
+
+        for target, script in (("genesis", "core/genesis.sh"), ("epics", "core/epics.sh")):
+            dry = subprocess.run(
+                ["make", "--no-print-directory", "-n", target],
+                cwd=self.ws, capture_output=True, text=True, check=True,
+            )
+            self.assertIn(script, dry.stdout)
+
+        bindir, tools, go_log = self._setup_fake_podman()
+        go_env = {"PATH": f"{bindir}:{tools}", "HOME": str(self.tmp)}
+
+        # ./go init --workspace stays read-only when --apply is omitted
+        ext_repo = self.tmp / "mono-target"
+        ext_repo.mkdir()
+        subprocess.run(["git", "-C", str(ext_repo), "init", "-q"], check=True)
+        (ext_repo / "README.md").write_text("# mono\n", encoding="utf-8")
+        subprocess.run(["git", "-C", str(ext_repo), "add", "README.md"], check=True)
+        subprocess.run(
+            ["git", "-C", str(ext_repo), "-c", "user.name=t", "-c", "user.email=t@invalid",
+             "-c", "commit.gpgsign=false", "commit", "-q", "-m", "seed"],
+            check=True,
+        )
+        res_ws = subprocess.run(
+            ["sh", "./go", "init", str(ext_repo), "--workspace"],
+            cwd=self.ws, env=go_env, capture_output=True, text=True, check=False,
+        )
+        self.assertEqual(res_ws.returncode, 0, res_ws.stderr)
+        argv_ws = next(c for c in _read_calls(go_log) if c and c[0] == "run")
+        envs_ws = _extract_env_flags(argv_ws)
+        self.assertIn("LIGHTS_OUT_CLI_ARGS", envs_ws)
+        self.assertFalse(any(m.startswith(f"{ext_repo.resolve()}:") and ":rw" in m for m in argv_ws), argv_ws)
+
+        # ./go genesis mounts host dir :rw cleanly even without git
+        gen_dir = self.tmp / "new-app"
+        gen_dir.mkdir()
+        go_log.unlink(missing_ok=True)
+        res_gen = subprocess.run(
+            ["sh", "./go", "genesis", str(gen_dir), "--brief", "notes api", "--no-commit"],
+            cwd=self.ws, env=go_env, capture_output=True, text=True, check=False,
+        )
+        self.assertEqual(res_gen.returncode, 0, res_gen.stderr)
+        argv_gen = next(c for c in _read_calls(go_log) if c and c[0] == "run")
+        resolved_gen = str(gen_dir.resolve())
+        self.assertTrue(
+            any(m == f"{resolved_gen}:{resolved_gen}:rw" or m.startswith(f"{resolved_gen}:{resolved_gen}:rw,") for m in argv_gen),
+            argv_gen,
+        )
+        envs_gen = _extract_env_flags(argv_gen)
+        self.assertIn("LIGHTS_OUT_CLI_ARGS", envs_gen)
+        self.assertEqual(argv_gen[-2:], ["make", "genesis"])
+
+        # ./go epics forwards LIGHTS_OUT_CLI_ARGS
+        go_log.unlink(missing_ok=True)
+        res_ep = subprocess.run(
+            ["sh", "./go", "epics", "--id", "E1", "--title", "Core"],
+            cwd=self.ws, env=go_env, capture_output=True, text=True, check=False,
+        )
+        self.assertEqual(res_ep.returncode, 0, res_ep.stderr)
+        argv_ep = next(c for c in _read_calls(go_log) if c and c[0] == "run")
+        envs_ep = _extract_env_flags(argv_ep)
+        self.assertIn("LIGHTS_OUT_CLI_ARGS", envs_ep)
+        self.assertEqual(argv_ep[-2:], ["make", "epics"])
+
+        # ./go console and ./go production-readiness forward CONSOLE_* OIDC/RBAC vars by name only
+        secret_canary = "wave-b-jwt-hmac-secret-99999"
+        oidc_env = {
+            **go_env,
+            "CONSOLE_AUTH": "proxy",
+            "CONSOLE_VERIFY_JWT": "on",
+            "CONSOLE_JWKS_URL": "https://idp.invalid/.well-known/jwks.json",
+            "CONSOLE_JWT_SECRET": secret_canary,
+            "CONSOLE_RBAC": "strict",
+            "CONSOLE_VIEWERS": "viewer@invalid",
+            "CONSOLE_AUDIT_LOG": ".crew/console-audit.jsonl",
+        }
+        for cmd_name in ("console", "production-readiness"):
+            go_log.unlink(missing_ok=True)
+            res_c = subprocess.run(
+                ["sh", "./go", cmd_name],
+                cwd=self.ws, env=oidc_env, capture_output=True, text=True, check=False,
+            )
+            self.assertEqual(res_c.returncode, 0, res_c.stderr)
+            argv_c = next(c for c in _read_calls(go_log) if c and c[0] == "run")
+            self.assertNotIn(secret_canary, " ".join(argv_c), "secret value leaked onto podman CLI")
+            flags_c = _extract_env_flags(argv_c)
+            for key in ("CONSOLE_AUTH", "CONSOLE_VERIFY_JWT", "CONSOLE_JWKS_URL",
+                        "CONSOLE_JWT_SECRET", "CONSOLE_RBAC", "CONSOLE_VIEWERS", "CONSOLE_AUDIT_LOG"):
+                self.assertIn(key, flags_c, f"{key} missing on {cmd_name}")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -6,7 +6,7 @@
 SHELL := /bin/sh
 .DEFAULT_GOAL := help
 
-ifneq ($(filter demo demo-% ci ci-% e2e corpus init try gates test-proof test-integrity adr-check migration-safety mutation-baseline attached,$(MAKECMDGOALS)),)
+ifneq ($(filter demo demo-% ci ci-% e2e corpus init genesis try gates test-proof test-integrity adr-check migration-safety mutation-baseline attached,$(MAKECMDGOALS)),)
 LIGHTS_OUT_NO_START_PLAN := 1
 export LIGHTS_OUT_NO_START_PLAN
 endif
@@ -75,7 +75,7 @@ CORPUS_FULL ?= 0
 # `init`/`try` draft one (docs/adr/0042 §6, 0093 §5), `cloud-setup` stages
 # cloud infrastructure templates (docs/adr/0104), and `start`/`next` guide a
 # repo from Stage 1 before a contract exists (docs/adr/0103).
-ifneq ($(filter $(MAKECMDGOALS),init try cloud-setup start next cli top alert-webhook auto-incident console-build),)
+ifneq ($(filter $(MAKECMDGOALS),init genesis epics try cloud-setup start next cli top alert-webhook auto-incident console-build),)
 -include $(WORKLOAD_CONTRACT)/workload.env
 else
 include $(WORKLOAD_CONTRACT)/workload.env
@@ -89,7 +89,7 @@ export
 # goals only tries the adapter instead: its recipe goes through `conform`.
 OUTSIDE_PORTS := AGENT_HARNESS CODE_HOST DELIVERY STATE_STORE EVENT_BUS TRACKER ORCHESTRATOR METRICS FLAGS REGISTRY CHARTS
 ifneq ($(filter outside/%,$(foreach p,$(OUTSIDE_PORTS),$($(p)))),)
-ifneq ($(filter-out %-conformance start next cli top cloud-setup alert-webhook auto-incident console-build,$(or $(MAKECMDGOALS),help)),)
+ifneq ($(filter-out %-conformance genesis epics start next cli top cloud-setup alert-webhook auto-incident console-build,$(or $(MAKECMDGOALS),help)),)
 ADMIT := $(shell python3 core/adapters.py admit 2>&1)
 ifneq ($(ADMIT),)
 $(error $(ADMIT))
@@ -1752,8 +1752,16 @@ demo-init: ## Prove attach, init and gates without the plane on workloads/minima
 # the gates half of .lights-out/ drafted into the clone, every value with
 # its provenance, MUTATION_BASELINE measured, then the contract check.
 .PHONY: init
-init: ## Draft the attached repository's .lights-out/ in the clone (or zero-copy with --apply), baseline measured: ./go init [<path>] [--apply] [--branch <name>] [--commit] [--force] [--baseline-mode full|incremental] [--baseline-max-files <n>] (docs/adr/0042 §6, 0113)
+init: ## Draft the attached repository's .lights-out/ in the clone (or zero-copy with --apply), baseline measured: ./go init [<path>] [--apply] [--branch <name>] [--commit] [--force] [--workspace] [--baseline-mode full|incremental] [--baseline-max-files <n>] (docs/adr/0042 §6, 0113)
 	@LIGHTS_OUT_CLI_ARGS="$(LIGHTS_OUT_CLI_ARGS)" sh core/init.sh $(INIT_ARGS)
+
+.PHONY: genesis
+genesis: ## Greenfield 0->1 repository scaffold from brief: ADR 0001, starter tickets, runnable service and .lights-out/ contract (docs/adr/0118)
+	@sh core/genesis.sh
+
+.PHONY: epics
+epics: ## Manage multi-ticket epic DAGs (create|status|unblock) and monorepo workspaces (workspace) (docs/adr/0119)
+	@sh core/epics.sh
 
 # Your repository in one command (docs/adr/0093 §5): ./go attaches a clone
 # of its HEAD, then this drafts the contract in the clone (init, unchanged)

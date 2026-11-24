@@ -27,8 +27,8 @@ ROOT = Path(__file__).resolve().parents[2]
 
 SPEC = {
     "repo": ["init", "try", "gates", "test-proof", "test-integrity", "adr-check", "migration-safety",
-             "doctor", "map", "corpus"],
-    "ticket": ["intake", "request", "answer", "intake-confirm", "assign", "resume", "network", "audit"],
+             "doctor", "map", "corpus", "genesis"],
+    "ticket": ["intake", "request", "answer", "intake-confirm", "assign", "resume", "network", "audit", "epics"],
     "release": ["up", "down", "smoke", "deploy", "promote", "evidence", "provenance", "production-readiness"],
     "ops": ["watch", "alert-webhook", "triage", "auto-incident", "incident", "postmortem", "dora", "spend", "top",
             "charts-conformance"],
@@ -625,6 +625,31 @@ class SourcePerimeterTests(unittest.TestCase):
             for rel in ("core/cli.py", "core/cli.sh", "core/tests/test_cli.py"):
                 text = (ROOT / rel).read_text(encoding="utf-8")
                 self.assertIsNone(re.search(pattern, text, re.I | re.M), f"{rel} vs ci/{script}")
+
+
+class WaveBCLITests(unittest.TestCase):
+    def test_sprint3_commands_and_flags_parse(self):
+        p_init = cli.parse(["repo", "init", "--workspace", "--apply"])
+        self.assertEqual(p_init.command.flat, "init")
+        self.assertEqual(p_init.tail, ["--workspace", "--apply"])
+
+        p_gen = cli.parse(["repo", "genesis", "--brief", "todo api", "--stack", "fastapi-postgres", "--no-commit", "."])
+        self.assertEqual(p_gen.command.flat, "genesis")
+        self.assertEqual(p_gen.positional, ["."])
+        self.assertIn("--no-commit", p_gen.tail)
+
+        p_ep = cli.parse(["ticket", "epics", "--id", "E1", "--title", "Core", "--baseline-mode", "incremental", "0001"])
+        self.assertEqual(p_ep.command.flat, "epics")
+        self.assertEqual(p_ep.positional, ["0001"])
+        self.assertIn("--id", p_ep.tail)
+
+        for sh_name in SHELLS:
+            comp = cli.completion(sh_name)
+            self.assertIn("genesis", comp)
+            self.assertIn("epics", comp)
+            flag_prefix = "-l " if sh_name == "fish" else "--"
+            self.assertIn(f"{flag_prefix}workspace", comp)
+            self.assertIn(f"{flag_prefix}no-publish", comp)
 
 
 if __name__ == "__main__":

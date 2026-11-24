@@ -888,11 +888,22 @@ def extract_jwt(headers, header_name=None):
 def is_jwt_verification_enabled(env=None):
     e = os.environ if env is None else env
     flag = (e.get("CONSOLE_VERIFY_JWT") or "").strip().lower()
-    if flag in ("", "off", "0", "false", "no"):
-        return False
     if flag in ("on", "1", "true", "yes"):
         return True
-    raise RbacConfigError(f"CONSOLE_VERIFY_JWT={e.get('CONSOLE_VERIFY_JWT')!r} must be 'on' or 'off'")
+    if flag in ("off", "0", "false", "no"):
+        return False
+    if flag:
+        raise RbacConfigError(f"CONSOLE_VERIFY_JWT={e.get('CONSOLE_VERIFY_JWT')!r} must be 'on' or 'off'")
+    auth_mode = (e.get("CONSOLE_AUTH") or "loopback").strip()
+    if auth_mode == "proxy":
+        secret = (e.get("CONSOLE_JWT_SECRET") or "").strip()
+        has_secret = bool(secret and secret != "replace-me")
+        return bool(
+            (e.get("CONSOLE_JWKS_URL") or "").strip()
+            or (e.get("CONSOLE_JWKS_FILE") or "").strip()
+            or has_secret
+        )
+    return False
 
 
 def identity_from_claims(claims, env=None):

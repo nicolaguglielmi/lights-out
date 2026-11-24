@@ -7,7 +7,8 @@
 # a container engine (podman or docker) and git, nothing else.
 #
 # Read-only & gates (socket-free by default; --engine or LIGHTS_OUT_ENGINE_GATES=1 opts into engine socket for custom/compose toolchains):
-#   lights-out init [--engine] [--apply [--branch <name>] [--commit] [--force]] [--baseline-mode full|incremental] [--baseline-max-files <n>] [HEAD=]  draft .lights-out/ for this repository (or apply directly with --apply)
+#   lights-out init [--engine] [--apply [--branch <name>] [--commit] [--force]] [--workspace] [--baseline-mode full|incremental] [--baseline-max-files <n>] [HEAD=]  draft .lights-out/ for this repository (or apply directly with --apply)
+#   lights-out genesis --brief <text> [--stack <stack>] [--port <n>] [--no-commit]  scaffold a greenfield repository (/repo:rw with stderr notice)
 #   lights-out gates [--engine] [BASE= HEAD=]      judge the last commit, or a range; STAGED=1 judges what is staged;
 #                                                  JUDGED="<sha> ..." names trees already judged, whose lines mutation skips (docs/adr/0074)
 #   lights-out test-proof [--engine] [BASE= HEAD=]     only test and test-proof: the tests a change adds fail on its base
@@ -32,6 +33,7 @@
 #   lights-out incident NAME= FROM= TO= [LOGS=]         incident document from the release record (TICKET= needs the plane)
 #   lights-out alert-webhook ALERT_FILE=<path>          normalize an alert JSON file in the repository
 #   lights-out top [LOGBOOK_FILE= URL= ONCE=1 --json]   interactive terminal cockpit over the logbook (ADR 0114)
+#   lights-out epics <create|status|unblock|workspace>  manage multi-ticket epic DAGs and monorepo workspaces (ADR 0119)
 #
 # Opt-in plane & workflow (mounts engine socket with stderr notice, host-mirrored $LIGHTS_OUT_OUT/platform):
 #   lights-out start [--non-interactive ...]            guided setup wizard or preset plan
@@ -72,14 +74,14 @@ gates_image=${LIGHTS_OUT_IMAGE:-ghcr.io/nicolaguglielmi/lights-out-gates:$versio
 full_image=${LIGHTS_OUT_IMAGE:-ghcr.io/nicolaguglielmi/lights-out:$version}
 keys="GEMINI_API_KEY ANTHROPIC_API_KEY OPENAI_API_KEY ZAI_API_KEY"
 plane_keys="GITHUB_TOKEN GITLAB_TOKEN METRICS_AUTH_HEADER"
-all_cmds="init gates test-proof test-integrity adr-check migration-safety triage postmortem doctor version next dora spend cloud-setup map network scoreboard auto-incident incident alert-webhook top start intake answer intake-confirm assign up down smoke release promote console evidence provenance try watch request resume audit production-readiness completion"
+all_cmds="init genesis gates test-proof test-integrity adr-check migration-safety triage postmortem doctor version next dora spend cloud-setup map network scoreboard auto-incident incident alert-webhook top epics start intake answer intake-confirm assign up down smoke release promote console evidence provenance try watch request resume audit production-readiness completion"
 all_keys="BASE HEAD JUDGED STAGED ALERT INCIDENT PROFILE MODEL_PROVIDER MODEL TICKET TEXT ANSWER DECISIONS VERSION CANARY_VERSION CANARY_TAG GO_FOR_LAUNCH REASON MODE PRESET CLOUD DELIVERY CODE_HOST AGENT_HARNESS PROVIDER ADAPTERS_PATH WINDOW_DAYS SPEND_BUDGET_TICKET_USD SPEND_BUDGET_DAY_USD"
 # Socket tiers (docs/adr/0112 §6); gate_cmds keep the one-line contract and take no --json/--jsonl.
-state_cmds="next dora spend cloud-setup map network scoreboard auto-incident incident alert-webhook top"
+state_cmds="next dora spend cloud-setup map network scoreboard auto-incident incident alert-webhook top epics"
 plane_cmds="start intake answer intake-confirm assign up down smoke release promote console evidence provenance try watch request resume audit production-readiness"
 gate_cmds="init try gates test-proof test-integrity adr-check migration-safety doctor map production-readiness version"
 domains="repo ticket release ops config completion"
-top_words="repo ticket release ops config completion init try gates test-proof test-integrity adr-check migration-safety doctor map corpus intake request answer intake-confirm assign resume network audit up down smoke promote evidence provenance production-readiness watch alert-webhook triage auto-incident incident postmortem dora spend top charts-conformance start next cloud-setup scoreboard agents tracker-conformance console-build console version"
+top_words="repo ticket release ops config completion init try gates test-proof test-integrity adr-check migration-safety doctor map corpus genesis intake request answer intake-confirm assign resume network audit epics up down smoke promote evidence provenance production-readiness watch alert-webhook triage auto-incident incident postmortem dora spend top charts-conformance start next cloud-setup scoreboard agents tracker-conformance console-build console version"
 completion_extra_keys="REQUEST_BY REQUEST_VIA ATTEMPT ONCE POLL_S ALERT_FILE RELEASE_RECORD NAME FROM TO LOGS MAP_FILE SLO_MODE CORPUS_FULL LOGBOOK_FILE LOGBOOK URL JSON VIEW WIDTH HEIGHT TICKET_FILE PROVENANCE_DIR TRACKER CHARTS"
 
 # die MESSAGE [STATUS]: one stderr line, exit 1; a usage or contract error exits 2 before any
@@ -94,8 +96,8 @@ member() {
 
 verbs_of() {
   case "$1" in
-    repo) echo "init try gates test-proof test-integrity adr-check migration-safety doctor map corpus" ;;
-    ticket) echo "intake request answer intake-confirm assign resume network audit" ;;
+    repo) echo "init try gates test-proof test-integrity adr-check migration-safety doctor map corpus genesis" ;;
+    ticket) echo "intake request answer intake-confirm assign resume network audit epics" ;;
     release) echo "up down smoke deploy promote evidence provenance production-readiness" ;;
     ops) echo "watch alert-webhook triage auto-incident incident postmortem dora spend top charts-conformance" ;;
     config) echo "start next cloud-setup scoreboard agents tracker-conformance console-build" ;;
@@ -125,12 +127,14 @@ extra_keys_for() {
 native_flag() {
   case "$1:$2" in
     init:--branch|init:--baseline-mode|init:--baseline-max-files|start:--preset|start:--provider|start:--harness|start:--delivery|start:--profile|start:--ticket-budget-usd|start:--day-budget-usd|start:--mode|next:--mode) return 0 ;;
+    genesis:--repo|genesis:--brief|genesis:--brief-file|genesis:--stack|genesis:--name|genesis:--port|genesis:--tickets-count|genesis:--today|genesis:--stacks) return 0 ;;
+    epics:--id|epics:--title|epics:--tickets|epics:--tickets-dir|epics:--state-dir|epics:--repo|epics:--out|epics:--manifest|epics:--stacks|epics:--today|epics:--baseline-mode|epics:--changed) return 0 ;;
   esac
   return 1
 }
 
 flag_words() {
-  fw="--json --jsonl --help --engine --non-interactive --mode --preset --provider --harness --delivery --profile --ticket-budget-usd --day-budget-usd --level --staged --once --apply --branch --commit --force --baseline-mode --baseline-max-files --check"
+  fw="--json --jsonl --help --engine --non-interactive --mode --preset --provider --harness --delivery --profile --ticket-budget-usd --day-budget-usd --level --staged --once --apply --branch --commit --force --workspace --baseline-mode --baseline-max-files --check --repo --brief --brief-file --stack --name --port --tickets-count --no-commit --today --stacks --id --title --tickets --tickets-dir --state-dir --no-publish --out --manifest --changed"
   for k in $all_keys $completion_extra_keys; do
     f="--$(printf '%s' "$k" | tr 'A-Z_' 'a-z-')"
     member "$f" "$fw" || fw="$fw $f"
@@ -198,8 +202,8 @@ if [ -n "$domain" ]; then
   esac
 fi
 case "$cmd" in
-  init|gates|test-proof|test-integrity|adr-check|migration-safety|triage|postmortem|doctor|version) ;;
-  next|dora|spend|cloud-setup|map|network|scoreboard|auto-incident|incident|alert-webhook|top) ;;
+  init|genesis|gates|test-proof|test-integrity|adr-check|migration-safety|triage|postmortem|doctor|version) ;;
+  next|dora|spend|cloud-setup|map|network|scoreboard|auto-incident|incident|alert-webhook|top|epics) ;;
   start|intake|answer|intake-confirm|assign|up|down|smoke|release|promote|console|evidence|provenance) ;;
   try|watch|request|resume|audit|production-readiness) ;;
   --version) cmd=version ;;
@@ -222,7 +226,7 @@ while [ "$i" -lt "$n" ]; do
   shift
   i=$((i + 1))
   case "$a" in
-    --json|--jsonl|--engine|--non-interactive|--apply|--commit|--force|--help|-h) set -- "$@" "$a" ;;
+    --json|--jsonl|--engine|--non-interactive|--apply|--commit|--force|--workspace|--no-commit|--no-publish|--help|-h) set -- "$@" "$a" ;;
     --staged) set -- "$@" STAGED=1 ;;
     --once) set -- "$@" ONCE=1 ;;
     --*=*)
@@ -277,10 +281,34 @@ validate_args() {
         [ "$cmd" = start ] || usage_die "'$a' is only valid with start"
         [ $# -gt 0 ] || usage_die "'$a' requires a value"
         shift ;;
-      --apply|--commit|--force|--branch=*|--baseline-mode=*|--baseline-max-files=*)
+      --apply|--commit|--force|--workspace|--branch=*|--baseline-max-files=*)
         [ "$cmd" = init ] || usage_die "'$a' is only valid with init" ;;
-      --branch|--baseline-mode|--baseline-max-files)
+      --branch|--baseline-max-files)
         [ "$cmd" = init ] || usage_die "'$a' is only valid with init"
+        [ $# -gt 0 ] || usage_die "'$a' requires a value"
+        shift ;;
+      --baseline-mode=*)
+        case "$cmd" in init|epics) ;; *) usage_die "'$a' is only valid with init or epics" ;; esac ;;
+      --baseline-mode)
+        case "$cmd" in init|epics) ;; *) usage_die "'$a' is only valid with init or epics" ;; esac
+        [ $# -gt 0 ] || usage_die "'$a' requires a value"
+        shift ;;
+      --no-commit|--brief=*|--brief-file=*|--stack=*|--name=*|--port=*|--tickets-count=*)
+        [ "$cmd" = genesis ] || usage_die "'$a' is only valid with genesis" ;;
+      --brief|--brief-file|--stack|--name|--port|--tickets-count)
+        [ "$cmd" = genesis ] || usage_die "'$a' is only valid with genesis"
+        [ $# -gt 0 ] || usage_die "'$a' requires a value"
+        shift ;;
+      --no-publish|--id=*|--title=*|--tickets=*|--tickets-dir=*|--state-dir=*|--out=*|--manifest=*|--changed=*)
+        [ "$cmd" = epics ] || usage_die "'$a' is only valid with epics" ;;
+      --id|--title|--tickets|--tickets-dir|--state-dir|--out|--manifest|--changed)
+        [ "$cmd" = epics ] || usage_die "'$a' is only valid with epics"
+        [ $# -gt 0 ] || usage_die "'$a' requires a value"
+        shift ;;
+      --repo=*|--today=*|--stacks=*)
+        case "$cmd" in genesis|epics) ;; *) usage_die "'$a' is only valid with genesis or epics" ;; esac ;;
+      --repo|--today|--stacks)
+        case "$cmd" in genesis|epics) ;; *) usage_die "'$a' is only valid with genesis or epics" ;; esac
         [ $# -gt 0 ] || usage_die "'$a' requires a value"
         shift ;;
       --engine)
@@ -292,8 +320,13 @@ validate_args() {
         # Only the key is echoed: a value may be a secret that must never reach a terminal log.
         member "${a%%=*}" "$(extra_keys_for "$cmd")" \
           || usage_die "'${a%%=*}=' is not an argument lights-out takes; one of $all_keys $(extra_keys_for "$cmd")" ;;
-      *)
+      -*)
         usage_die "'${a%%=*}' is not an argument lights-out takes; one of $all_keys $(extra_keys_for "$cmd")" ;;
+      *)
+        case "$cmd" in
+          genesis|epics) ;;
+          *) usage_die "'${a%%=*}' is not an argument lights-out takes; one of $all_keys $(extra_keys_for "$cmd")" ;;
+        esac ;;
     esac
   done
 }
@@ -498,11 +531,15 @@ fi
 tty="-i"
 [ -t 0 ] && [ -t 1 ] && tty="-it"
 
-init_apply=0
+repo_rw=0
+rw_reason=""
 if [ "$cmd" = init ]; then
   for a do
-    [ "$a" != --apply ] || init_apply=1
+    [ "$a" != --apply ] || { repo_rw=1; rw_reason="opt-in init --apply"; }
   done
+elif [ "$cmd" = genesis ]; then
+  repo_rw=1
+  rw_reason="genesis scaffold"
 fi
 
 # SELinux: never :z, which would relabel your repository (docs/adr/0045 §2).
@@ -520,8 +557,8 @@ if [ "$tier" = readonly ]; then
   for k in $keys MODEL_PROVIDER MODEL; do
     if eval "[ -n \"\${$k:-}\" ]"; then set -- "$@" -e "$k"; fi
   done
-  if [ "$init_apply" = 1 ]; then
-    printf 'lights-out: mounting %s read-write (/repo:rw) for opt-in init --apply\n' "$here" >&2
+  if [ "$repo_rw" = 1 ]; then
+    printf 'lights-out: mounting %s read-write (/repo:rw) for %s\n' "$here" "$rw_reason" >&2
     set -- "$@" -v "$here:/repo:rw" -v "$out:/out" -e LIGHTS_OUT_HOST_OUT="$out" -e PROFILE="$profile"
   else
     set -- "$@" -v "$here:/repo:ro" -v "$out:/out" -e LIGHTS_OUT_HOST_OUT="$out" -e PROFILE="$profile"
@@ -562,7 +599,14 @@ else
     publish=${CONSOLE_PUBLISH:-127.0.0.1}
     cport=${CONSOLE_PORT:-8098}
     set -- "$@" -p "$publish:$cport:8098" -e CONSOLE_PORT="$cport" -e CONSOLE_BIND=0.0.0.0 -e CONSOLE_PUBLISH="$publish"
-    for cv in CONSOLE_AUTH CONSOLE_IDENTITY_HEADER CONSOLE_LAUNCHERS CONSOLE_SNAPSHOT CONSOLE_HOSTS CONSOLE_POLL_S; do
+  fi
+  if [ "$cmd" = console ] || [ "$cmd" = production-readiness ]; then
+    for cv in CONSOLE_AUTH CONSOLE_IDENTITY_HEADER CONSOLE_LAUNCHERS CONSOLE_SNAPSHOT CONSOLE_HOSTS CONSOLE_POLL_S \
+              CONSOLE_VERIFY_JWT CONSOLE_JWT_HEADER CONSOLE_JWKS_URL CONSOLE_JWKS_FILE CONSOLE_JWKS_TTL_S \
+              CONSOLE_JWKS_REFRESH_COOLDOWN_S CONSOLE_JWT_ISSUER CONSOLE_JWT_AUDIENCE CONSOLE_JWT_LEEWAY_S \
+              CONSOLE_JWT_ALGS CONSOLE_JWT_SECRET CONSOLE_IDENTITY_CLAIM CONSOLE_RBAC CONSOLE_DEFAULT_ROLE \
+              CONSOLE_VIEWERS CONSOLE_DEVELOPERS CONSOLE_OPERATORS CONSOLE_ROLE_CLAIM CONSOLE_ROLE_MAP \
+              CONSOLE_AUDIT_LOG; do
       if eval "[ -n \"\${$cv:-}\" ]"; then set -- "$@" -e "$cv"; fi
     done
   fi
@@ -570,8 +614,8 @@ else
     set -- "$@" -e LIGHTS_OUT_DOCTOR_RC -e LIGHTS_OUT_DOCTOR_OUT -e LIGHTS_OUT_DOCTOR_ERR
   fi
   repo_spec="$here:/repo:ro"
-  if [ "$init_apply" = 1 ]; then
-    printf 'lights-out: mounting %s read-write (/repo:rw) for opt-in init --apply\n' "$here" >&2
+  if [ "$repo_rw" = 1 ]; then
+    printf 'lights-out: mounting %s read-write (/repo:rw) for %s\n' "$here" "$rw_reason" >&2
     repo_spec="$here:/repo:rw"
   fi
   set -- "$@" \

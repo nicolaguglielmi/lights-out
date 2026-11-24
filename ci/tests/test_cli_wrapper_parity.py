@@ -29,10 +29,10 @@ from core.tests.test_wrapper_plane import (
 ROOT = Path(__file__).resolve().parents[2]
 IMAGE_PREFIX = "ghcr.io/nicolaguglielmi/lights-out"
 
-READONLY = ("init", "gates", "test-proof", "test-integrity", "adr-check", "migration-safety",
+READONLY = ("init", "genesis", "gates", "test-proof", "test-integrity", "adr-check", "migration-safety",
             "triage", "postmortem")
 STATE = ("next", "dora", "spend", "cloud-setup", "map", "network", "scoreboard",
-         "auto-incident", "incident", "alert-webhook", "top")
+         "auto-incident", "incident", "alert-webhook", "top", "epics")
 PLANE = ("start", "intake", "answer", "intake-confirm", "assign", "up", "down", "smoke", "release",
          "promote", "console", "evidence", "provenance", "try", "watch", "request", "resume", "audit",
          "production-readiness")
@@ -552,6 +552,120 @@ class EntrypointParityTests(unittest.TestCase):
         env = json.loads(res_prov.stdout)
         self.assertEqual((env["command"], env["flat"], env["verdict"]), ("release provenance", "provenance", "GO"))
         self.assertIn("PD=.crew/prov V=0.8.1", env["line"])
+
+    def test_entrypoint_wave_b_genesis_epics_init_workspace_parity(self):
+        call_log = self.tmp / "wave-b-calls.log"
+        (self.img / "Makefile").write_text(
+            "GATES := risk\n"
+            "init:\n"
+            f"\t@printf 'INIT CLI=%s\\n' \"$(LIGHTS_OUT_CLI_ARGS)\" >> {call_log}\n"
+            "\t@printf 'GO: init — workspace\\n'\n"
+            "genesis:\n"
+            f"\t@printf 'GENESIS NO_SP=%s CLI=%s\\n' \"$(LIGHTS_OUT_NO_START_PLAN)\" \"$(LIGHTS_OUT_CLI_ARGS)\" >> {call_log}\n"
+            "\t@printf 'GO: genesis — scaffolded\\n'\n"
+            "epics:\n"
+            f"\t@printf 'EPICS CLI=%s\\n' \"$(LIGHTS_OUT_CLI_ARGS)\" >> {call_log}\n"
+            "\t@printf 'GO: epics — E1 ready\\n'\n",
+            encoding="utf-8",
+        )
+        empty_dir = self.tmp / "empty-genesis"
+        empty_dir.mkdir()
+        (empty_dir / "brief.md").write_text("API brief\n", encoding="utf-8")
+
+        res_gen = self.run_e(
+            ["repo", "genesis", "--brief-file", "brief.md", "--no-commit", "--json"],
+            plane=False,
+            extra={"LIGHTS_OUT_REPO_DIR": str(empty_dir), "LIGHTS_OUT_CONTAINER_OUT": str(self.tmp / "outg")},
+        )
+        self.assertEqual(res_gen.returncode, 0, res_gen.stdout + res_gen.stderr)
+        env_gen = json.loads(res_gen.stdout)
+        self.assertEqual((env_gen["command"], env_gen["flat"], env_gen["verdict"]), ("repo genesis", "genesis", "GO"))
+
+        res_ep = self.run_e(
+            ["ticket", "epics", "--id", "E1", "--title", "Platform", "0001", "--no-publish", "--json"],
+            plane=False,
+            extra={"LIGHTS_OUT_CONTAINER_OUT": str(self.tmp / "oute")},
+        )
+        self.assertEqual(res_ep.returncode, 0, res_ep.stdout + res_ep.stderr)
+        env_ep = json.loads(res_ep.stdout)
+        self.assertEqual((env_ep["command"], env_ep["flat"], env_ep["verdict"]), ("ticket epics", "epics", "GO"))
+
+        lines = call_log.read_text(encoding="utf-8").splitlines()
+        self.assertTrue(any(ln.startswith("GENESIS NO_SP=1 ") and str(empty_dir) in ln and "--no-commit" in ln for ln in lines), lines)
+        self.assertTrue(any(ln.startswith("EPICS ") and "--id\x1fE1" in ln and "0001" in ln and "--no-publish" in ln for ln in lines), lines)
+
+
+class WaveBWrapperMountAndParityTests(unittest.TestCase):
+    def test_wrapper_genesis_rw_notice_epics_ro_init_workspace_and_completion(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as td:
+            tmp = Path(td)
+            bin_dir = tmp / "bin"
+            bin_dir.mkdir()
+            log_file = tmp / "podman.log"
+            fake_podman = bin_dir / "podman"
+            fake_podman.write_text(
+                f"#!/bin/sh\nfor a do printf '%s\\037' \"$a\" >> {str(log_file)!r}; done\nprintf '\\n' >> {str(log_file)!r}\n",
+                encoding="utf-8",
+            )
+            fake_podman.chmod(0o755)
+
+            repo_dir = tmp / "work"
+            repo_dir.mkdir()
+            subprocess.run(["git", "-C", str(repo_dir), "init", "-q"], check=True)
+            subprocess.run(["git", "-C", str(repo_dir), "config", "user.name", "t"], check=True)
+            subprocess.run(["git", "-C", str(repo_dir), "config", "user.email", "t@invalid"], check=True)
+            subprocess.run(["git", "-C", str(repo_dir), "commit", "--allow-empty", "-q", "-m", "seed"], check=True)
+
+            env = {
+                "PATH": f"{bin_dir}:/usr/bin:/bin",
+                "HOME": str(tmp),
+                "LIGHTS_OUT_OUT": str(tmp / "out"),
+                "CONTAINER_ENGINE": str(fake_podman),
+            }
+
+            # init --workspace defaults to :ro
+            res_iw = subprocess.run(
+                ["sh", str(ROOT / "lights-out"), "repo", "init", "--workspace"],
+                cwd=repo_dir, env=env, capture_output=True, text=True, check=False,
+            )
+            self.assertEqual(res_iw.returncode, 0, res_iw.stderr)
+            self.assertNotIn("read-write", res_iw.stderr)
+
+            # epics runs in state tier with :ro and no docker socket
+            log_file.unlink(missing_ok=True)
+            res_ep = subprocess.run(
+                ["sh", str(ROOT / "lights-out"), "ticket", "epics", "--id", "E1", "--title", "WaveB", "0001"],
+                cwd=repo_dir, env=env, capture_output=True, text=True, check=False,
+            )
+            self.assertEqual(res_ep.returncode, 0, res_ep.stderr)
+            ep_calls = [ln.rstrip("\x1f").split("\x1f") for ln in log_file.read_text(encoding="utf-8").splitlines() if ln]
+            ep_mounts = _extract_mount_pairs(ep_calls[-1])
+            self.assertIn(f"{repo_dir.resolve()}:/repo:ro", ep_mounts)
+            self.assertNotIn("/var/run/docker.sock", " ".join(ep_calls[-1]))
+
+            # genesis mounts :rw with a single read-write notice even in an empty non-git dir
+            empty_dir = tmp / "greenfield"
+            empty_dir.mkdir()
+            log_file.unlink(missing_ok=True)
+            res_gen = subprocess.run(
+                ["sh", str(ROOT / "lights-out"), "repo", "genesis", "--brief", "payments api", "--no-commit"],
+                cwd=empty_dir, env=env, capture_output=True, text=True, check=False,
+            )
+            self.assertEqual(res_gen.returncode, 0, res_gen.stderr)
+            self.assertIn("read-write", res_gen.stderr)
+            self.assertEqual(len(res_gen.stderr.strip().splitlines()), 1)
+            gen_calls = [ln.rstrip("\x1f").split("\x1f") for ln in log_file.read_text(encoding="utf-8").splitlines() if ln]
+            gen_mounts = _extract_mount_pairs(gen_calls[-1])
+            self.assertIn(f"{empty_dir.resolve()}:/repo:rw", gen_mounts)
+
+            # completion script parity holds across bash, zsh, fish
+            for sh_name in ("bash", "zsh", "fish"):
+                w_comp = subprocess.run(
+                    ["sh", str(ROOT / "lights-out"), "completion", sh_name],
+                    cwd=ROOT, env=env, capture_output=True, text=True, check=True,
+                ).stdout
+                self.assertEqual(w_comp, cli.completion(sh_name), sh_name)
 
 
 if __name__ == "__main__":

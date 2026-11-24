@@ -176,6 +176,8 @@ class ConsoleSseEndToEndTest(unittest.TestCase):
             tmp = Path(td)
             shutil.copytree(ROOT / "console", tmp / "console")
             (tmp / "core").mkdir()
+            shutil.copy2(ROOT / "core" / "__init__.py", tmp / "core" / "__init__.py")
+            shutil.copy2(ROOT / "core" / "oidc_rbac.py", tmp / "core" / "oidc_rbac.py")
             current_src = tmp / "current-logbook.json"
             fail_flag = tmp / "fail-reader"
             delay_file = tmp / "delay-s"

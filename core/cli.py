@@ -55,13 +55,29 @@ START_NATIVE = (
 )
 INIT_NATIVE = (
     ("--apply", False), ("--branch", True), ("--commit", False),
-    ("--force", False), ("--baseline-mode", True), ("--baseline-max-files", True),
+    ("--force", False), ("--workspace", False),
+    ("--baseline-mode", True), ("--baseline-max-files", True),
+)
+GENESIS_NATIVE = (
+    ("--repo", True), ("--brief", True), ("--brief-file", True),
+    ("--stack", True), ("--name", True), ("--port", True),
+    ("--tickets-count", True), ("--no-commit", False),
+    ("--today", True), ("--stacks", True),
+)
+EPICS_NATIVE = (
+    ("--id", True), ("--title", True), ("--tickets", True),
+    ("--tickets-dir", True), ("--state-dir", True), ("--no-publish", False),
+    ("--repo", True), ("--out", True), ("--manifest", True),
+    ("--stacks", True), ("--today", True), ("--baseline-mode", True),
+    ("--changed", True),
 )
 NATIVE_FLAGS = (
     "--json", "--jsonl", "--help", "--engine", "--non-interactive", "--mode", "--preset", "--provider",
     "--harness", "--delivery", "--profile", "--ticket-budget-usd", "--day-budget-usd", "--level",
-    "--staged", "--once", "--apply", "--branch", "--commit", "--force", "--baseline-mode",
-    "--baseline-max-files", "--check",
+    "--staged", "--once", "--apply", "--branch", "--commit", "--force", "--workspace", "--baseline-mode",
+    "--baseline-max-files", "--check", "--repo", "--brief", "--brief-file", "--stack", "--name", "--port",
+    "--tickets-count", "--no-commit", "--today", "--stacks", "--id", "--title", "--tickets", "--tickets-dir",
+    "--state-dir", "--no-publish", "--out", "--manifest", "--changed",
 )
 BOOL_FLAGS = {"--staged": "STAGED", "--once": "ONCE"}
 ENGINE_FLAT = ("init", "gates", "test-proof", "test-integrity", "adr-check", "migration-safety")
@@ -104,6 +120,7 @@ COMMANDS = (
     _c("repo", "doctor", native=(("--level", True),)),
     _c("repo", "map", keys=("MAP_FILE",)),
     _c("repo", "corpus", keys=("CORPUS_FULL",), surface="clone"),
+    _c("repo", "genesis", positional=1, native=GENESIS_NATIVE),
     _c("ticket", "intake"),
     _c("ticket", "request", keys=("REQUEST_BY", "REQUEST_VIA")),
     _c("ticket", "answer"),
@@ -112,6 +129,7 @@ COMMANDS = (
     _c("ticket", "resume"),
     _c("ticket", "network", keys=("ATTEMPT",)),
     _c("ticket", "audit"),
+    _c("ticket", "epics", positional=8, native=EPICS_NATIVE),
     _c("release", "up"),
     _c("release", "down"),
     _c("release", "smoke"),

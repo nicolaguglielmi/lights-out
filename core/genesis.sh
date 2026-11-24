@@ -4,6 +4,11 @@
 # core-genesis: thin POSIX wrapper delegating greenfield creation to core/genesis.py.
 set -eu
 here=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
+if [ -n "${LIGHTS_OUT_CLI_ARGS:-}" ]; then
+  old_ifs=$IFS; IFS=$(printf '\037'); set -f
+  # shellcheck disable=SC2086 # deliberate splitting on ASCII unit separator \037
+  set -- $LIGHTS_OUT_CLI_ARGS "$@"; set +f; IFS=$old_ifs
+fi
 if [ -n "${REPO:-}" ]; then set -- --repo "$REPO" "$@"; fi
 if [ -n "${BRIEF:-}" ]; then set -- --brief "$BRIEF" "$@"; fi
 if [ -n "${BRIEF_FILE:-}" ]; then set -- --brief-file "$BRIEF_FILE" "$@"; fi

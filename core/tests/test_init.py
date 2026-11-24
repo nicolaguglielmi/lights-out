@@ -496,6 +496,62 @@ class InitApplyAndIncrementalCliTest(unittest.TestCase):
         self.assertTrue(committed and all(p.startswith(".lights-out/") for p in committed), committed)
         self.assertIn("M demo/a.py", repo.git("status", "--porcelain"))
 
+    def test_workspace_flag_standalone_and_apply(self):
+        import tempfile
+        from contextlib import redirect_stdout
+        from core.init import main as init_main
+
+        with tempfile.TemporaryDirectory() as td:
+            root = os.path.realpath(td)
+            svc = os.path.join(root, "services", "api")
+            os.makedirs(os.path.join(svc, "tests"), exist_ok=True)
+            os.makedirs(os.path.join(svc, "api_svc"), exist_ok=True)
+            with open(os.path.join(svc, "pyproject.toml"), "w", encoding="utf-8") as fh:
+                fh.write('[project]\nname = "api"\n')
+            with open(os.path.join(svc, "uv.lock"), "w", encoding="utf-8") as fh:
+                fh.write("version = 1\n")
+            with open(os.path.join(svc, "api_svc", "__init__.py"), "w", encoding="utf-8") as fh:
+                fh.write("def ok():\n    return True\n")
+            with open(os.path.join(svc, "tests", "test_ok.py"), "w", encoding="utf-8") as fh:
+                fh.write("def test_ok():\n    assert True\n")
+            web = os.path.join(root, "apps", "web")
+            os.makedirs(os.path.join(web, "src"), exist_ok=True)
+            os.makedirs(os.path.join(web, "test"), exist_ok=True)
+            with open(os.path.join(web, "package.json"), "w", encoding="utf-8") as fh:
+                fh.write('{"name": "web", "scripts": {"test": "node --test"}}\n')
+            with open(os.path.join(web, "package-lock.json"), "w", encoding="utf-8") as fh:
+                fh.write('{"name": "web", "lockfileVersion": 3}\n')
+            with open(os.path.join(web, "src", "index.js"), "w", encoding="utf-8") as fh:
+                fh.write("exports.ok = () => true;\n")
+            with open(os.path.join(web, "test", "basic.test.js"), "w", encoding="utf-8") as fh:
+                fh.write("const assert = require('node:assert'); assert.ok(true);\n")
+
+            subprocess.run(["git", "-C", root, "init", "-q"], check=True)
+            subprocess.run(["git", "-C", root, "add", "."], check=True)
+            subprocess.run(
+                ["git", "-C", root, "-c", "user.name=t", "-c", "user.email=t@invalid",
+                 "-c", "commit.gpgsign=false", "commit", "-q", "-m", "seed"],
+                check=True,
+            )
+
+            out_buf = io.StringIO()
+            with redirect_stdout(out_buf), redirect_stderr(io.StringIO()):
+                rc = init_main(["--workspace", "--apply-to", root])
+            self.assertEqual(rc, 0, out_buf.getvalue())
+            self.assertIn("WORKSPACE=multi-service repository SERVICES=2", out_buf.getvalue())
+            manifest_path = os.path.join(root, ".lights-out", "workspace.json")
+            self.assertTrue(os.path.exists(manifest_path), os.listdir(os.path.join(root, ".lights-out")))
+
+            env = {
+                "WORKLOAD": root,
+                "WORKLOAD_CONTRACT": os.path.join(root, ".lights-out"),
+                "WORKLOAD_ATTACHED": "1",
+            }
+            with redirect_stderr(io.StringIO()):
+                summary = run_driver(["--workspace"], env)
+            self.assertIn("workspace", summary)
+            self.assertIn("2 service(s)", summary)
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -61,6 +61,11 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 # absolute(), not resolve(): a throwaway root with console/ and core/
 # symlinked runs its own core/, as ci/promote.sh's root does.
 ROOT = pathlib.Path(__file__).absolute().parent.parent
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
+from core import oidc_rbac  # noqa: E402
+
 PAGE = ROOT / "console" / "index.html"
 COMMITTED_SNAPSHOT = ROOT / "console" / "snapshot" / "logbook.json"
 # Provenance, decision: ADR 0047 §4 takes the board's 2 s (ADR 0035 §3):
@@ -110,7 +115,20 @@ class Config:
         if self.auth == "loopback" and self.publish not in LOOPBACK:
             refuse(f"CONSOLE_AUTH=loopback, but CONSOLE_PUBLISH={self.publish} is not loopback; "
                    "set CONSOLE_AUTH=proxy behind a trusted proxy")
-        if self.auth == "proxy" and not self.header:
+        self.jwt_verify = False
+        self.jwt_header = (e.get("CONSOLE_JWT_HEADER") or "Authorization").strip() or "Authorization"
+        self.jwt_policy = None
+        self.jwks = None
+        try:
+            self.jwt_verify = oidc_rbac.is_jwt_verification_enabled(e)
+            if self.auth == "proxy" and self.jwt_verify:
+                self.jwt_policy = oidc_rbac.JwtPolicy.from_env(e)
+                if (e.get("CONSOLE_JWKS_URL") or "").strip() or (e.get("CONSOLE_JWKS_FILE") or "").strip():
+                    self.jwks = oidc_rbac.JwksCache.from_env(e)
+            oidc_rbac.resolve_role("config-probe", {}, e)
+        except oidc_rbac.OidcRbacError as exc:
+            refuse(str(exc))
+        if self.auth == "proxy" and not self.jwt_verify and not self.header:
             refuse("CONSOLE_AUTH=proxy needs CONSOLE_IDENTITY_HEADER, the header the proxy sets")
         if self.auth == "public":
             if not self.snapshot or pathlib.Path(self.snapshot).absolute() != COMMITTED_SNAPSHOT:
@@ -210,7 +228,18 @@ def sse_frame():
 def identity(headers):
     """(identity or None, error status or None) for this request."""
     if CFG.auth == "proxy":
-        who = headers.get(CFG.header)
+        if CFG.jwt_verify:
+            raw_jwt, err = oidc_rbac.extract_jwt(headers, CFG.jwt_header)
+            if err:
+                return None, 401
+            try:
+                claims = oidc_rbac.verify_jwt(raw_jwt, CFG.jwt_policy, jwks=CFG.jwks)
+            except oidc_rbac.OidcRbacError:
+                return None, 401
+            who = oidc_rbac.identity_from_claims(claims, os.environ)
+            return (who, None) if who else (None, 401)
+        who = oidc_rbac._get_header(headers, CFG.header)
+        who = str(who).strip() if who is not None else ""
         return (who, None) if who else (None, 401)
     return ("unauthenticated", None)
 
@@ -220,9 +249,26 @@ def may_launch(who):
     if CFG.snapshot:
         commit = ((state["book"] or {}).get("source") or {}).get("commit") or "an unknown commit"
         return False, f"snapshot of {commit}, no plane behind it"
-    if CFG.auth == "proxy" and who not in CFG.launchers:
+    if CFG.auth == "proxy":
+        if who in CFG.launchers or oidc_rbac.resolve_role(who, None, os.environ) == "launcher":
+            return True, None
         return False, f"{who} is not allowed to press go-for-launch (CONSOLE_LAUNCHERS)"
     return True, None
+
+
+def _can_launch(who, role):
+    """(bool, reason) combining snapshot check with resolved RBAC role."""
+    if CFG.snapshot:
+        return may_launch(who)
+    if CFG.auth == "proxy":
+        allowed, why = oidc_rbac.authorize(role, "POST", "/v1/go-for-launch")
+        if allowed:
+            return True, None
+        if not CFG.jwt_verify and (os.environ.get("CONSOLE_RBAC") or "").strip().lower() != "strict":
+            return False, f"{who} is not allowed to press go-for-launch (CONSOLE_LAUNCHERS)"
+        return False, why
+    allowed, why = oidc_rbac.authorize(role, "POST", "/v1/go-for-launch")
+    return (True, None) if allowed else (False, why)
 
 
 def _ticket_resumable(ticket_obj):
@@ -290,11 +336,37 @@ class Handler(BaseHTTPRequestHandler):
             return
 
     def do_GET(self):
-        who, err = identity(self.headers)
-        if err:
-            return self.send(err, {"error": f"no {CFG.header} header: reach the console through its proxy"})
         parsed = urllib.parse.urlsplit(self.path)
         path = parsed.path
+        known_get = path in (
+            "/",
+            "/index.html",
+            "/v1/events",
+            "/v1/logbook.json",
+            "/v1/console.json",
+            "/v1/charts.json",
+        )
+        if not known_get:
+            who, err = identity(self.headers)
+            if err:
+                if os.environ.get("CONSOLE_AUDIT_LOG"):
+                    oidc_rbac.append_audit_event(
+                        event="request_authz",
+                        decision="deny",
+                        identity=None,
+                        role=None,
+                        method="GET",
+                        route=path,
+                        status=err,
+                        reason="authentication failed",
+                    )
+                hdr = CFG.jwt_header if CFG.jwt_verify else CFG.header
+                return self.send(err, {"error": f"no {hdr} header: reach the console through its proxy"})
+            return self.send(404, {"error": "not found"})
+        decision = oidc_rbac.evaluate_request(self.headers, "GET", path, env=os.environ, jwks=CFG.jwks)
+        if not decision.ok:
+            return self.send(decision.status, {"error": decision.reason})
+        who = decision.identity
         if path in ("/", "/index.html"):
             return self.send(200, PAGE.read_bytes(), "text/html; charset=utf-8")
         if path == "/v1/events":
@@ -309,11 +381,12 @@ class Handler(BaseHTTPRequestHandler):
                 return self.send(304, b"", tag=tag)
             return self.send(200, data, tag=tag)
         if path == "/v1/console.json":
-            can, reason = may_launch(who)
+            can, reason = _can_launch(who, decision.role)
             return self.send(200, {
                 "mode": "snapshot" if CFG.snapshot else "live",
                 "auth": CFG.auth,
                 "identity": who if CFG.auth == "proxy" else "loopback" if CFG.auth == "loopback" else None,
+                "role": decision.role,
                 "can_launch": can,
                 "reason": reason,
                 "read_at": state["read_at"],
@@ -340,9 +413,10 @@ class Handler(BaseHTTPRequestHandler):
             "/v1/freeze",
         ):
             return self.send(404, {"error": "not found"})
-        who, err = identity(self.headers)
-        if err:
-            return self.send(err, {"error": f"no {CFG.header} header: reach the console through its proxy"})
+        decision = oidc_rbac.evaluate_request(self.headers, "POST", route, env=os.environ, jwks=CFG.jwks)
+        if not decision.ok:
+            return self.send(decision.status, {"error": decision.reason})
+        who = decision.identity if CFG.auth == "proxy" else "unauthenticated"
         if (self.headers.get("Content-Type") or "").split(";")[0].strip() != "application/json":
             return self.send(415, {"error": "Content-Type must be application/json"})
         host = self.headers.get("Host") or ""
@@ -364,10 +438,10 @@ class Handler(BaseHTTPRequestHandler):
         if route == "/v1/watch-once":
             return self.watch_once()
         if route == "/v1/rollback":
-            return self.ops_rollback(who)
+            return self.ops_rollback(who, decision.role)
         if route == "/v1/freeze":
             return self.ops_freeze(who)
-        can, reason = may_launch(who)
+        can, reason = _can_launch(who, decision.role)
         if not can:
             return self.send(403, {"error": reason})
         try:
@@ -631,11 +705,11 @@ class Handler(BaseHTTPRequestHandler):
         finally:
             press.release()
 
-    def ops_rollback(self, who):
+    def ops_rollback(self, who, role=None):
         code, msg = self._reject_unavailable_write("rollback")
         if code:
             return self.send(code, {"error": msg})
-        can, denied = may_launch(who)
+        can, denied = _can_launch(who, role) if role is not None else may_launch(who)
         if not can:
             return self.send(403, {"error": denied})
         body, err = self.read_json_body()
@@ -657,9 +731,6 @@ class Handler(BaseHTTPRequestHandler):
         code, msg = self._reject_unavailable_write("freeze")
         if code:
             return self.send(code, {"error": msg})
-        can, denied = may_launch(who)
-        if not can:
-            return self.send(403, {"error": denied})
         body, err = self.read_json_body()
         if err:
             return self.send(400, {"error": err})

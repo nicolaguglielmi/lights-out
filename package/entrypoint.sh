@@ -7,7 +7,8 @@
 # /opt/lights-out/.crew; opt-in plane/workflow commands mirror /opt/lights-out
 # into LIGHTS_OUT_PLATFORM_DIR with .crew -> LIGHTS_OUT_CREW_DIR.
 #
-#   init [--engine] [--apply [--branch <name>] [--commit] [--force]] [--baseline-mode full|incremental] [--baseline-max-files <n>] [HEAD=]  attach /repo, draft .lights-out/ (or apply directly with --apply), copy it to /out/.lights-out, its summary to /out/init
+#   init [--engine] [--apply [--branch <name>] [--commit] [--force]] [--workspace] [--baseline-mode full|incremental] [--baseline-max-files <n>] [HEAD=]  attach /repo, draft .lights-out/ (or apply directly with --apply), copy it to /out/.lights-out, its summary to /out/init
+#   genesis [--repo <dir>] [--brief <text> | --brief-file <path>] [--stack <name>] [--name <name>] [--port <n>] [--no-commit]  scaffold a greenfield project into /repo
 #   gates [--engine] [BASE= HEAD=]      attach /repo, judge the range (default the last commit)
 #   gates STAGED=1           ... with what /repo has staged as one more commit, judged alone
 #   gates ... JUDGED=<shas>  ... mutation skips the lines unchanged from those judged trees (docs/adr/0074)
@@ -46,6 +47,7 @@
 #   request TICKET=<id> [REQUEST_BY=]        start a ticket at requested
 #   resume TICKET=<id>                       request again the step a ticket failed
 #   audit TICKET=<id>                        rebuild the chain deploy to spec from the state store
+#   epics [--id <id>] [--title <text>] [--tickets <list>] [--baseline-mode full|incremental]  manage epics DAG and monorepo workspace manifest
 #   production-readiness                     GO only with a conformant delivery, metrics and a human gate
 #   version
 #
@@ -79,8 +81,8 @@ member() {
 
 verbs_of() {
   case "$1" in
-    repo) echo "init try gates test-proof test-integrity adr-check migration-safety doctor map corpus" ;;
-    ticket) echo "intake request answer intake-confirm assign resume network audit" ;;
+    repo) echo "init try gates test-proof test-integrity adr-check migration-safety doctor map corpus genesis" ;;
+    ticket) echo "intake request answer intake-confirm assign resume network audit epics" ;;
     release) echo "up down smoke deploy promote evidence provenance production-readiness" ;;
     ops) echo "watch alert-webhook triage auto-incident incident postmortem dora spend top charts-conformance" ;;
     config) echo "start next cloud-setup scoreboard agents tracker-conformance console-build" ;;
@@ -107,6 +109,8 @@ extra_keys_for() {
 native_flag() {
   case "$1:$2" in
     init:--branch|init:--baseline-mode|init:--baseline-max-files|start:--preset|start:--provider|start:--harness|start:--delivery|start:--profile|start:--ticket-budget-usd|start:--day-budget-usd|start:--mode|next:--mode) return 0 ;;
+    genesis:--repo|genesis:--brief|genesis:--brief-file|genesis:--stack|genesis:--name|genesis:--port|genesis:--tickets-count|genesis:--today|genesis:--stacks) return 0 ;;
+    epics:--id|epics:--title|epics:--tickets|epics:--tickets-dir|epics:--state-dir|epics:--repo|epics:--out|epics:--manifest|epics:--stacks|epics:--today|epics:--baseline-mode|epics:--changed) return 0 ;;
   esac
   return 1
 }
@@ -135,7 +139,7 @@ esac
 # --json / --jsonl on a non-gate command: run it again, capture its stdout, and wrap that
 # in the envelope of core/cli.py (docs/adr/0112 §4); its exit code is the taxonomy's.
 for f in $lead; do set -- "$@" "$f"; done
-json_cmds="triage postmortem dora spend cloud-setup network scoreboard auto-incident incident alert-webhook intake answer intake-confirm assign up down smoke release promote evidence provenance watch request resume audit"
+json_cmds="triage postmortem dora spend cloud-setup network scoreboard auto-incident incident alert-webhook intake answer intake-confirm assign up down smoke release promote evidence provenance watch request resume audit genesis epics"
 json_mode=""
 if [ -z "${LIGHTS_OUT_JSON_INNER:-}" ] && member "$sub" "$json_cmds"; then
   nargs=$#
@@ -162,7 +166,7 @@ fi
 
 case "$sub" in
   init|gates|test-proof|test-integrity|adr-check|migration-safety) ;;
-  triage|postmortem|next|dora|spend|cloud-setup|map|network|scoreboard|auto-incident|incident|alert-webhook|top|start|intake|answer|intake-confirm|assign|up|down|smoke|release|promote|console|evidence|provenance|try|watch|request|resume|audit|production-readiness)
+  genesis|epics|triage|postmortem|next|dora|spend|cloud-setup|map|network|scoreboard|auto-incident|incident|alert-webhook|top|start|intake|answer|intake-confirm|assign|up|down|smoke|release|promote|console|evidence|provenance|try|watch|request|resume|audit|production-readiness)
     # The gates image has no ADK, compose, cosign, or full platform runtime (docs/adr/0057 §3, 0105).
     [ "${LIGHTS_OUT_FLAVOUR:-full}" != gates ] \
       || nogo "this is the gates image; $sub runs in ghcr.io/nicolaguglielmi/lights-out:${LIGHTS_OUT_VERSION:-<version>} (LIGHTS_OUT_IMAGE)" ;;
@@ -173,7 +177,7 @@ case "$sub" in
     sed -n 's/^#   //p' "$0" >&2
     # shellcheck disable=SC2034 # consumed by nogo in sourced ci/lib.sh
     name=lights-out
-    nogo "unknown command '$sub'; one of: init gates test-proof test-integrity adr-check migration-safety triage postmortem version next dora spend cloud-setup map network scoreboard auto-incident incident alert-webhook top start intake answer intake-confirm assign up down smoke release promote console evidence provenance try watch request resume audit production-readiness; or a domain (repo ticket release ops config) and a verb" ;;
+    nogo "unknown command '$sub'; one of: init genesis gates test-proof test-integrity adr-check migration-safety triage postmortem version next dora spend cloud-setup map network scoreboard auto-incident incident alert-webhook top epics start intake answer intake-confirm assign up down smoke release promote console evidence provenance try watch request resume audit production-readiness; or a domain (repo ticket release ops config) and a verb" ;;
 esac
 
 host_out=${LIGHTS_OUT_HOST_OUT:-/out}
@@ -189,9 +193,18 @@ cli_sep=$(printf '\037')
 has_non_interactive=0
 want_non_interactive=0
 init_apply=0
+has_genesis_repo=0
 has_model_provider=0
 provider_val=""
 reason_val=""
+
+resolve_repo_path() {
+  case "$1" in
+    .) printf '%s' "$repo_dir" ;;
+    /*) printf '%s' "$1" ;;
+    *) printf '%s/%s' "$repo_dir" "$1" ;;
+  esac
+}
 
 # POSIX flags to KEY=VALUE (docs/adr/0112 §2); the flags a command owns pass through untouched.
 nargs=$#
@@ -201,7 +214,7 @@ while [ "$i" -lt "$nargs" ]; do
   shift
   i=$((i + 1))
   case "$a" in
-    --json|--jsonl|--engine|--non-interactive|--apply|--commit|--force) set -- "$@" "$a" ;;
+    --json|--jsonl|--engine|--non-interactive|--apply|--commit|--force|--workspace|--no-commit|--no-publish) set -- "$@" "$a" ;;
     --staged) set -- "$@" STAGED=1 ;;
     --once) set -- "$@" ONCE=1 ;;
     --*=*)
@@ -325,17 +338,87 @@ while [ "$i" -lt "$nargs" ]; do
       v=$1; shift; i=$((i + 1))
       cli_args="$cli_args${cli_args:+$cli_sep}$a${cli_sep}$v"
       continue ;;
-    --apply|--commit|--force)
+    --apply|--commit|--force|--workspace)
       [ "$sub" = init ] || nogo "'$a' is only valid with init"
       [ "$a" != --apply ] || init_apply=1
       cli_args="$cli_args${cli_args:+$cli_sep}$a"
       continue ;;
-    --branch=*|--baseline-mode=*|--baseline-max-files=*)
+    --branch=*|--baseline-max-files=*)
       [ "$sub" = init ] || nogo "'$a' is only valid with init"
       cli_args="$cli_args${cli_args:+$cli_sep}$a"
       continue ;;
-    --branch|--baseline-mode|--baseline-max-files)
+    --branch|--baseline-max-files)
       [ "$sub" = init ] || nogo "'$a' is only valid with init"
+      [ "$i" -lt "$nargs" ] || nogo "'$a' requires a value"
+      v=$1; shift; i=$((i + 1))
+      cli_args="$cli_args${cli_args:+$cli_sep}$a${cli_sep}$v"
+      continue ;;
+    --baseline-mode=*)
+      case "$sub" in init|epics) ;; *) nogo "'$a' is only valid with init or epics" ;; esac
+      cli_args="$cli_args${cli_args:+$cli_sep}$a"
+      continue ;;
+    --baseline-mode)
+      case "$sub" in init|epics) ;; *) nogo "'$a' is only valid with init or epics" ;; esac
+      [ "$i" -lt "$nargs" ] || nogo "'$a' requires a value"
+      v=$1; shift; i=$((i + 1))
+      cli_args="$cli_args${cli_args:+$cli_sep}$a${cli_sep}$v"
+      continue ;;
+    --no-commit|--brief=*|--stack=*|--name=*|--port=*|--tickets-count=*)
+      [ "$sub" = genesis ] || nogo "'$a' is only valid with genesis"
+      cli_args="$cli_args${cli_args:+$cli_sep}$a"
+      continue ;;
+    --brief-file=*)
+      [ "$sub" = genesis ] || nogo "'$a' is only valid with genesis"
+      v=$(resolve_repo_path "${a#--brief-file=}")
+      cli_args="$cli_args${cli_args:+$cli_sep}--brief-file=$v"
+      continue ;;
+    --brief|--stack|--name|--port|--tickets-count)
+      [ "$sub" = genesis ] || nogo "'$a' is only valid with genesis"
+      [ "$i" -lt "$nargs" ] || nogo "'$a' requires a value"
+      v=$1; shift; i=$((i + 1))
+      cli_args="$cli_args${cli_args:+$cli_sep}$a${cli_sep}$v"
+      continue ;;
+    --brief-file)
+      [ "$sub" = genesis ] || nogo "'$a' is only valid with genesis"
+      [ "$i" -lt "$nargs" ] || nogo "'$a' requires a value"
+      v=$(resolve_repo_path "$1"); shift; i=$((i + 1))
+      cli_args="$cli_args${cli_args:+$cli_sep}$a${cli_sep}$v"
+      continue ;;
+    --no-publish|--id=*|--title=*|--tickets=*|--tickets-dir=*|--state-dir=*|--out=*|--manifest=*|--changed=*)
+      [ "$sub" = epics ] || nogo "'$a' is only valid with epics"
+      cli_args="$cli_args${cli_args:+$cli_sep}$a"
+      continue ;;
+    --id|--title|--tickets|--tickets-dir|--state-dir|--out|--manifest|--changed)
+      [ "$sub" = epics ] || nogo "'$a' is only valid with epics"
+      [ "$i" -lt "$nargs" ] || nogo "'$a' requires a value"
+      v=$1; shift; i=$((i + 1))
+      cli_args="$cli_args${cli_args:+$cli_sep}$a${cli_sep}$v"
+      continue ;;
+    --repo=*)
+      case "$sub" in genesis|epics) ;; *) nogo "'$a' is only valid with genesis or epics" ;; esac
+      v=${a#--repo=}
+      if [ "$sub" = genesis ]; then
+        has_genesis_repo=1
+        v=$(resolve_repo_path "$v")
+      fi
+      cli_args="$cli_args${cli_args:+$cli_sep}--repo=$v"
+      continue ;;
+    --repo)
+      case "$sub" in genesis|epics) ;; *) nogo "'$a' is only valid with genesis or epics" ;; esac
+      [ "$i" -lt "$nargs" ] || nogo "'$a' requires a value"
+      v=$1; shift; i=$((i + 1))
+      if [ "$sub" = genesis ]; then
+        has_genesis_repo=1
+        v=$(resolve_repo_path "$v")
+      fi
+      cli_args="$cli_args${cli_args:+$cli_sep}$a${cli_sep}$v"
+      continue ;;
+    --today=*|--stacks=*)
+      case "$sub" in genesis|epics) ;; *) nogo "'$a' is only valid with genesis or epics" ;; esac
+      cli_args="$cli_args${cli_args:+$cli_sep}$a"
+      continue ;;
+    --today|--stacks)
+      case "$sub" in genesis|epics) ;; *) nogo "'$a' is only valid with genesis or epics" ;; esac
       [ "$i" -lt "$nargs" ] || nogo "'$a' requires a value"
       v=$1; shift; i=$((i + 1))
       cli_args="$cli_args${cli_args:+$cli_sep}$a${cli_sep}$v"
@@ -351,7 +434,19 @@ while [ "$i" -lt "$nargs" ]; do
     [A-Z]*=*)
       member "${a%%=*}" "$(extra_keys_for "$sub")" \
         || nogo "'${a%%=*}=' is not an argument lights-out takes; one of BASE= HEAD= JUDGED= STAGED= ALERT= INCIDENT= PROFILE= MODEL_PROVIDER= MODEL= TICKET= TEXT= ANSWER= DECISIONS= VERSION= CANARY_VERSION= CANARY_TAG= GO_FOR_LAUNCH= REASON= MODE= PRESET= CLOUD= DELIVERY= CODE_HOST= AGENT_HARNESS= PROVIDER= ADAPTERS_PATH= WINDOW_DAYS= SPEND_BUDGET_TICKET_USD= SPEND_BUDGET_DAY_USD= $(extra_keys_for "$sub")" ;;
-    *) nogo "'${a%%=*}' is not an argument lights-out takes; one of BASE= HEAD= JUDGED= STAGED= ALERT= INCIDENT= PROFILE= MODEL_PROVIDER= MODEL= TICKET= TEXT= ANSWER= DECISIONS= VERSION= CANARY_VERSION= CANARY_TAG= GO_FOR_LAUNCH= REASON= MODE= PRESET= CLOUD= DELIVERY= CODE_HOST= AGENT_HARNESS= PROVIDER= ADAPTERS_PATH= WINDOW_DAYS= SPEND_BUDGET_TICKET_USD= SPEND_BUDGET_DAY_USD= $(extra_keys_for "$sub")" ;;
+    -*) nogo "'${a%%=*}' is not an argument lights-out takes; one of BASE= HEAD= JUDGED= STAGED= ALERT= INCIDENT= PROFILE= MODEL_PROVIDER= MODEL= TICKET= TEXT= ANSWER= DECISIONS= VERSION= CANARY_VERSION= CANARY_TAG= GO_FOR_LAUNCH= REASON= MODE= PRESET= CLOUD= DELIVERY= CODE_HOST= AGENT_HARNESS= PROVIDER= ADAPTERS_PATH= WINDOW_DAYS= SPEND_BUDGET_TICKET_USD= SPEND_BUDGET_DAY_USD= $(extra_keys_for "$sub")" ;;
+    *)
+      case "$sub" in
+        genesis)
+          has_genesis_repo=1
+          v=$(resolve_repo_path "$a")
+          cli_args="$cli_args${cli_args:+$cli_sep}$v"
+          continue ;;
+        epics)
+          cli_args="$cli_args${cli_args:+$cli_sep}$a"
+          continue ;;
+        *) nogo "'${a%%=*}' is not an argument lights-out takes; one of BASE= HEAD= JUDGED= STAGED= ALERT= INCIDENT= PROFILE= MODEL_PROVIDER= MODEL= TICKET= TEXT= ANSWER= DECISIONS= VERSION= CANARY_VERSION= CANARY_TAG= GO_FOR_LAUNCH= REASON= MODE= PRESET= CLOUD= DELIVERY= CODE_HOST= AGENT_HARNESS= PROVIDER= ADAPTERS_PATH= WINDOW_DAYS= SPEND_BUDGET_TICKET_USD= SPEND_BUDGET_DAY_USD= $(extra_keys_for "$sub")" ;;
+      esac ;;
   esac
   set -- "$@" "$a"
 done
@@ -499,13 +594,13 @@ fi
 case "$sub" in
   cloud-setup|scoreboard|auto-incident|incident|alert-webhook|top)
     run_make "$sub" "$@" ;;
-  next|dora|spend|map|network)
+  next|dora|spend|map|network|epics)
     attached=/tmp/lights-out/attached
     mkdir -p /tmp/lights-out
     if sh core/await-head.sh "$repo_dir" 15; then
       rm -rf "$attached"
       sh core/attach.sh "$repo_dir" "$attached" || nogo "could not clone the repository (see above)"
-      if member "$sub" "next map" || [ -f "$attached/.lights-out/workload.env" ]; then
+      if member "$sub" "next map epics" || [ -f "$attached/.lights-out/workload.env" ]; then
         run_make "$sub" WORKLOAD="$attached" ATTACHED="$attached" "$@"
       fi
       run_make "$sub" WORKLOAD=app ATTACHED=/tmp/lights-out/no-attached "$@"
@@ -514,6 +609,18 @@ case "$sub" in
       run_make "$sub" WORKLOAD=app ATTACHED=/tmp/lights-out/no-attached "$@"
     fi ;;
 esac
+
+# Greenfield genesis writes directly into the mounted read-write $repo_dir before any commit exists.
+if [ "$sub" = genesis ]; then
+  if [ "$has_genesis_repo" = 0 ]; then
+    cli_args="--repo${cli_sep}$repo_dir${cli_args:+$cli_sep}$cli_args"
+    LIGHTS_OUT_CLI_ARGS=$cli_args
+    export LIGHTS_OUT_CLI_ARGS
+  fi
+  LIGHTS_OUT_NO_START_PLAN=1
+  export LIGHTS_OUT_NO_START_PLAN
+  run_make genesis WORKLOAD=app ATTACHED=/tmp/lights-out/no-attached "$@"
+fi
 
 # init and gates: the repository's HEAD, cloned where only this container
 # sees it (docs/adr/0037 §1: lights-out reads the repository, never writes it).

@@ -22,7 +22,9 @@
 #   ./go demo-seam-plain prove attach and proxy SLO rollback on uninstrumented workloads/plain
 #   ./go attach <path>  make a repository of yours the workload (its .lights-out/ is the contract, if it has one)
 #   ./go try <path>     your repository in one command: its contract drafted, the eight gates on its last commit, how to keep the draft (ADR 0093)
-#   ./go init [<path>] [--apply] [--branch <name>] [--commit] [--force] [--baseline-mode full|incremental] [--baseline-max-files <n>]  draft .lights-out/ in the clone (or zero-copy into <path> with --apply), baseline measured (ADR 0042, 0113)
+#   ./go init [<path>] [--apply] [--branch <name>] [--commit] [--force] [--workspace] [--baseline-mode full|incremental] [--baseline-max-files <n>]  draft .lights-out/ in the clone (or zero-copy into <path> with --apply), baseline measured (ADR 0042, 0113)
+#   ./go genesis        scaffold a greenfield repository from a brief with ADR 0001, starter tickets, tests and .lights-out/ (ADR 0118)
+#   ./go epics          manage multi-ticket epic DAGs (create|status|unblock) and monorepo workspaces (workspace) (ADR 0119)
 #   ./go gates          judge a range of the workload: BASE=<ref> HEAD=<ref>, default the last commit; no plane needed
 #   ./go adr-check      check ADR lifecycle compliance on a range: [BASE=<ref> HEAD=<ref>] (ADR 0115)
 #   ./go migration-safety  check database expand/contract migration safety: [BASE=<ref> HEAD=<ref>] [TICKET_FILE=] (ADR 0123)
@@ -164,7 +166,7 @@ case "$cmd" in
       exit 0
     fi ;;
   init)
-    init_usage="usage: ./go init [<path>] [--apply] [--branch <name>] [--commit] [--force] [--baseline-mode full|incremental] [--baseline-max-files <n>] [--service <subdir>]"
+    init_usage="usage: ./go init [<path>] [--apply] [--branch <name>] [--commit] [--force] [--workspace] [--baseline-mode full|incremental] [--baseline-max-files <n>] [--service <subdir>]"
     init_path=""
     init_sep=$(printf '\037')
     while [ $# -gt 0 ]; do
@@ -186,7 +188,7 @@ case "$cmd" in
           init_path=$2
           init_cli_args="$init_cli_args${init_cli_args:+$init_sep}--apply"
           shift 2 ;;
-        --commit|--force)
+        --commit|--force|--workspace)
           init_cli_args="$init_cli_args${init_cli_args:+$init_sep}$1"
           shift ;;
         --branch=*|--baseline-mode=*|--baseline-max-files=*|--service=*)
@@ -491,7 +493,12 @@ fi
 # go to every command, so production can keep them out of .env (§10(c)).
 # A value in .env still wins inside make.
 if [ "$cmd" = console ] || [ "$cmd" = production-readiness ]; then
-  for v in CONSOLE_AUTH CONSOLE_IDENTITY_HEADER CONSOLE_LAUNCHERS CONSOLE_SNAPSHOT CONSOLE_HOSTS CONSOLE_POLL_S; do
+  for v in CONSOLE_AUTH CONSOLE_IDENTITY_HEADER CONSOLE_LAUNCHERS CONSOLE_SNAPSHOT CONSOLE_HOSTS CONSOLE_POLL_S \
+           CONSOLE_VERIFY_JWT CONSOLE_JWT_HEADER CONSOLE_JWKS_URL CONSOLE_JWKS_FILE CONSOLE_JWKS_TTL_S \
+           CONSOLE_JWKS_REFRESH_COOLDOWN_S CONSOLE_JWT_ISSUER CONSOLE_JWT_AUDIENCE CONSOLE_JWT_LEEWAY_S \
+           CONSOLE_JWT_ALGS CONSOLE_JWT_SECRET CONSOLE_IDENTITY_CLAIM CONSOLE_RBAC CONSOLE_DEFAULT_ROLE \
+           CONSOLE_VIEWERS CONSOLE_DEVELOPERS CONSOLE_OPERATORS CONSOLE_ROLE_CLAIM CONSOLE_ROLE_MAP \
+           CONSOLE_AUDIT_LOG; do
     if env | grep -q "^$v="; then port_flags="$port_flags -e $v"; fi
   done
 fi
@@ -522,7 +529,7 @@ if env | grep -q "^CORPUS_FULL="; then port_flags="$port_flags -e CORPUS_FULL"; 
 # its own path, where make finds it and core/adapters.py links from it.
 skip_plan=""
 case "$cmd" in
-  demo|demo-*|ci|ci-*|e2e|corpus|init|try|gates|test-proof|test-integrity|adr-check|migration-safety|mutation-baseline|attached) skip_plan=1 ;;
+  demo|demo-*|ci|ci-*|e2e|corpus|init|genesis|try|gates|test-proof|test-integrity|adr-check|migration-safety|mutation-baseline|attached) skip_plan=1 ;;
 esac
 effective_profile=${PROFILE:-}
 if [ -z "$effective_profile" ] && [ -z "$skip_plan" ] && [ -f "$here/.crew/start-plan.env" ]; then
@@ -604,7 +611,87 @@ elif [ "$cmd" = cli ]; then
     export LIGHTS_OUT_CLI_ARGS
     port_flags="$port_flags -e LIGHTS_OUT_CLI_ARGS"
   fi
-elif [ "$cmd" = start ] || [ "$cmd" = next ] || [ "$cmd" = top ]; then
+elif [ "$cmd" = genesis ]; then
+  cli_sep=$(printf '\037')
+  cli_args=""
+  genesis_repo=""
+  genesis_brief_file=""
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --repo=*)
+        genesis_repo=${1#--repo=}
+        cli_args="$cli_args${cli_args:+$cli_sep}$1"
+        shift ;;
+      --repo)
+        [ $# -ge 2 ] || die "genesis: --repo requires a path"
+        genesis_repo=$2
+        cli_args="$cli_args${cli_args:+$cli_sep}--repo${cli_sep}$2"
+        shift 2 ;;
+      --brief-file=*)
+        genesis_brief_file=${1#--brief-file=}
+        cli_args="$cli_args${cli_args:+$cli_sep}$1"
+        shift ;;
+      --brief-file)
+        [ $# -ge 2 ] || die "genesis: --brief-file requires a path"
+        genesis_brief_file=$2
+        cli_args="$cli_args${cli_args:+$cli_sep}--brief-file${cli_sep}$2"
+        shift 2 ;;
+      --brief|--stack|--name|--port|--tickets-count|--today|--stacks)
+        [ $# -ge 2 ] || die "genesis: $1 requires a value"
+        cli_args="$cli_args${cli_args:+$cli_sep}$1${cli_sep}$2"
+        shift 2 ;;
+      [A-Za-z_][A-Za-z0-9_]*=*)
+        case "$1" in
+          REPO=*) genesis_repo=${1#REPO=} ;;
+          BRIEF_FILE=*) genesis_brief_file=${1#BRIEF_FILE=} ;;
+        esac
+        make_args="$make_args${make_args:+$cli_sep}$1"
+        shift ;;
+      -*)
+        cli_args="$cli_args${cli_args:+$cli_sep}$1"
+        shift ;;
+      *)
+        if [ -z "$genesis_repo" ]; then
+          genesis_repo=$1
+          cli_args="$cli_args${cli_args:+$cli_sep}--repo${cli_sep}$1"
+        else
+          cli_args="$cli_args${cli_args:+$cli_sep}$1"
+        fi
+        shift ;;
+    esac
+  done
+  if [ -n "$genesis_repo" ]; then
+    g_mount=""
+    if [ -d "$genesis_repo" ]; then
+      g_mount=$(CDPATH='' cd -- "$genesis_repo" && pwd -P)
+    elif [ -d "$(dirname -- "$genesis_repo")" ]; then
+      g_mount=$(CDPATH='' cd -- "$(dirname -- "$genesis_repo")" && pwd -P)
+    fi
+    if [ -n "$g_mount" ] && [ "$g_mount" != / ]; then
+      case "$g_mount" in
+        "$here"|"$here"/*) ;;
+        *)
+          port_flags="$port_flags -v $g_mount:$g_mount:rw$(printf '%s' "$label" | tr ':' ',')"
+          printf 'go: mounting %s read-write for genesis\n' "$g_mount" >&2 ;;
+      esac
+    fi
+  fi
+  if [ -n "$genesis_brief_file" ] && [ -f "$genesis_brief_file" ]; then
+    bf_abs=$(CDPATH='' cd -- "$(dirname -- "$genesis_brief_file")" && pwd -P)/$(basename -- "$genesis_brief_file")
+    case "$bf_abs" in
+      "$here"/*) ;;
+      *) port_flags="$port_flags -v $bf_abs:$bf_abs:ro$(printf '%s' "$label" | tr ':' ',')" ;;
+    esac
+  fi
+  for gv in REPO BRIEF BRIEF_FILE STACK SERVICE_NAME PORT TICKETS_COUNT NO_COMMIT JSON GENESIS_ARGS; do
+    if env | grep -q "^$gv="; then port_flags="$port_flags -e $gv"; fi
+  done
+  if [ -n "$cli_args" ]; then
+    LIGHTS_OUT_CLI_ARGS=$cli_args
+    export LIGHTS_OUT_CLI_ARGS
+    port_flags="$port_flags -e LIGHTS_OUT_CLI_ARGS"
+  fi
+elif [ "$cmd" = start ] || [ "$cmd" = next ] || [ "$cmd" = top ] || [ "$cmd" = epics ]; then
   cli_sep=$(printf '\037')
   cli_args=""
   for a in "$@"; do
@@ -681,7 +768,7 @@ fi
 
 if [ "$cmd" = shell ]; then
   run sh
-elif [ "$cmd" = init ] || [ "$cmd" = start ] || [ "$cmd" = next ] || [ "$cmd" = top ] || [ "$cmd" = cli ]; then
+elif [ "$cmd" = init ] || [ "$cmd" = start ] || [ "$cmd" = next ] || [ "$cmd" = top ] || [ "$cmd" = cli ] || [ "$cmd" = genesis ] || [ "$cmd" = epics ]; then
   if [ -n "$make_args" ]; then
     old_ifs=$IFS
     IFS=$(printf '\037')
