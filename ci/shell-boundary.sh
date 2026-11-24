@@ -21,7 +21,6 @@ host='core/doctor.sh core/attach.sh core/preflight.sh core/progress.sh'
 debt='
 core/crew.sh 87
 core/egress.sh 42
-core/init.sh 40
 core/launchpad.sh 70
 core/mutation-baseline.sh 32
 core/postmortem.sh 49

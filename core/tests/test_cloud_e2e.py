@@ -292,7 +292,9 @@ class AdaptersRegistryFlagsWiringTest(unittest.TestCase):
     def test_registry_and_flags_in_suites_and_absent_from_no_suite(self):
         self.assertEqual(adapters.SUITES.get("REGISTRY"), "registry-conformance")
         self.assertEqual(adapters.SUITES.get("FLAGS"), "flags-conformance")
-        self.assertEqual(adapters.NO_SUITE, ("TRACKER", "ORCHESTRATOR", "METRICS"))
+        self.assertEqual(adapters.SUITES.get("TRACKER"), "tracker-conformance")
+        self.assertEqual(adapters.SUITES.get("CHARTS"), "charts-conformance")
+        self.assertEqual(adapters.NO_SUITE, ("ORCHESTRATOR", "METRICS"))
 
 
 if __name__ == "__main__":

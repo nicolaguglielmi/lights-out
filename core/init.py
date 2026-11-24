@@ -24,10 +24,12 @@ import os
 import posixpath
 import re
 import shutil
+import subprocess  # nosec B404 - invokes git and platform helpers with explicit argv lists only
 import sys
 import tempfile
+import time
 import tomllib
-from datetime import date
+from datetime import date, datetime, timezone
 
 try:
     from . import init_apply, init_plane
@@ -508,7 +510,7 @@ def render_policy_env(today):
     )
 
 
-def write_draft(repo, out, stacks, today, commit, service=None, baseline_mode="full", baseline_max_files=10):
+def _write_draft_with_info(repo, out, stacks, today, commit, service=None, baseline_mode="full", baseline_max_files=10):
     repo = os.path.abspath(repo)
     out = os.path.abspath(out)
     if baseline_mode not in ("full", "incremental"):
@@ -581,7 +583,21 @@ def write_draft(repo, out, stacks, today, commit, service=None, baseline_mode="f
     # inferred, so neither roles/ nor mcp.json is drafted (docs/adr/0073 §11).
     print("init: agents: no role instructions, no MCP servers; see docs/use-on-your-repo.md#agents",
           file=sys.stderr)
-    return d["stack"]
+    return d["stack"], incremental_baseline
+
+
+def write_draft(repo, out, stacks, today, commit, service=None, baseline_mode="full", baseline_max_files=10):
+    stack, _ = _write_draft_with_info(
+        repo,
+        out,
+        stacks,
+        today,
+        commit,
+        service=service,
+        baseline_mode=baseline_mode,
+        baseline_max_files=baseline_max_files,
+    )
+    return stack
 
 
 def set_baseline(path, score, provenance):
@@ -608,7 +624,236 @@ def set_baseline(path, score, provenance):
         fh.write("\n".join(out))
 
 
+class _DriverParser(argparse.ArgumentParser):
+    def error(self, message):
+        raise Undraftable(message)
+
+
+def _read_env_keys(draft_path, keys):
+    values = {k: "" for k in keys}
+    with open(draft_path, encoding="utf-8") as fh:
+        for raw in fh:
+            line = raw.strip()
+            if not line or line.startswith("#"):
+                continue
+            k, sep, v = line.partition("=")
+            if sep and k in values and not values[k]:
+                values[k] = v
+    return values
+
+
+def run_driver(argv, env):
+    """Execute the `make init` workflow (draft-in-clone or zero-copy --apply) with baseline measurement."""
+    workload = (env.get("WORKLOAD") or "").strip()
+    workload_contract = (env.get("WORKLOAD_CONTRACT") or "").strip()
+    workload_attached = (env.get("WORKLOAD_ATTACHED") or "").strip()
+    if not workload:
+        raise Undraftable("WORKLOAD not set; run this via ./go, not directly")
+    if not workload_contract:
+        raise Undraftable("WORKLOAD_CONTRACT not set; run this via ./go, not directly")
+    if not workload_attached:
+        raise Undraftable(
+            f"WORKLOAD={workload} is not an attached repository; ./go init <path>, "
+            "or ./go attach <path> first (the bundled app has its contract)"
+        )
+    if not os.path.isdir("stacks"):
+        raise Undraftable("stacks/ not found; run this from the lights-out checkout")
+
+    parser = _DriverParser(prog="init", add_help=False)
+    parser.add_argument("--apply", action="store_true")
+    parser.add_argument("--apply-to", default=None)
+    parser.add_argument("--branch", default=None)
+    parser.add_argument("--commit", action="store_true")
+    parser.add_argument("--force", action="store_true")
+    parser.add_argument("--baseline-mode", choices=("full", "incremental"), default="full")
+    parser.add_argument("--baseline-max-files", type=int, default=10)
+    parser.add_argument("--service", default=None)
+    ns = parser.parse_args(argv)
+
+    apply_mode = bool(ns.apply or ns.apply_to)
+    if (ns.branch is not None or ns.commit or ns.force) and not apply_mode:
+        raise Undraftable("--branch, --commit, and --force require --apply")
+
+    target_workload = os.path.abspath(ns.apply_to) if ns.apply_to else workload
+    target_contract = os.path.join(target_workload, ".lights-out") if ns.apply_to else workload_contract
+
+    rev = subprocess.run(  # nosec B603 B607 - explicit git argv list, shell=False
+        ["git", "-C", target_workload, "rev-parse", "--short", "HEAD"],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if rev.returncode != 0:
+        raise Undraftable(f"{target_workload} is not a git repository")
+    commit = rev.stdout.strip()
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    service = ns.service if ns.service is not None else (env.get("INIT_SERVICE") or None)
+
+    applied_files = []
+    active_branch = None
+    if apply_mode:
+        with tempfile.TemporaryDirectory() as tmp_draft:
+            stack, inc_scope = _write_draft_with_info(
+                target_workload,
+                tmp_draft,
+                "stacks",
+                today,
+                commit,
+                service=service,
+                baseline_mode=ns.baseline_mode,
+                baseline_max_files=ns.baseline_max_files,
+            )
+            summary = init_apply.apply_draft(
+                tmp_draft,
+                target_workload,
+                ".lights-out",
+                branch=ns.branch,
+                commit=False,
+                force=ns.force,
+            )
+            applied_files = list(summary["applied_files"])
+            active_branch = summary["branch"]
+        target_contract = os.path.join(target_workload, ".lights-out")
+    else:
+        stack, inc_scope = _write_draft_with_info(
+            target_workload,
+            target_contract,
+            "stacks",
+            today,
+            commit,
+            service=service,
+            baseline_mode=ns.baseline_mode,
+            baseline_max_files=ns.baseline_max_files,
+        )
+
+    sub_env = dict(env)
+    sub_env["WORKLOAD"] = target_workload
+    sub_env["WORKLOAD_CONTRACT"] = target_contract
+    sub_env["WORKLOAD_ATTACHED"] = "1"
+    root = os.getcwd()
+    sub_env["PYTHONPATH"] = f"{root}:{sub_env['PYTHONPATH']}" if sub_env.get("PYTHONPATH") else root
+
+    hist = subprocess.run(  # nosec B603 B607 - explicit sh argv list, shell=False
+        ["sh", "core/history-findings.sh"],
+        env=sub_env,
+        stdout=subprocess.DEVNULL,
+        check=False,
+    )
+    if hist.returncode != 0:
+        print(
+            "init: the history scan could not run (see above); the secrets gate still scans it on every judgement",
+            file=sys.stderr,
+        )
+
+    draft = os.path.join(target_contract, "workload.env")
+    cfg = _read_env_keys(
+        draft, ("TOOLCHAIN_IMAGE", "MUTATION_CMD", "WORKLOAD_TEST_ROOT", "WORKLOAD_MUTATION_SCOPE")
+    )
+    if not cfg["MUTATION_CMD"]:
+        raise Undraftable("the draft has no MUTATION_CMD")
+    sub_env.update(cfg)
+
+    pre = subprocess.run(  # nosec B603 - explicit python toolchain argv list, shell=False
+        [sys.executable, "-P", "-m", "core.gates.toolchain", "preflight"],
+        env=sub_env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if pre.returncode != 0:
+        if pre.stderr:
+            sys.stderr.write(pre.stderr)
+        raise Undraftable(pre.stdout.strip() or "the toolchain preflight failed; see stderr")
+    toolchain_where = pre.stdout.strip()
+
+    if ns.baseline_mode == "incremental" and inc_scope is not None and inc_scope.mutation_lines:
+        sub_env["MUTATION_LINES"] = inc_scope.mutation_lines
+        ml_label = f"{inc_scope.provenance}; MUTATION_LINES={inc_scope.mutation_lines}"
+    else:
+        sub_env.pop("MUTATION_LINES", None)
+        ml_label = "MUTATION_LINES=all"
+
+    t0 = time.monotonic()
+    mb = subprocess.run(  # nosec B603 B607 - explicit sh argv list, shell=False
+        ["sh", "core/mutation-baseline.sh"],
+        env=sub_env,
+        stdout=subprocess.PIPE,
+        text=True,
+        check=False,
+    )
+    elapsed = int(time.monotonic() - t0)
+    if mb.returncode != 0:
+        raise Undraftable(
+            f"in {toolchain_where}: MUTATION_CMD could not be measured; the draft is in {target_contract} "
+            "with MUTATION_BASELINE empty, see stderr"
+        )
+    last_line = next((ln.strip() for ln in reversed(mb.stdout.splitlines()) if ln.strip()), "")
+    try:
+        parsed = json.loads(last_line)
+        total = parsed["total"]
+        killed = parsed["killed"]
+        score = parsed["score"]
+    except (ValueError, KeyError, TypeError) as exc:
+        raise Undraftable(f"could not parse mutation baseline JSON ({exc}): {last_line!r}") from None
+
+    try:
+        set_baseline(
+            draft,
+            str(score),
+            f"measured by ./go init on {today} at {commit}, in {toolchain_where}: {cfg['MUTATION_CMD']} "
+            f"with {ml_label}, {total} mutants, {killed} killed, {elapsed}s wall time. "
+            "Re-measure with ./go mutation-baseline when the suite or the tool changes.",
+        )
+    except Undraftable:
+        raise
+    except OSError as exc:
+        raise Undraftable(f"could not write MUTATION_BASELINE into {draft}: {exc}") from None
+
+    wk = subprocess.run(  # nosec B603 B607 - explicit sh argv list, shell=False
+        ["sh", "ci/workloads.sh", target_workload],
+        env=sub_env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if wk.returncode != 0:
+        if wk.stderr:
+            sys.stderr.write(wk.stderr)
+        msg = (wk.stdout or "").strip()
+        if msg.startswith("NO-GO: workloads — "):
+            msg = msg[len("NO-GO: workloads — ") :]
+        raise Undraftable(f"the draft fails the contract check: {msg}")
+
+    commit_sha = None
+    if apply_mode and ns.commit:
+        commit_sha = init_apply.commit_applied_paths(
+            target_workload, applied_files, "chore: apply contract files to .lights-out"
+        )
+
+    if apply_mode:
+        meta = [f"{len(applied_files)} file(s)"]
+        if active_branch:
+            meta.append(f"branch={active_branch}")
+        if commit_sha:
+            meta.append(f"commit={commit_sha[:7]}")
+        return (
+            f"{stack}, applied to {target_contract} ({', '.join(meta)}), "
+            f"baseline {score} ({killed}/{total} mutants killed, {elapsed}s, in {toolchain_where})"
+        )
+    return (
+        f"{stack}, draft in {target_contract}, baseline {score} ({killed}/{total} mutants killed, "
+        f"{elapsed}s, in {toolchain_where}); copy .lights-out/ into your repository and commit it"
+    )
+
+
 def main(argv):
+    if argv and argv[0] == "--run":
+        try:
+            print(run_driver(argv[1:], dict(os.environ)))
+            return 0
+        except (Undraftable, init_apply.ApplyError, ValueError) as exc:
+            print(" ".join(str(exc).splitlines()))
+            return 1
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--repo")
     parser.add_argument("--out")

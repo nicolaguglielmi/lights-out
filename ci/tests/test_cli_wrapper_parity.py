@@ -34,7 +34,7 @@ READONLY = ("init", "gates", "test-proof", "test-integrity", "adr-check", "migra
 STATE = ("next", "dora", "spend", "cloud-setup", "map", "network", "scoreboard",
          "auto-incident", "incident", "alert-webhook", "top")
 PLANE = ("start", "intake", "answer", "intake-confirm", "assign", "up", "down", "smoke", "release",
-         "promote", "console", "evidence", "try", "watch", "request", "resume", "audit",
+         "promote", "console", "evidence", "provenance", "try", "watch", "request", "resume", "audit",
          "production-readiness")
 GATE_SHAPED = ("init", "try", "gates", "test-proof", "test-integrity", "adr-check", "migration-safety",
                "doctor", "map", "production-readiness")
@@ -115,6 +115,9 @@ class WrapperGrammarParityTests(WrapperParityBase):
             ["repo", "migration-safety", "--base", "a", "--head", "b", "--ticket-file", "t.md"],
             ["ops", "top", "--once", "--logbook-file", "l.json", "--view", "canary", "--width", "100", "--height", "30"],
             ["ops", "top", "--json"],
+            ["repo", "init", "--apply", "--branch", "lo/init", "--commit", "--force",
+             "--baseline-mode", "incremental", "--baseline-max-files", "5"],
+            ["release", "provenance", "--version", "0.2.0", "--ticket", "0001", "--provenance-dir", ".crew/prov"],
         )
         for argv in cases:
             plan = cli.parse(argv)
@@ -174,6 +177,8 @@ class WrapperUsageTests(WrapperParityBase):
         for argv in (
             ["frobnicate"], ["ticket"], ["ticket", "frobnicate"], ["ticket", "assign", "--bogus", "x"],
             ["ticket", "assign", "--ticket"], ["repo", "corpus"], ["config", "agents"],
+            ["config", "tracker-conformance"], ["ops", "charts-conformance"], ["config", "console-build"],
+            ["repo", "gates", "--apply"], ["repo", "init", "--branch"],
             ["ticket", "assign", "DEMO_SERVICE_TOKEN=abc"], ["ticket", "assign", "--demo-service-token", "abc"],
             ["ops", "alert-webhook"], ["up", "--engine"], ["config", "start", "--jsonl"],
             ["ticket", "assign", "--json", "--jsonl"], ["--json", "--jsonl", "ticket", "assign"],
@@ -295,12 +300,29 @@ class WrapperTierTests(WrapperParityBase):
 
     def test_secrets_stay_by_name_for_new_commands(self):
         secret = "canary-secret-value-90210"
-        for flat in ("resume", "watch", "audit"):
+        for flat in ("resume", "watch", "audit", "provenance"):
             self.fresh()
             self.run_w([flat], extra_env={"METRICS_AUTH_HEADER": secret})
             argv = self.last_run()
             self.assertIn("METRICS_AUTH_HEADER", _extract_env_flags(argv))
             self.assertNotIn(secret, "\n".join(argv))
+
+    def test_init_readonly_vs_apply_rw_parity(self):
+        self.fresh()
+        res_ro = self.run_w(["repo", "init"])
+        self.assertEqual(res_ro.returncode, 0, res_ro.stderr)
+        mounts_ro = _extract_mount_pairs(self.last_run())
+        self.assertIn(f"{self.repo}:/repo:ro", mounts_ro)
+        self.assertNotIn(f"{self.repo}:/repo:rw", mounts_ro)
+        self.assertNotIn("read-write", res_ro.stderr)
+
+        self.fresh()
+        res_rw = self.run_w(["repo", "init", "--apply", "--commit", "--baseline-mode", "incremental"])
+        self.assertEqual(res_rw.returncode, 0, res_rw.stderr)
+        mounts_rw = _extract_mount_pairs(self.last_run())
+        self.assertIn(f"{self.repo}:/repo:rw", mounts_rw)
+        self.assertNotIn(f"{self.repo}:/repo:ro", mounts_rw)
+        self.assertEqual(len([ln for ln in res_rw.stderr.splitlines() if "read-write" in ln]), 1, res_rw.stderr)
 
 
 class CompletionParityTests(WrapperParityBase):
@@ -351,6 +373,10 @@ class EntrypointParityTests(unittest.TestCase):
             "#!/bin/sh\nmkdir -p \"$2\"\nprintf 'attached\\n' > \"$2/marker\"\n", encoding="utf-8")
         (self.img / "Makefile").write_text(
             "GATES := risk\n"
+            "init:\n"
+            "\t@printf 'GO: init — W=%s CLI=%s\\n' \"$(WORKLOAD)\" \"$(LIGHTS_OUT_CLI_ARGS)\"\n"
+            "provenance:\n"
+            "\t@printf 'GO: provenance — PD=%s V=%s\\n' \"$(PROVENANCE_DIR)\" \"$(VERSION)\"\n"
             ".DEFAULT:\n"
             "\t@printf '%s\\n' \"$(if $(LINE),$(LINE),GO: $@ — T=$(TICKET) N=$(NAME) F=$(FROM) O=$(ONCE) P=$(POLL_S) "
             "R=$(RELEASE_RECORD) M=$(MAP_FILE) A=$(ALERT_FILE) B=$(REQUEST_BY) K=$(ATTEMPT) S=$(SLO_MODE))\"\n"
@@ -484,6 +510,48 @@ class EntrypointParityTests(unittest.TestCase):
             res = self.run_e(["repo", gate, "--json"], plane=False)
             self.assertEqual(res.returncode, 1, res.stdout + res.stderr)
             self.assertTrue(res.stdout.startswith("NO-GO: "), res.stdout)
+
+    def test_entrypoint_init_apply_and_provenance_parity(self):
+        subprocess.run(["git", "-C", str(self.repo), "init", "-q"], check=True)
+        subprocess.run(["git", "-C", str(self.repo), "-c", "user.name=t", "-c", "user.email=t@invalid",
+                        "commit", "--allow-empty", "-q", "-m", "seed"], check=True)
+        (self.img / "core" / "attach.sh").write_text(
+            "#!/bin/sh\nrm -rf \"$2\"\ngit clone -q \"$1\" \"$2\"\n",
+            encoding="utf-8",
+        )
+        init_log = self.tmp / "init-calls.log"
+        (self.img / "Makefile").write_text(
+            "GATES := risk\n"
+            "init:\n"
+            f"\t@printf 'W=%s A=%s CLI=%s\\n' \"$(WORKLOAD)\" \"$(ATTACHED)\" \"$(LIGHTS_OUT_CLI_ARGS)\" >> {init_log}\n"
+            "\t@printf 'GO: init — W=%s CLI=%s\\n' \"$(WORKLOAD)\" \"$(LIGHTS_OUT_CLI_ARGS)\"\n"
+            "provenance:\n"
+            "\t@printf 'GO: provenance — PD=%s V=%s\\n' \"$(PROVENANCE_DIR)\" \"$(VERSION)\"\n",
+            encoding="utf-8",
+        )
+
+        res_plain = self.run_e(["repo", "init"], plane=False, extra={"LIGHTS_OUT_CONTAINER_OUT": str(self.tmp / "out1")})
+        self.assertEqual(res_plain.returncode, 0, res_plain.stdout + res_plain.stderr)
+        self.assertIn("GO: init — W=the repository", res_plain.stdout)
+
+        res_apply = self.run_e(
+            ["repo", "init", "--apply", "--branch", "lo/init", "--commit", "--baseline-mode", "incremental",
+             "--baseline-max-files", "4"],
+            plane=False,
+            extra={"LIGHTS_OUT_CONTAINER_OUT": str(self.tmp / "out2")},
+        )
+        self.assertEqual(res_apply.returncode, 0, res_apply.stdout + res_apply.stderr)
+        calls = init_log.read_text(encoding="utf-8").splitlines()
+        self.assertEqual(len(calls), 2, calls)
+        self.assertIn("W=/tmp/lights-out/attached A=/tmp/lights-out/attached CLI=", calls[0])
+        self.assertIn(f"W={self.repo} A={self.repo}", calls[1])
+        self.assertIn("--apply\x1f--branch\x1flo/init\x1f--commit\x1f--baseline-mode\x1fincremental\x1f--baseline-max-files\x1f4", calls[1])
+
+        res_prov = self.run_e(["release", "provenance", "--provenance-dir", ".crew/prov", "--version", "0.8.1", "--json"])
+        self.assertEqual(res_prov.returncode, 0, res_prov.stdout + res_prov.stderr)
+        env = json.loads(res_prov.stdout)
+        self.assertEqual((env["command"], env["flat"], env["verdict"]), ("release provenance", "provenance", "GO"))
+        self.assertIn("PD=.crew/prov V=0.8.1", env["line"])
 
 
 if __name__ == "__main__":

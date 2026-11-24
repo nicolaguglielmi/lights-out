@@ -29,13 +29,14 @@ SPEC = {
     "repo": ["init", "try", "gates", "test-proof", "test-integrity", "adr-check", "migration-safety",
              "doctor", "map", "corpus"],
     "ticket": ["intake", "request", "answer", "intake-confirm", "assign", "resume", "network", "audit"],
-    "release": ["up", "down", "smoke", "deploy", "promote", "evidence", "production-readiness"],
-    "ops": ["watch", "alert-webhook", "triage", "auto-incident", "incident", "postmortem", "dora", "spend", "top"],
-    "config": ["start", "next", "cloud-setup", "scoreboard", "agents"],
+    "release": ["up", "down", "smoke", "deploy", "promote", "evidence", "provenance", "production-readiness"],
+    "ops": ["watch", "alert-webhook", "triage", "auto-incident", "incident", "postmortem", "dora", "spend", "top",
+            "charts-conformance"],
+    "config": ["start", "next", "cloud-setup", "scoreboard", "agents", "tracker-conformance", "console-build"],
 }
 SHELLS = ["bash", "zsh", "fish"]
 GATE_SHAPED = {"init", "try", "gates", "test-proof", "test-integrity", "adr-check", "migration-safety",
-               "doctor", "map", "corpus", "production-readiness"}
+               "doctor", "map", "corpus", "production-readiness", "tracker-conformance", "charts-conformance"}
 SECRET = "canary-secret-value-90210"
 
 
@@ -117,7 +118,7 @@ class GrammarTests(unittest.TestCase):
 
     def test_clone_only_commands_are_marked(self):
         clone_only = {c.flat for c in cli.COMMANDS if c.surface == "clone"}
-        self.assertEqual(clone_only, {"corpus", "agents"})
+        self.assertEqual(clone_only, {"corpus", "agents", "tracker-conformance", "charts-conformance", "console-build"})
 
 
 class FlagTranslationTests(unittest.TestCase):
@@ -151,6 +152,28 @@ class FlagTranslationTests(unittest.TestCase):
     def test_profile_is_native_for_start_and_a_key_elsewhere(self):
         self.assertEqual(cli.parse(["config", "start", "--profile", "l1"]).tail, ["--profile", "l1"])
         self.assertEqual(cli.parse(["ops", "triage", "--profile", "l1"]).tail, ["PROFILE=l1"])
+
+    def test_init_and_sprint2_flags_and_extension_keys(self):
+        plan = cli.parse([
+            "repo", "init", "../r", "--apply", "--branch", "init/lo", "--commit", "--force",
+            "--baseline-mode", "incremental", "--baseline-max-files", "5",
+        ])
+        self.assertEqual(plan.positional, ["../r"])
+        self.assertEqual(
+            plan.tail,
+            ["--apply", "--branch", "init/lo", "--commit", "--force",
+             "--baseline-mode", "incremental", "--baseline-max-files", "5"],
+        )
+        with self.assertRaises(cli.UsageError):
+            cli.parse(["repo", "gates", "--apply"])
+        with self.assertRaises(cli.UsageError):
+            cli.parse(["repo", "init", "--apply=1"])
+
+        prov = cli.parse(["release", "provenance", "--version", "0.8.1", "--ticket", "0001", "--provenance-dir", ".crew/p"])
+        self.assertEqual(prov.tail, ["VERSION=0.8.1", "TICKET=0001", "PROVENANCE_DIR=.crew/p"])
+        self.assertEqual(cli.parse(["config", "console-build", "--check"]).tail, ["--check"])
+        self.assertEqual(cli.parse(["config", "tracker-conformance", "--tracker", "file"]).tail, ["TRACKER=file"])
+        self.assertEqual(cli.parse(["ops", "charts-conformance", "--charts", "grafana"]).tail, ["CHARTS=grafana"])
 
     def test_engine_is_kept_for_the_gate_tier(self):
         for flat in ("gates", "adr-check", "migration-safety"):

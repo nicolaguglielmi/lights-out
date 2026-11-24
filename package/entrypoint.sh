@@ -7,7 +7,7 @@
 # /opt/lights-out/.crew; opt-in plane/workflow commands mirror /opt/lights-out
 # into LIGHTS_OUT_PLATFORM_DIR with .crew -> LIGHTS_OUT_CREW_DIR.
 #
-#   init [--engine] [HEAD=]             attach /repo, draft .lights-out/ from HEAD (or that commit), copy it to /out/.lights-out, its summary to /out/init
+#   init [--engine] [--apply [--branch <name>] [--commit] [--force]] [--baseline-mode full|incremental] [--baseline-max-files <n>] [HEAD=]  attach /repo, draft .lights-out/ (or apply directly with --apply), copy it to /out/.lights-out, its summary to /out/init
 #   gates [--engine] [BASE= HEAD=]      attach /repo, judge the range (default the last commit)
 #   gates STAGED=1           ... with what /repo has staged as one more commit, judged alone
 #   gates ... JUDGED=<shas>  ... mutation skips the lines unchanged from those judged trees (docs/adr/0074)
@@ -33,6 +33,7 @@
 #   promote [GO_FOR_LAUNCH=GO|NO-GO REASON=] go-for-launch brief and human promotion gate
 #   console                                  serve the console on CONSOLE_PUBLISH:CONSOLE_PORT
 #   evidence VERSION=<v>                     build, sign and verify release evidence pack
+#   provenance [VERSION= TICKET= PROVENANCE_DIR=]  build, sign and verify in-toto provenance attestation (ADR 0117)
 #   map [MAP_FILE=]                          build the project map of /repo
 #   network [TICKET= ATTEMPT=]               one ticket's agent network in text
 #   scoreboard                               per provider and harness: first-attempt merges, reworks, cost
@@ -80,9 +81,9 @@ verbs_of() {
   case "$1" in
     repo) echo "init try gates test-proof test-integrity adr-check migration-safety doctor map corpus" ;;
     ticket) echo "intake request answer intake-confirm assign resume network audit" ;;
-    release) echo "up down smoke deploy promote evidence production-readiness" ;;
-    ops) echo "watch alert-webhook triage auto-incident incident postmortem dora spend top" ;;
-    config) echo "start next cloud-setup scoreboard agents" ;;
+    release) echo "up down smoke deploy promote evidence provenance production-readiness" ;;
+    ops) echo "watch alert-webhook triage auto-incident incident postmortem dora spend top charts-conformance" ;;
+    config) echo "start next cloud-setup scoreboard agents tracker-conformance console-build" ;;
   esac
 }
 
@@ -90,6 +91,7 @@ verbs_of() {
 extra_keys_for() {
   case "$1" in
     migration-safety) echo "TICKET_FILE" ;;
+    provenance) echo "PROVENANCE_DIR" ;;
     request) echo "REQUEST_BY REQUEST_VIA" ;;
     network) echo "ATTEMPT" ;;
     watch) echo "ONCE POLL_S" ;;
@@ -104,7 +106,7 @@ extra_keys_for() {
 
 native_flag() {
   case "$1:$2" in
-    start:--preset|start:--provider|start:--harness|start:--delivery|start:--profile|start:--ticket-budget-usd|start:--day-budget-usd|start:--mode|next:--mode) return 0 ;;
+    init:--branch|init:--baseline-mode|init:--baseline-max-files|start:--preset|start:--provider|start:--harness|start:--delivery|start:--profile|start:--ticket-budget-usd|start:--day-budget-usd|start:--mode|next:--mode) return 0 ;;
   esac
   return 1
 }
@@ -122,7 +124,7 @@ case "$sub" in
       shift
       case "$domain:$verb" in
         release:deploy) sub=release ;;
-        repo:corpus|config:agents) nogo "$domain $verb needs a clone of lights-out, not the image: run ./go $verb" ;;
+        repo:corpus|config:agents|config:tracker-conformance|ops:charts-conformance|config:console-build) nogo "$domain $verb needs a clone of lights-out, not the image: run ./go $verb" ;;
         *) sub=$verb ;;
       esac
       # shellcheck disable=SC2034 # consumed by nogo in sourced ci/lib.sh
@@ -133,7 +135,7 @@ esac
 # --json / --jsonl on a non-gate command: run it again, capture its stdout, and wrap that
 # in the envelope of core/cli.py (docs/adr/0112 §4); its exit code is the taxonomy's.
 for f in $lead; do set -- "$@" "$f"; done
-json_cmds="triage postmortem dora spend cloud-setup network scoreboard auto-incident incident alert-webhook intake answer intake-confirm assign up down smoke release promote evidence watch request resume audit"
+json_cmds="triage postmortem dora spend cloud-setup network scoreboard auto-incident incident alert-webhook intake answer intake-confirm assign up down smoke release promote evidence provenance watch request resume audit"
 json_mode=""
 if [ -z "${LIGHTS_OUT_JSON_INNER:-}" ] && member "$sub" "$json_cmds"; then
   nargs=$#
@@ -160,7 +162,7 @@ fi
 
 case "$sub" in
   init|gates|test-proof|test-integrity|adr-check|migration-safety) ;;
-  triage|postmortem|next|dora|spend|cloud-setup|map|network|scoreboard|auto-incident|incident|alert-webhook|top|start|intake|answer|intake-confirm|assign|up|down|smoke|release|promote|console|evidence|try|watch|request|resume|audit|production-readiness)
+  triage|postmortem|next|dora|spend|cloud-setup|map|network|scoreboard|auto-incident|incident|alert-webhook|top|start|intake|answer|intake-confirm|assign|up|down|smoke|release|promote|console|evidence|provenance|try|watch|request|resume|audit|production-readiness)
     # The gates image has no ADK, compose, cosign, or full platform runtime (docs/adr/0057 §3, 0105).
     [ "${LIGHTS_OUT_FLAVOUR:-full}" != gates ] \
       || nogo "this is the gates image; $sub runs in ghcr.io/nicolaguglielmi/lights-out:${LIGHTS_OUT_VERSION:-<version>} (LIGHTS_OUT_IMAGE)" ;;
@@ -171,7 +173,7 @@ case "$sub" in
     sed -n 's/^#   //p' "$0" >&2
     # shellcheck disable=SC2034 # consumed by nogo in sourced ci/lib.sh
     name=lights-out
-    nogo "unknown command '$sub'; one of: init gates test-proof test-integrity adr-check migration-safety triage postmortem version next dora spend cloud-setup map network scoreboard auto-incident incident alert-webhook top start intake answer intake-confirm assign up down smoke release promote console evidence try watch request resume audit production-readiness; or a domain (repo ticket release ops config) and a verb" ;;
+    nogo "unknown command '$sub'; one of: init gates test-proof test-integrity adr-check migration-safety triage postmortem version next dora spend cloud-setup map network scoreboard auto-incident incident alert-webhook top start intake answer intake-confirm assign up down smoke release promote console evidence provenance try watch request resume audit production-readiness; or a domain (repo ticket release ops config) and a verb" ;;
 esac
 
 host_out=${LIGHTS_OUT_HOST_OUT:-/out}
@@ -186,6 +188,7 @@ cli_args=""
 cli_sep=$(printf '\037')
 has_non_interactive=0
 want_non_interactive=0
+init_apply=0
 has_model_provider=0
 provider_val=""
 reason_val=""
@@ -198,7 +201,7 @@ while [ "$i" -lt "$nargs" ]; do
   shift
   i=$((i + 1))
   case "$a" in
-    --json|--jsonl|--engine|--non-interactive) set -- "$@" "$a" ;;
+    --json|--jsonl|--engine|--non-interactive|--apply|--commit|--force) set -- "$@" "$a" ;;
     --staged) set -- "$@" STAGED=1 ;;
     --once) set -- "$@" ONCE=1 ;;
     --*=*)
@@ -318,6 +321,21 @@ while [ "$i" -lt "$nargs" ]; do
       continue ;;
     --preset|--provider|--harness|--delivery|--profile|--ticket-budget-usd|--day-budget-usd)
       [ "$sub" = start ] || nogo "'$a' is only valid with start"
+      [ "$i" -lt "$nargs" ] || nogo "'$a' requires a value"
+      v=$1; shift; i=$((i + 1))
+      cli_args="$cli_args${cli_args:+$cli_sep}$a${cli_sep}$v"
+      continue ;;
+    --apply|--commit|--force)
+      [ "$sub" = init ] || nogo "'$a' is only valid with init"
+      [ "$a" != --apply ] || init_apply=1
+      cli_args="$cli_args${cli_args:+$cli_sep}$a"
+      continue ;;
+    --branch=*|--baseline-mode=*|--baseline-max-files=*)
+      [ "$sub" = init ] || nogo "'$a' is only valid with init"
+      cli_args="$cli_args${cli_args:+$cli_sep}$a"
+      continue ;;
+    --branch|--baseline-mode|--baseline-max-files)
+      [ "$sub" = init ] || nogo "'$a' is only valid with init"
       [ "$i" -lt "$nargs" ] || nogo "'$a' requires a value"
       v=$1; shift; i=$((i + 1))
       cli_args="$cli_args${cli_args:+$cli_sep}$a${cli_sep}$v"
@@ -466,7 +484,7 @@ if [ -n "${LIGHTS_OUT_PLATFORM_DIR:-}" ]; then
         case "$sub" in
           start|try)
             run_make "$sub" WORKLOAD=.attached ATTACHED=.attached "$@" ;;
-          down|console|promote|evidence|production-readiness|incident)
+          down|console|promote|evidence|provenance|production-readiness|incident)
             run_make "$sub" ATTACHED=/tmp/lights-out/no-attached WORKLOAD=app "$@" ;;
           *)
             nogo "the repository has no .lights-out/workload.env committed; lights-out init drafts one" ;;
@@ -507,6 +525,29 @@ export LIGHTS_OUT_NO_START_PLAN
 sh core/await-head.sh "$repo_dir" 15 \
   || nogo "the current directory is not a git repository with a commit"
 attached=${gate_attached:-/tmp/lights-out/attached}
+if [ "$sub" = init ] && [ "$init_apply" = 1 ]; then
+  # Zero-copy init --apply: wrapper mounted $repo_dir read-write; skip clone and apply directly.
+  rm -rf "$out_root/init"
+  from=$(git -C "$repo_dir" rev-parse --short HEAD)
+  out=$(make --no-print-directory init WORKLOAD="$repo_dir" ATTACHED="$repo_dir") && rc=0 || rc=$?
+  if [ -d "$repo_dir/.lights-out" ] && { [ -d "$out_root" ] || mkdir -p "$out_root" 2>/dev/null; }; then
+    rm -rf "$out_root/.lights-out" 2>/dev/null || :
+    cp -R "$repo_dir/.lights-out" "$out_root/.lights-out" 2>/dev/null || :
+  fi
+  line=$(printf '%s\n' "$out" | tail -n 1 | sed -e "s|$repo_dir/\.lights-out|.lights-out|g" -e "s|$repo_dir|the repository|g")
+  if mkdir -p "$out_root/init" 2>/dev/null; then
+    # shellcheck disable=SC2016 # the backticks are Markdown, not a command
+    {
+      printf '### lights-out init --apply, from %s\n\n`%s`\n' "$from" "$line"
+      if [ "$rc" != 0 ]; then
+        printf '\nno draft was applied.\n'
+      fi
+    } > "$out_root/init/summary.md" 2>/dev/null || :
+  fi
+  printf '%s\n' "$out" | sed -e "s|$repo_dir/\.lights-out|.lights-out|g" -e "s|$repo_dir|the repository|g"
+  [ "$rc" = 0 ] || exit 1
+  exit 0
+fi
 mkdir -p "$(dirname "$attached")"
 rm -rf "$attached"
 sh core/attach.sh "$repo_dir" "$attached" || nogo "could not clone the repository (see above)"

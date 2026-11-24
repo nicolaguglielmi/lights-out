@@ -22,7 +22,7 @@
 #   ./go demo-seam-plain prove attach and proxy SLO rollback on uninstrumented workloads/plain
 #   ./go attach <path>  make a repository of yours the workload (its .lights-out/ is the contract, if it has one)
 #   ./go try <path>     your repository in one command: its contract drafted, the eight gates on its last commit, how to keep the draft (ADR 0093)
-#   ./go init [<path>]  draft the attached repository's .lights-out/ in the clone, baseline measured (ADR 0042)
+#   ./go init [<path>] [--apply] [--branch <name>] [--commit] [--force] [--baseline-mode full|incremental] [--baseline-max-files <n>]  draft .lights-out/ in the clone (or zero-copy into <path> with --apply), baseline measured (ADR 0042, 0113)
 #   ./go gates          judge a range of the workload: BASE=<ref> HEAD=<ref>, default the last commit; no plane needed
 #   ./go adr-check      check ADR lifecycle compliance on a range: [BASE=<ref> HEAD=<ref>] (ADR 0115)
 #   ./go migration-safety  check database expand/contract migration safety: [BASE=<ref> HEAD=<ref>] [TICKET_FILE=] (ADR 0123)
@@ -34,6 +34,7 @@
 #   ./go e2e            run the full tower: ticket → PR → CI → merge → canary → verify NO-GO → rollback, audited
 #   ./go audit          rebuild the chain from a ticket's state: TICKET=<id>
 #   ./go evidence       the evidence pack of a release and its frozen console, signed with the plane's key and verified: VERSION=<v> (ADR 0081, 0089)
+#   ./go provenance     build, sign and verify an in-toto provenance attestation: [VERSION=<v>] [TICKET=<id>] [PROVENANCE_DIR=] (ADR 0117)
 #   ./go resume         request again the step a ticket failed, history kept: TICKET=<id>
 #   ./go request        start a ticket at requested: the product role asks or confirms, then the spec gate: TICKET=<id> [REQUEST_BY=<who>]
 #   ./go answer         answer a ticket's open question, then the product role again: TICKET=<id> ANSWER=<text>
@@ -53,6 +54,7 @@
 #   ./go auto-incident  build a deterministic incident document from rolled-back .crew/release.json (ADR 0109)
 #   ./go board          the pipeline explained, live when the plane is up, on localhost:8099
 #   ./go console        the client's console on localhost:8098: the record, and go-for-launch from a browser (ADR 0047)
+#   ./go console-build  bundle modular console/src/ into self-contained console/index.html: [--check] (ADR 0124)
 #   ./go logbook        write the logbook, the one versioned record the console reads: [LOGBOOK_FILE=<file>]
 #   ./go network        one ticket's agent network in text, the console's #network in the same words: [TICKET=] [ATTEMPT=]
 #   ./go dora           the four delivery measures (DORA) over the last WINDOW_DAYS days, from the logbook (ADR 0082)
@@ -72,6 +74,8 @@
 #   ./go gitlab-conformance  the same ten cases on adapters/gitlab, GitLab CE in a container beside the plane, no plane needed (ADR 0058)
 #   ./go registry-conformance  six-case Registry suite on REGISTRY (zot or oci-registry) (ADR 0107)
 #   ./go flags-conformance  six-case Flags suite on FLAGS (flags-file daemonless JSON, flags-http OFREP, or flagd) (ADR 0107)
+#   ./go tracker-conformance  six-case Tracker suite on TRACKER (file, github-issues, linear, or outside/*) (ADR 0116)
+#   ./go charts-conformance  five-case Charts suite on CHARTS (grafana, cloud-monitoring, or outside/*) (ADR 0122)
 #   ./go engine-compat  host-side engine gate: versions, then up and smoke
 #   ./go doctor         engine, versions, ports, the key: one line each, then GO or NO-GO (host-side)
 #   ./go doctor --level <l0|l1|l2|l3>   what that level still lacks, one line per item (host-side, ADR 0057)
@@ -142,6 +146,10 @@ fi
 # here, at the Makefile's ATTACHED, and only ever read; the contract check
 # then runs in workbench, as `make attached`.
 attached="$here/.attached"
+init_apply=0
+init_target=""
+init_cli_args=""
+init_make_args=""
 case "$cmd" in
   attach)
     [ $# -eq 1 ] || die "usage: ./go attach <path to a git repository>"
@@ -156,12 +164,60 @@ case "$cmd" in
       exit 0
     fi ;;
   init)
-    [ $# -le 1 ] || die "usage: ./go init [<path to a git repository>]"
-    if [ $# -eq 1 ]; then
-      sh "$here/core/attach.sh" "$1" "$attached" || exit 1
-      shift
-    fi
-    [ -d "$attached/.git" ] || die "no repository is attached; ./go init <path>, or ./go attach <path> first" ;;
+    init_usage="usage: ./go init [<path>] [--apply] [--branch <name>] [--commit] [--force] [--baseline-mode full|incremental] [--baseline-max-files <n>] [--service <subdir>]"
+    init_path=""
+    init_sep=$(printf '\037')
+    while [ $# -gt 0 ]; do
+      case "$1" in
+        --apply)
+          init_apply=1
+          init_cli_args="$init_cli_args${init_cli_args:+$init_sep}--apply"
+          shift ;;
+        --apply-to=*)
+          init_apply=1
+          [ -z "$init_path" ] || die "$init_usage"
+          init_path=${1#--apply-to=}
+          init_cli_args="$init_cli_args${init_cli_args:+$init_sep}--apply"
+          shift ;;
+        --apply-to)
+          [ $# -ge 2 ] || die "$init_usage"
+          [ -z "$init_path" ] || die "$init_usage"
+          init_apply=1
+          init_path=$2
+          init_cli_args="$init_cli_args${init_cli_args:+$init_sep}--apply"
+          shift 2 ;;
+        --commit|--force)
+          init_cli_args="$init_cli_args${init_cli_args:+$init_sep}$1"
+          shift ;;
+        --branch=*|--baseline-mode=*|--baseline-max-files=*|--service=*)
+          init_cli_args="$init_cli_args${init_cli_args:+$init_sep}$1"
+          shift ;;
+        --branch|--baseline-mode|--baseline-max-files|--service)
+          [ $# -ge 2 ] || die "$init_usage"
+          init_cli_args="$init_cli_args${init_cli_args:+$init_sep}$1${init_sep}$2"
+          shift 2 ;;
+        [A-Za-z_][A-Za-z0-9_]*=*)
+          init_make_args="$init_make_args${init_make_args:+$init_sep}$1"
+          shift ;;
+        -*)
+          die "$init_usage" ;;
+        *)
+          [ -z "$init_path" ] || die "$init_usage"
+          init_path=$1
+          shift ;;
+      esac
+    done
+    if [ "$init_apply" = 1 ]; then
+      [ -n "$init_path" ] || die "init --apply requires <path to a git repository>"
+      init_target=$(git -C "$init_path" rev-parse --show-toplevel 2>/dev/null) || die "$init_path is not a git repository"
+      init_target=$(CDPATH='' cd -- "$init_target" && pwd -P)
+      init_make_args="WORKLOAD=$init_target${init_make_args:+$init_sep}$init_make_args"
+    else
+      if [ -n "$init_path" ]; then
+        sh "$here/core/attach.sh" "$init_path" "$attached" || exit 1
+      fi
+      [ -d "$attached/.git" ] || die "no repository is attached; ./go init <path>, or ./go attach <path> first"
+    fi ;;
   try)
     # docs/adr/0093 §5: attach a clone, then `make try` drafts, judges,
     # copies the draft out and detaches. It uses the attach slot, so it
@@ -447,7 +503,12 @@ for v in POLL_S ONCE ALERT_FILE ALERT_WEBHOOK_TOKEN ALERT_WEBHOOK_OUT WEBHOOK_AR
          AUTO_INCIDENT_ON_ROLLBACK AUTO_POSTMORTEM_ON_ROLLBACK \
          SLO_PROMQL SLO_MODE INIT_SERVICE SMOKE_AUTH_HEADER \
          FLAGS_AUTH_HEADER OCI_REGISTRY_TOKEN OCI_REGISTRY_PASSWORD \
-         LOGBOOK_FILE LOGBOOK_URL URL JSON VIEW WIDTH HEIGHT NO_COLOR TICKET_FILE; do
+         LOGBOOK_FILE LOGBOOK_URL URL JSON VIEW WIDTH HEIGHT NO_COLOR TICKET_FILE \
+         PROVENANCE_DIR COSIGN_KEY COSIGN_PUB RELEASES_LOG SUBJECT_SHA256 IMAGE \
+         TRACKER GITHUB_API_URL LINEAR_TEAM_ID LINEAR_API_URL LINEAR_TOKEN \
+         CHARTS CHARTS_URL GRAFANA_URL GRAFANA_TOKEN \
+         MONITORING_API_URL MONITORING_ACCESS_TOKEN MONITORING_AUTH_HEADER \
+         SSE_HEARTBEAT_S CONSOLE_SSE_HEARTBEAT_S; do
   if env | grep -q "^$v="; then port_flags="$port_flags -e $v"; fi
 done
 if [ "$cmd" = top ] && env | grep -q "^TERM="; then
@@ -508,15 +569,28 @@ if [ "$cmd" = try ]; then
   export TRY_SOURCE
   port_flags="$port_flags -e TRY_SOURCE"
 fi
+if [ "$cmd" = init ] && [ "$init_apply" = 1 ] && [ -n "$init_target" ]; then
+  if [ "$init_target" != "$here" ]; then
+    port_flags="$port_flags -v $init_target:$init_target:rw$(printf '%s' "$label" | tr ':' ',')"
+  fi
+  printf 'go: mounting %s read-write for zero-copy init --apply\n' "$init_target" >&2
+fi
 
-# For `start`, `next`, `top`, and `cli`, forward CLI flags (--non-interactive,
-# --json, --once, etc.) via LIGHTS_OUT_CLI_ARGS so `make` never tries to parse
-# them, while keeping KEY=VALUE overrides as make arguments (for `cli`, only
-# CLI_ARGS/WORKLOAD/ATTACHED are make arguments; command KEY=VALUE pairs go to
-# core/cli.py). For `start`, pre-run host-side core/doctor.sh so workbench
-# receives real host engine and port status.
+# For `init`, `start`, `next`, `top`, and `cli`, forward CLI flags (--apply,
+# --non-interactive, --json, --once, etc.) via LIGHTS_OUT_CLI_ARGS so `make`
+# never tries to parse them, while keeping KEY=VALUE overrides as make arguments
+# (for `cli`, only CLI_ARGS/WORKLOAD/ATTACHED are make arguments; command
+# KEY=VALUE pairs go to core/cli.py). For `start`, pre-run host-side
+# core/doctor.sh so workbench receives real host engine and port status.
 make_args=""
-if [ "$cmd" = cli ]; then
+if [ "$cmd" = init ]; then
+  make_args=$init_make_args
+  if [ -n "$init_cli_args" ]; then
+    LIGHTS_OUT_CLI_ARGS=$init_cli_args
+    export LIGHTS_OUT_CLI_ARGS
+    port_flags="$port_flags -e LIGHTS_OUT_CLI_ARGS"
+  fi
+elif [ "$cmd" = cli ]; then
   cli_sep=$(printf '\037')
   cli_args=""
   for a in "$@"; do
@@ -581,9 +655,33 @@ if [ "$cmd" = cloud-setup ]; then
   fi
 fi
 
+if [ "$cmd" = console-build ]; then
+  cb_flags=""
+  cb_make=""
+  cb_sep=$(printf '\037')
+  for a in "$@"; do
+    case "$a" in
+      [A-Za-z_][A-Za-z0-9_]*=*) cb_make="$cb_make${cb_make:+$cb_sep}$a" ;;
+      *) cb_flags="$cb_flags${cb_flags:+ }$a" ;;
+    esac
+  done
+  if [ -n "$cb_flags" ]; then
+    cb_make="CONSOLE_BUILD_ARGS=$cb_flags${cb_make:+$cb_sep}$cb_make"
+  fi
+  if [ -n "$cb_make" ]; then
+    old_ifs=$IFS
+    IFS=$(printf '\037')
+    set -f
+    # shellcheck disable=SC2086 # deliberate unit-separator splitting for console-build args
+    set -- $cb_make
+    set +f
+    IFS=$old_ifs
+  fi
+fi
+
 if [ "$cmd" = shell ]; then
   run sh
-elif [ "$cmd" = start ] || [ "$cmd" = next ] || [ "$cmd" = top ] || [ "$cmd" = cli ]; then
+elif [ "$cmd" = init ] || [ "$cmd" = start ] || [ "$cmd" = next ] || [ "$cmd" = top ] || [ "$cmd" = cli ]; then
   if [ -n "$make_args" ]; then
     old_ifs=$IFS
     IFS=$(printf '\037')

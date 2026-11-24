@@ -713,3 +713,26 @@ def commit_ticket_artifact(
         _check_secret_content(rel_posix, fh.read())
 
     return _commit_scoped_paths(repo_path, [rel_posix], message.strip())
+
+
+def commit_applied_paths(
+    repo_dir: str | os.PathLike[str],
+    paths: list[str] | tuple[str, ...],
+    message: str,
+) -> str | None:
+    """Safely stage and commit an explicit list of already-applied repo-relative paths."""
+    if not isinstance(message, str) or not message.strip():
+        raise ValueError("commit message must not be empty")
+    if not paths:
+        raise ValueError("paths must not be empty")
+    repo_path = os.path.abspath(os.fspath(repo_dir))
+    if not os.path.isdir(repo_path) or not _is_git_repo(repo_path):
+        raise ApplyError(f"target path is not a git repository: {repo_path}")
+    norm_paths = [_normalize_rel_path(p, "path", allow_dot=False) for p in paths]
+    for rel in norm_paths:
+        abs_p = _resolve_inside_repo(repo_path, rel, "path", allow_repo_root=False)
+        if not os.path.isfile(abs_p):
+            raise ApplyError(f"applied file does not exist: {rel}")
+        with open(abs_p, "rb") as fh:
+            _check_secret_content(rel, fh.read())
+    return _commit_scoped_paths(repo_path, norm_paths, message.strip())

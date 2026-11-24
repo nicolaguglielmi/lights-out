@@ -45,6 +45,7 @@ EXTRA_KEYS = (
     "REQUEST_BY", "REQUEST_VIA", "ATTEMPT", "ONCE", "POLL_S", "ALERT_FILE", "RELEASE_RECORD",
     "NAME", "FROM", "TO", "LOGS", "MAP_FILE", "SLO_MODE", "CORPUS_FULL",
     "LOGBOOK_FILE", "LOGBOOK", "URL", "JSON", "VIEW", "WIDTH", "HEIGHT", "TICKET_FILE",
+    "PROVENANCE_DIR", "TRACKER", "CHARTS",
 )
 
 START_NATIVE = (
@@ -52,16 +53,21 @@ START_NATIVE = (
     ("--delivery", True), ("--profile", True), ("--ticket-budget-usd", True), ("--day-budget-usd", True),
     ("--mode", True),
 )
+INIT_NATIVE = (
+    ("--apply", False), ("--branch", True), ("--commit", False),
+    ("--force", False), ("--baseline-mode", True), ("--baseline-max-files", True),
+)
 NATIVE_FLAGS = (
     "--json", "--jsonl", "--help", "--engine", "--non-interactive", "--mode", "--preset", "--provider",
     "--harness", "--delivery", "--profile", "--ticket-budget-usd", "--day-budget-usd", "--level",
-    "--staged", "--once",
+    "--staged", "--once", "--apply", "--branch", "--commit", "--force", "--baseline-mode",
+    "--baseline-max-files", "--check",
 )
 BOOL_FLAGS = {"--staged": "STAGED", "--once": "ONCE"}
 ENGINE_FLAT = ("init", "gates", "test-proof", "test-integrity", "adr-check", "migration-safety")
 GLOBAL_OPTS = ("--json", "--jsonl", "--dry-run")
 GATE_SHAPED = ("init", "try", "gates", "test-proof", "test-integrity", "adr-check", "migration-safety",
-               "doctor", "map", "corpus", "production-readiness")
+               "doctor", "map", "corpus", "production-readiness", "tracker-conformance", "charts-conformance")
 NATIVE_JSON = ("start", "next", "top")
 TAIL_FLAT = ("console", "version")
 
@@ -88,7 +94,7 @@ def _c(domain, verb, flat=None, **kw):
 
 
 COMMANDS = (
-    _c("repo", "init", positional=1),
+    _c("repo", "init", positional=1, native=INIT_NATIVE),
     _c("repo", "try", positional=1),
     _c("repo", "gates"),
     _c("repo", "test-proof"),
@@ -112,6 +118,7 @@ COMMANDS = (
     _c("release", "deploy", "release"),
     _c("release", "promote"),
     _c("release", "evidence"),
+    _c("release", "provenance", keys=("PROVENANCE_DIR",)),
     _c("release", "production-readiness"),
     _c("ops", "watch", keys=("ONCE", "POLL_S")),
     _c("ops", "alert-webhook", keys=("ALERT_FILE",)),
@@ -122,11 +129,14 @@ COMMANDS = (
     _c("ops", "dora"),
     _c("ops", "spend"),
     _c("ops", "top", keys=("LOGBOOK_FILE", "LOGBOOK", "URL", "ONCE", "JSON", "POLL_S", "VIEW", "WIDTH", "HEIGHT")),
+    _c("ops", "charts-conformance", keys=("CHARTS",), surface="clone"),
     _c("config", "start", native=START_NATIVE),
     _c("config", "next", native=(("--mode", True),)),
     _c("config", "cloud-setup", keys=("SLO_MODE",)),
     _c("config", "scoreboard"),
     _c("config", "agents", surface="clone"),
+    _c("config", "tracker-conformance", keys=("TRACKER",), surface="clone"),
+    _c("config", "console-build", native=(("--check", False),), surface="clone"),
 )
 FLAT_ONLY = (Command("", "console", "console"),)
 FLAT = {c.flat: c for c in (*COMMANDS, *FLAT_ONLY)}
@@ -267,7 +277,7 @@ def parse(argv):
         elif a.startswith("--"):
             name, eq, value = a.partition("=")
             takes = _native(command, name)
-            if takes is not None:
+            if takes is not None and (takes or not eq):
                 tail.append(a)
                 if takes and not eq:
                     tail.append(need(i, name))

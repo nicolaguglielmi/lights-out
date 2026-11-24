@@ -172,7 +172,8 @@ class AdmitTest(AdaptersCase):
         suites = {"CODE_HOST": "codehost-conformance", "DELIVERY": "delivery-conformance",
                   "STATE_STORE": "statestore-conformance", "EVENT_BUS": "eventbus-conformance",
                   "TRACKER": "tracker-conformance", "AGENT_HARNESS": "harness-conformance",
-                  "REGISTRY": "registry-conformance", "FLAGS": "flags-conformance"}
+                  "REGISTRY": "registry-conformance", "FLAGS": "flags-conformance",
+                  "CHARTS": "charts-conformance"}
         for port, suite in suites.items():
             env = dict(self.env, STATE_STORE="sqlite")
             env[port] = "outside/json-files"
@@ -297,6 +298,12 @@ class TrialTest(AdaptersCase):
         env = dict(self.env, STATE_STORE="sqlite", TRACKER="outside/json-files")
         self.assertIn("tracker-conformance", self.refusal(env))
         self.prove("TRACKER", "tracker-conformance", env)
+        self.assertTrue(self.admitted(env))
+
+    def test_charts_can_be_tried_registered_and_admitted(self):
+        env = dict(self.env, STATE_STORE="sqlite", CHARTS="outside/json-files")
+        self.assertIn("charts-conformance", self.refusal(env))
+        self.prove("CHARTS", "charts-conformance", env)
         self.assertTrue(self.admitted(env))
 
 

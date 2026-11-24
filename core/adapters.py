@@ -45,6 +45,7 @@ SUITES = {
     "TRACKER": "tracker-conformance",
     "REGISTRY": "registry-conformance",
     "FLAGS": "flags-conformance",
+    "CHARTS": "charts-conformance",
 }
 # The profile's other port variables: an outside adapter there has no suite.
 NO_SUITE = ("ORCHESTRATOR", "METRICS")

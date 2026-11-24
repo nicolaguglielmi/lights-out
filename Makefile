@@ -75,7 +75,7 @@ CORPUS_FULL ?= 0
 # `init`/`try` draft one (docs/adr/0042 §6, 0093 §5), `cloud-setup` stages
 # cloud infrastructure templates (docs/adr/0104), and `start`/`next` guide a
 # repo from Stage 1 before a contract exists (docs/adr/0103).
-ifneq ($(filter $(MAKECMDGOALS),init try cloud-setup start next cli top alert-webhook auto-incident),)
+ifneq ($(filter $(MAKECMDGOALS),init try cloud-setup start next cli top alert-webhook auto-incident console-build),)
 -include $(WORKLOAD_CONTRACT)/workload.env
 else
 include $(WORKLOAD_CONTRACT)/workload.env
@@ -87,9 +87,9 @@ export
 # GO on those exact bytes, on record in .crew/adapters/register. Refused, make
 # stops here, before any goal, in one line. A command line of *-conformance
 # goals only tries the adapter instead: its recipe goes through `conform`.
-OUTSIDE_PORTS := AGENT_HARNESS CODE_HOST DELIVERY STATE_STORE EVENT_BUS TRACKER ORCHESTRATOR METRICS FLAGS REGISTRY
+OUTSIDE_PORTS := AGENT_HARNESS CODE_HOST DELIVERY STATE_STORE EVENT_BUS TRACKER ORCHESTRATOR METRICS FLAGS REGISTRY CHARTS
 ifneq ($(filter outside/%,$(foreach p,$(OUTSIDE_PORTS),$($(p)))),)
-ifneq ($(filter-out %-conformance start next cli top cloud-setup alert-webhook auto-incident,$(or $(MAKECMDGOALS),help)),)
+ifneq ($(filter-out %-conformance start next cli top cloud-setup alert-webhook auto-incident console-build,$(or $(MAKECMDGOALS),help)),)
 ADMIT := $(shell python3 core/adapters.py admit 2>&1)
 ifneq ($(ADMIT),)
 $(error $(ADMIT))
@@ -494,6 +494,10 @@ spend: ## Cost and time per ticket, per role and per day, from the tower's spend
 .PHONY: console
 console: ## The console on localhost:8098: eleven screens (kanban, the agent network, specs, new request, ADR search, each ticket's timeline, go-for-launch, thresholds...), three writes (docs/adr/0047, 0055, 0059)
 	@python3 console/serve.py
+
+.PHONY: console-build
+console-build: ## Bundle modular console/src/ into self-contained console/index.html: [--check] (docs/adr/0124)
+	@python3 console/build.py $(CONSOLE_BUILD_ARGS)
 
 # M11's acceptance (docs/adr/0047 §4): demo-launch's sequence, but the
 # human answer is an HTTP POST to a running console instead of
@@ -1145,6 +1149,10 @@ evidence: ## Build, sign and verify the evidence pack of a release and its froze
 	@[ -n "$(EVIDENCE_LOGBOOK)" ] || sh core/logbook.sh >&2 || printf 'evidence: the logbook could not be written; the pack goes without a console snapshot\n' >&2
 	@VERSION="$(VERSION)" EVIDENCE_LOGBOOK="$(EVIDENCE_LOGBOOK)" sh core/evidence.sh
 
+.PHONY: provenance
+provenance: ## Build, sign and verify an in-toto provenance attestation: [VERSION=<v>] [TICKET=<id>] [PROVENANCE_DIR=.crew/provenance] (docs/adr/0117)
+	@TICKET="$(if $(filter command line environment,$(origin TICKET)),$(TICKET))" sh core/provenance.sh $(PROVENANCE_ARGS)
+
 # A ticket whose last step failed stays at that step's starting state
 # with nothing queued (docs/adr/0034). resume asks the tower to request
 # that step again — refused unless the last history entry is a failed
@@ -1744,8 +1752,8 @@ demo-init: ## Prove attach, init and gates without the plane on workloads/minima
 # the gates half of .lights-out/ drafted into the clone, every value with
 # its provenance, MUTATION_BASELINE measured, then the contract check.
 .PHONY: init
-init: ## Draft the attached repository's .lights-out/ in the clone, baseline measured, never in your repository: ./go init <path> (docs/adr/0042 §6)
-	@sh core/init.sh
+init: ## Draft the attached repository's .lights-out/ in the clone (or zero-copy with --apply), baseline measured: ./go init [<path>] [--apply] [--branch <name>] [--commit] [--force] [--baseline-mode full|incremental] [--baseline-max-files <n>] (docs/adr/0042 §6, 0113)
+	@LIGHTS_OUT_CLI_ARGS="$(LIGHTS_OUT_CLI_ARGS)" sh core/init.sh $(INIT_ARGS)
 
 # Your repository in one command (docs/adr/0093 §5): ./go attaches a clone
 # of its HEAD, then this drafts the contract in the clone (init, unchanged)
@@ -1832,7 +1840,7 @@ codehost-conformance: ## Ten-case CodeHost conformance suite on the CODE_HOST se
 # profile's adapters, through their verbs only. At L0 they need no plane
 # (sqlite and spool are files under .crew/); an emulator needs `./go up`
 # with it named first. The bus suite refuses a bus that is not idle.
-.PHONY: statestore-conformance eventbus-conformance registry-conformance flags-conformance
+.PHONY: statestore-conformance eventbus-conformance registry-conformance flags-conformance tracker-conformance charts-conformance
 statestore-conformance: ## Eight-case StateStore conformance suite on the STATE_STORE set: sqlite at L0, no plane (docs/adr/0060 §4)
 	$(call conform,STATE_STORE,statestore-conformance)
 eventbus-conformance: ## Six-case EventBus conformance suite on the EVENT_BUS set, an idle bus: spool at L0, no plane; the redelivery case needs CONFORMANCE_ACK_DEADLINE (docs/adr/0060 §4)
@@ -1841,6 +1849,10 @@ registry-conformance: ## Six-case Registry conformance suite on REGISTRY (zot at
 	$(call conform,REGISTRY,registry-conformance)
 flags-conformance: ## Six-case Flags conformance suite on FLAGS (flags-file daemonless JSON, flags-http OFREP, or flagd) (docs/adr/0107)
 	$(call conform,FLAGS,flags-conformance)
+tracker-conformance: ## Six-case Tracker conformance suite on TRACKER (file, github-issues, linear, or outside/*) (docs/adr/0116)
+	$(call conform,TRACKER,tracker-conformance)
+charts-conformance: ## Five-case Charts conformance suite on CHARTS (grafana, cloud-monitoring, or outside/*) (docs/adr/0122)
+	$(call conform,CHARTS,charts-conformance)
 
 .PHONY: delivery-conformance
 delivery-conformance: ## Six-case Delivery/Flags conformance suite, real releases on the plane (docs/adr/0026)

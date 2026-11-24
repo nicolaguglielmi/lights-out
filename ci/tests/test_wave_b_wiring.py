@@ -133,8 +133,9 @@ exit 0
         self.assertEqual(help_res.returncode, 0, help_res.stderr)
         go_text = (self.ws / "go").read_text(encoding="utf-8")
         for target in (
-            "registry-conformance", "flags-conformance", "watch", "alert-webhook", "auto-incident",
-            "cli", "top", "adr-check", "migration-safety",
+            "registry-conformance", "flags-conformance", "tracker-conformance", "charts-conformance",
+            "watch", "alert-webhook", "auto-incident", "cli", "top",
+            "adr-check", "migration-safety", "provenance", "console-build",
         ):
             self.assertRegex(help_res.stdout, rf"(?m)^\s*{target}\s+", f"make help missing {target}")
             self.assertIn(f"./go {target}", go_text, f"./go header missing {target}")
@@ -461,6 +462,90 @@ exit 0
             envs_g = _extract_env_flags(argv_g)
             self.assertFalse(any("DOCKER_HOST" in e for e in envs_g), gate)
             self.assertEqual(argv_g[-2:], ["make", gate])
+
+    def test_sprint2_targets_and_zero_copy_go_init_apply_wiring(self) -> None:
+        base_env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "HOME": str(self.tmp)}
+
+        res_cb = subprocess.run(
+            ["make", "--no-print-directory", "console-build", "CONSOLE_BUILD_ARGS=--check"],
+            cwd=self.ws, env=base_env, capture_output=True, text=True, check=False,
+        )
+        self.assertEqual(res_cb.returncode, 0, res_cb.stdout + res_cb.stderr)
+
+        res_tr = subprocess.run(
+            ["make", "--no-print-directory", "tracker-conformance", "TRACKER=file"],
+            cwd=self.ws, env=base_env, capture_output=True, text=True, check=False,
+        )
+        self.assertEqual(res_tr.returncode, 0, res_tr.stdout + res_tr.stderr)
+        self.assertTrue(res_tr.stdout.strip().startswith("GO: tracker-conformance — file"), res_tr.stdout)
+
+        ext_dir = (self.ws / "fixtures" / "outside-adapters").resolve()
+        reg_file = self.tmp / "reg-state-s2"
+        tr_env = dict(base_env, FILE_TRACKER_DIR=str(self.tmp / "file-tracker-state"))
+        res_tr_out = subprocess.run(
+            [
+                "make", "--no-print-directory", "tracker-conformance",
+                "TRACKER=outside/file-tracker", f"ADAPTERS_PATH={ext_dir}", f"ADAPTERS_REGISTER={reg_file}",
+            ],
+            cwd=self.ws, env=tr_env, capture_output=True, text=True, check=False,
+        )
+        self.assertEqual(res_tr_out.returncode, 0, res_tr_out.stdout + res_tr_out.stderr)
+        self.assertTrue(res_tr_out.stdout.strip().startswith("GO: tracker-conformance — "), res_tr_out.stdout)
+
+        res_ch = subprocess.run(
+            ["make", "--no-print-directory", "charts-conformance"],
+            cwd=self.ws, env=base_env, capture_output=True, text=True, check=False,
+        )
+        self.assertEqual(res_ch.returncode, 2, res_ch.stdout + res_ch.stderr)
+        self.assertTrue(res_ch.stdout.strip().startswith("NO-GO: charts-conformance — "), res_ch.stdout)
+
+        res_prov = subprocess.run(
+            ["make", "--no-print-directory", "provenance"],
+            cwd=self.ws, env=base_env, capture_output=True, text=True, check=False,
+        )
+        self.assertEqual(res_prov.returncode, 2, res_prov.stdout + res_prov.stderr)
+        self.assertTrue(res_prov.stdout.strip().startswith("NO-GO: provenance — "), res_prov.stdout)
+        self.assertNotIn("0001", res_prov.stdout, "Makefile default TICKET=0001 leaked into provenance")
+
+        # ./go init --apply mounts target repo :rw without cloning into .attached
+        ext_repo = self.tmp / "ext-target"
+        ext_repo.mkdir()
+        subprocess.run(["git", "-C", str(ext_repo), "init", "-q"], check=True)
+        (ext_repo / "README.md").write_text("# ext\n", encoding="utf-8")
+        subprocess.run(["git", "-C", str(ext_repo), "add", "README.md"], check=True)
+        subprocess.run(
+            ["git", "-C", str(ext_repo), "-c", "user.name=t", "-c", "user.email=t@invalid",
+             "-c", "commit.gpgsign=false", "commit", "-q", "-m", "seed"],
+            check=True,
+        )
+
+        bindir, tools, go_log = self._setup_fake_podman()
+        go_env = {"PATH": f"{bindir}:{tools}", "HOME": str(self.tmp)}
+        res_apply = subprocess.run(
+            ["sh", "./go", "init", str(ext_repo), "--apply", "--branch", "lo/apply", "--commit",
+             "--baseline-mode", "incremental", "--baseline-max-files", "2"],
+            cwd=self.ws, env=go_env, capture_output=True, text=True, check=False,
+        )
+        self.assertEqual(res_apply.returncode, 0, res_apply.stderr)
+        self.assertFalse((self.ws / ".attached").exists(), "zero-copy init --apply must not clone into .attached")
+        argv_apply = next(c for c in _read_calls(go_log) if c and c[0] == "run")
+        resolved_ext = str(ext_repo.resolve())
+        self.assertTrue(
+            any(m == f"{resolved_ext}:{resolved_ext}:rw" or m.startswith(f"{resolved_ext}:{resolved_ext}:rw,") for m in argv_apply),
+            argv_apply,
+        )
+        envs_apply = _extract_env_flags(argv_apply)
+        self.assertIn("LIGHTS_OUT_CLI_ARGS", envs_apply)
+        self.assertEqual(argv_apply[-3:], ["make", "init", f"WORKLOAD={resolved_ext}"])
+
+        go_log.unlink(missing_ok=True)
+        res_cb_go = subprocess.run(
+            ["sh", "./go", "console-build", "--check"],
+            cwd=self.ws, env=go_env, capture_output=True, text=True, check=False,
+        )
+        self.assertEqual(res_cb_go.returncode, 0, res_cb_go.stderr)
+        argv_cb = next(c for c in _read_calls(go_log) if c and c[0] == "run")
+        self.assertEqual(argv_cb[-3:], ["make", "console-build", "CONSOLE_BUILD_ARGS=--check"])
 
 
 if __name__ == "__main__":

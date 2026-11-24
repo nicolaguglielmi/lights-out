@@ -25,11 +25,13 @@ import sys
 import tempfile
 import unittest
 from contextlib import redirect_stderr, redirect_stdout
+from types import SimpleNamespace
+from unittest import mock
 
 import fnmatch
 
-from core.init import (JAVASCRIPT_TEST_PATHS, PYTHON_TEST_PATHS, infer_python, main as init_main, node_admits,
-                       python_admits, render_workload_env)
+from core.init import (JAVASCRIPT_TEST_PATHS, PYTHON_TEST_PATHS, Undraftable, infer_python, main as init_main,
+                       node_admits, python_admits, render_workload_env, run_driver)
 from core.tests.gitrepo import Repo
 
 WORKBENCH_PYTHON = (3, 13)
@@ -442,6 +444,57 @@ class InitApplyAndIncrementalCliTest(unittest.TestCase):
                     check=False,
                 )
                 self.assertEqual(proc.returncode, 2)
+
+    def test_run_driver_plain_vs_apply_incremental_and_commit(self):
+        repo = self._make_git_python_repo()
+        # Leave unrelated dirty worktree file to prove scoped commit ignores it
+        with open(os.path.join(repo.dir, "demo", "a.py"), "w", encoding="utf-8") as fh:
+            fh.write("def a():\n    return 99\n")
+
+        captured_env = []
+        real_run = subprocess.run
+
+        def fake_run(argv, *args, **kwargs):
+            if argv[:2] == ["git", "-C"]:
+                return real_run(argv, *args, **kwargs)
+            if len(argv) >= 5 and argv[-2:] == ["core.gates.toolchain", "preflight"]:
+                return SimpleNamespace(returncode=0, stdout="workbench\n", stderr="")
+            if argv[:2] == ["sh", "core/history-findings.sh"]:
+                return SimpleNamespace(returncode=0, stdout="", stderr="")
+            if argv[:2] == ["sh", "core/mutation-baseline.sh"]:
+                captured_env.append(dict(kwargs.get("env") or {}))
+                return SimpleNamespace(returncode=0, stdout='{"total": 4, "killed": 3, "score": 0.75}\n', stderr="")
+            if argv[:2] == ["sh", "ci/workloads.sh"]:
+                return SimpleNamespace(returncode=0, stdout="GO: workloads\n", stderr="")
+            raise AssertionError(f"unexpected subprocess.run: {argv}")
+
+        env = {
+            "WORKLOAD": repo.dir,
+            "WORKLOAD_CONTRACT": os.path.join(repo.dir, ".lights-out"),
+            "WORKLOAD_ATTACHED": "1",
+        }
+        with mock.patch("core.init.subprocess.run", side_effect=fake_run), redirect_stderr(io.StringIO()):
+            with self.assertRaises(Undraftable):
+                run_driver(["--branch", "lo/x"], env)
+
+            summary = run_driver(
+                ["--apply", "--branch", "lo/init", "--commit", "--baseline-mode", "incremental", "--baseline-max-files", "1"],
+                env,
+            )
+
+        self.assertIn("applied to", summary)
+        self.assertIn("branch=lo/init", summary)
+        self.assertIn("baseline 0.75 (3/4 mutants killed", summary)
+        self.assertEqual(repo.git("rev-parse", "--abbrev-ref", "HEAD"), "lo/init")
+        self.assertEqual(len(captured_env), 1)
+        self.assertEqual(captured_env[0].get("MUTATION_LINES"), "demo/b.py=1-3")
+
+        wl_text = open(os.path.join(repo.dir, ".lights-out", "workload.env"), encoding="utf-8").read()
+        self.assertIn("MUTATION_BASELINE=0.75", wl_text)
+        self.assertIn("MUTATION_LINES=demo/b.py=1-3", wl_text)
+        committed = repo.git("diff-tree", "--no-commit-id", "--name-only", "-r", "HEAD").splitlines()
+        self.assertTrue(committed and all(p.startswith(".lights-out/") for p in committed), committed)
+        self.assertIn("M demo/a.py", repo.git("status", "--porcelain"))
 
 
 if __name__ == "__main__":

@@ -7,7 +7,7 @@
 # a container engine (podman or docker) and git, nothing else.
 #
 # Read-only & gates (socket-free by default; --engine or LIGHTS_OUT_ENGINE_GATES=1 opts into engine socket for custom/compose toolchains):
-#   lights-out init [--engine] [HEAD=]             draft .lights-out/ for this repository (or that commit), outside it
+#   lights-out init [--engine] [--apply [--branch <name>] [--commit] [--force]] [--baseline-mode full|incremental] [--baseline-max-files <n>] [HEAD=]  draft .lights-out/ for this repository (or apply directly with --apply)
 #   lights-out gates [--engine] [BASE= HEAD=]      judge the last commit, or a range; STAGED=1 judges what is staged;
 #                                                  JUDGED="<sha> ..." names trees already judged, whose lines mutation skips (docs/adr/0074)
 #   lights-out test-proof [--engine] [BASE= HEAD=]     only test and test-proof: the tests a change adds fail on its base
@@ -52,6 +52,7 @@
 #   lights-out production-readiness                     GO only with a conformant delivery, metrics and a human gate
 #   lights-out console                                  serve the console on CONSOLE_PUBLISH:CONSOLE_PORT (default 127.0.0.1:8098)
 #   lights-out evidence VERSION=<v>                     build, sign and verify release evidence pack
+#   lights-out provenance [VERSION= TICKET= PROVENANCE_DIR=]  build, sign and verify in-toto provenance attestation (ADR 0117)
 #
 # Grammar (docs/adr/0112): lights-out <domain> <verb> [--flag value | KEY=VALUE ...] with domains
 #   repo ticket release ops config completion; --flag value is KEY=VALUE, flat commands still work.
@@ -71,15 +72,15 @@ gates_image=${LIGHTS_OUT_IMAGE:-ghcr.io/nicolaguglielmi/lights-out-gates:$versio
 full_image=${LIGHTS_OUT_IMAGE:-ghcr.io/nicolaguglielmi/lights-out:$version}
 keys="GEMINI_API_KEY ANTHROPIC_API_KEY OPENAI_API_KEY ZAI_API_KEY"
 plane_keys="GITHUB_TOKEN GITLAB_TOKEN METRICS_AUTH_HEADER"
-all_cmds="init gates test-proof test-integrity adr-check migration-safety triage postmortem doctor version next dora spend cloud-setup map network scoreboard auto-incident incident alert-webhook top start intake answer intake-confirm assign up down smoke release promote console evidence try watch request resume audit production-readiness completion"
+all_cmds="init gates test-proof test-integrity adr-check migration-safety triage postmortem doctor version next dora spend cloud-setup map network scoreboard auto-incident incident alert-webhook top start intake answer intake-confirm assign up down smoke release promote console evidence provenance try watch request resume audit production-readiness completion"
 all_keys="BASE HEAD JUDGED STAGED ALERT INCIDENT PROFILE MODEL_PROVIDER MODEL TICKET TEXT ANSWER DECISIONS VERSION CANARY_VERSION CANARY_TAG GO_FOR_LAUNCH REASON MODE PRESET CLOUD DELIVERY CODE_HOST AGENT_HARNESS PROVIDER ADAPTERS_PATH WINDOW_DAYS SPEND_BUDGET_TICKET_USD SPEND_BUDGET_DAY_USD"
 # Socket tiers (docs/adr/0112 §6); gate_cmds keep the one-line contract and take no --json/--jsonl.
 state_cmds="next dora spend cloud-setup map network scoreboard auto-incident incident alert-webhook top"
-plane_cmds="start intake answer intake-confirm assign up down smoke release promote console evidence try watch request resume audit production-readiness"
+plane_cmds="start intake answer intake-confirm assign up down smoke release promote console evidence provenance try watch request resume audit production-readiness"
 gate_cmds="init try gates test-proof test-integrity adr-check migration-safety doctor map production-readiness version"
 domains="repo ticket release ops config completion"
-top_words="repo ticket release ops config completion init try gates test-proof test-integrity adr-check migration-safety doctor map corpus intake request answer intake-confirm assign resume network audit up down smoke promote evidence production-readiness watch alert-webhook triage auto-incident incident postmortem dora spend top start next cloud-setup scoreboard agents console version"
-completion_extra_keys="REQUEST_BY REQUEST_VIA ATTEMPT ONCE POLL_S ALERT_FILE RELEASE_RECORD NAME FROM TO LOGS MAP_FILE SLO_MODE CORPUS_FULL LOGBOOK_FILE LOGBOOK URL JSON VIEW WIDTH HEIGHT TICKET_FILE"
+top_words="repo ticket release ops config completion init try gates test-proof test-integrity adr-check migration-safety doctor map corpus intake request answer intake-confirm assign resume network audit up down smoke promote evidence provenance production-readiness watch alert-webhook triage auto-incident incident postmortem dora spend top charts-conformance start next cloud-setup scoreboard agents tracker-conformance console-build console version"
+completion_extra_keys="REQUEST_BY REQUEST_VIA ATTEMPT ONCE POLL_S ALERT_FILE RELEASE_RECORD NAME FROM TO LOGS MAP_FILE SLO_MODE CORPUS_FULL LOGBOOK_FILE LOGBOOK URL JSON VIEW WIDTH HEIGHT TICKET_FILE PROVENANCE_DIR TRACKER CHARTS"
 
 # die MESSAGE [STATUS]: one stderr line, exit 1; a usage or contract error exits 2 before any
 # engine (docs/adr/0112 §3).
@@ -95,9 +96,9 @@ verbs_of() {
   case "$1" in
     repo) echo "init try gates test-proof test-integrity adr-check migration-safety doctor map corpus" ;;
     ticket) echo "intake request answer intake-confirm assign resume network audit" ;;
-    release) echo "up down smoke deploy promote evidence production-readiness" ;;
-    ops) echo "watch alert-webhook triage auto-incident incident postmortem dora spend top" ;;
-    config) echo "start next cloud-setup scoreboard agents" ;;
+    release) echo "up down smoke deploy promote evidence provenance production-readiness" ;;
+    ops) echo "watch alert-webhook triage auto-incident incident postmortem dora spend top charts-conformance" ;;
+    config) echo "start next cloud-setup scoreboard agents tracker-conformance console-build" ;;
     completion) echo "bash zsh fish" ;;
   esac
 }
@@ -107,6 +108,7 @@ verbs_of() {
 extra_keys_for() {
   case "$1" in
     migration-safety) echo "TICKET_FILE" ;;
+    provenance) echo "PROVENANCE_DIR" ;;
     request) echo "REQUEST_BY REQUEST_VIA" ;;
     network) echo "ATTEMPT" ;;
     watch) echo "ONCE POLL_S" ;;
@@ -122,13 +124,13 @@ extra_keys_for() {
 # Flags the command owns, which are not translated to KEY=VALUE (docs/adr/0112 §2).
 native_flag() {
   case "$1:$2" in
-    start:--preset|start:--provider|start:--harness|start:--delivery|start:--profile|start:--ticket-budget-usd|start:--day-budget-usd|start:--mode|next:--mode) return 0 ;;
+    init:--branch|init:--baseline-mode|init:--baseline-max-files|start:--preset|start:--provider|start:--harness|start:--delivery|start:--profile|start:--ticket-budget-usd|start:--day-budget-usd|start:--mode|next:--mode) return 0 ;;
   esac
   return 1
 }
 
 flag_words() {
-  fw="--json --jsonl --help --engine --non-interactive --mode --preset --provider --harness --delivery --profile --ticket-budget-usd --day-budget-usd --level --staged --once"
+  fw="--json --jsonl --help --engine --non-interactive --mode --preset --provider --harness --delivery --profile --ticket-budget-usd --day-budget-usd --level --staged --once --apply --branch --commit --force --baseline-mode --baseline-max-files --check"
   for k in $all_keys $completion_extra_keys; do
     f="--$(printf '%s' "$k" | tr 'A-Z_' 'a-z-')"
     member "$f" "$fw" || fw="$fw $f"
@@ -191,14 +193,14 @@ if [ -n "$domain" ]; then
   shift
   case "$domain:$verb" in
     release:deploy) cmd=release ;;
-    repo:corpus|config:agents) usage_die "$domain $verb needs a clone of lights-out, not the image: run ./go $verb" ;;
+    repo:corpus|config:agents|config:tracker-conformance|ops:charts-conformance|config:console-build) usage_die "$domain $verb needs a clone of lights-out, not the image: run ./go $verb" ;;
     *) cmd=$verb ;;
   esac
 fi
 case "$cmd" in
   init|gates|test-proof|test-integrity|adr-check|migration-safety|triage|postmortem|doctor|version) ;;
   next|dora|spend|cloud-setup|map|network|scoreboard|auto-incident|incident|alert-webhook|top) ;;
-  start|intake|answer|intake-confirm|assign|up|down|smoke|release|promote|console|evidence) ;;
+  start|intake|answer|intake-confirm|assign|up|down|smoke|release|promote|console|evidence|provenance) ;;
   try|watch|request|resume|audit|production-readiness) ;;
   --version) cmd=version ;;
   help|-h|--help) usage; exit 0 ;;
@@ -220,7 +222,7 @@ while [ "$i" -lt "$n" ]; do
   shift
   i=$((i + 1))
   case "$a" in
-    --json|--jsonl|--engine|--non-interactive|--help|-h) set -- "$@" "$a" ;;
+    --json|--jsonl|--engine|--non-interactive|--apply|--commit|--force|--help|-h) set -- "$@" "$a" ;;
     --staged) set -- "$@" STAGED=1 ;;
     --once) set -- "$@" ONCE=1 ;;
     --*=*)
@@ -273,6 +275,12 @@ validate_args() {
         [ "$cmd" = start ] || usage_die "'$a' is only valid with start" ;;
       --preset|--provider|--harness|--delivery|--profile|--ticket-budget-usd|--day-budget-usd)
         [ "$cmd" = start ] || usage_die "'$a' is only valid with start"
+        [ $# -gt 0 ] || usage_die "'$a' requires a value"
+        shift ;;
+      --apply|--commit|--force|--branch=*|--baseline-mode=*|--baseline-max-files=*)
+        [ "$cmd" = init ] || usage_die "'$a' is only valid with init" ;;
+      --branch|--baseline-mode|--baseline-max-files)
+        [ "$cmd" = init ] || usage_die "'$a' is only valid with init"
         [ $# -gt 0 ] || usage_die "'$a' requires a value"
         shift ;;
       --engine)
@@ -490,6 +498,13 @@ fi
 tty="-i"
 [ -t 0 ] && [ -t 1 ] && tty="-it"
 
+init_apply=0
+if [ "$cmd" = init ]; then
+  for a do
+    [ "$a" != --apply ] || init_apply=1
+  done
+fi
+
 # SELinux: never :z, which would relabel your repository (docs/adr/0045 §2).
 # Passed by name only: secret values never appear on a command line.
 n=$#
@@ -505,7 +520,12 @@ if [ "$tier" = readonly ]; then
   for k in $keys MODEL_PROVIDER MODEL; do
     if eval "[ -n \"\${$k:-}\" ]"; then set -- "$@" -e "$k"; fi
   done
-  set -- "$@" -v "$here:/repo:ro" -v "$out:/out" -e LIGHTS_OUT_HOST_OUT="$out" -e PROFILE="$profile"
+  if [ "$init_apply" = 1 ]; then
+    printf 'lights-out: mounting %s read-write (/repo:rw) for opt-in init --apply\n' "$here" >&2
+    set -- "$@" -v "$here:/repo:rw" -v "$out:/out" -e LIGHTS_OUT_HOST_OUT="$out" -e PROFILE="$profile"
+  else
+    set -- "$@" -v "$here:/repo:ro" -v "$out:/out" -e LIGHTS_OUT_HOST_OUT="$out" -e PROFILE="$profile"
+  fi
 elif [ "$tier" = state ]; then
   mkdir -p "$out/crew" || die "cannot create $out/crew"
   for k in $keys $plane_keys MODEL_PROVIDER MODEL AGENT_HARNESS DELIVERY CODE_HOST GITHUB_REPO METRICS_URL GOOGLE_CLOUD_PROJECT GOOGLE_CLOUD_LOCATION; do
@@ -549,8 +569,13 @@ else
   if [ "$cmd" = start ]; then
     set -- "$@" -e LIGHTS_OUT_DOCTOR_RC -e LIGHTS_OUT_DOCTOR_OUT -e LIGHTS_OUT_DOCTOR_ERR
   fi
+  repo_spec="$here:/repo:ro"
+  if [ "$init_apply" = 1 ]; then
+    printf 'lights-out: mounting %s read-write (/repo:rw) for opt-in init --apply\n' "$here" >&2
+    repo_spec="$here:/repo:rw"
+  fi
   set -- "$@" \
-    -v "$here:/repo:ro" \
+    -v "$repo_spec" \
     -v "$out/platform:$out/platform" \
     -v "$out/crew:$out/crew" \
     -e LIGHTS_OUT_PLATFORM_DIR="$out/platform" \

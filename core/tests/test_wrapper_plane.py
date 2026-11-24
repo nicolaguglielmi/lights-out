@@ -31,14 +31,14 @@ READONLY_CMDS = ("init", "gates", "test-proof", "test-integrity", "triage", "pos
 STATE_ONLY_CMDS = ("next", "dora", "spend", "cloud-setup")
 PLANE_CMDS = (
     "start", "intake", "answer", "intake-confirm", "assign",
-    "up", "down", "smoke", "release", "promote", "console", "evidence",
+    "up", "down", "smoke", "release", "promote", "console", "evidence", "provenance",
 )
 ALL_SUBCOMMANDS = (
     "init", "gates", "test-proof", "test-integrity", "triage", "postmortem",
     "doctor", "version",
     "next", "dora", "spend", "cloud-setup",
     "start", "intake", "answer", "intake-confirm", "assign",
-    "up", "down", "smoke", "release", "promote", "console", "evidence",
+    "up", "down", "smoke", "release", "promote", "console", "evidence", "provenance",
 )
 EXPECTED_KEYS = sorted({
     "BASE", "HEAD", "JUDGED", "STAGED", "ALERT", "INCIDENT", "PROFILE",
@@ -366,6 +366,45 @@ class WrapperSocketBoundaryTests(WrapperPlaneBase):
         self.assertEqual(len(res_d.stderr.splitlines()), 1, res_d.stderr)
         self.assertIn("socket", res_d.stderr.lower())
         self.assertFalse(any(c and c[0] == "run" for c in _read_calls(log_d)))
+
+    def test_init_stays_ro_by_default_and_mounts_rw_only_with_apply(self):
+        bindir, log = self._make_fake_engine("podman")
+        fake_sock = str(self.tmp / "podman-remote.sock")
+
+        res_ro = self._run_wrapper(["init"], bindir=bindir)
+        self.assertEqual(res_ro.returncode, 0, res_ro.stderr)
+        argv_ro = next(c for c in _read_calls(log) if c and c[0] == "run")
+        mounts_ro = _extract_mount_pairs(argv_ro)
+        self.assertIn(f"{self.repo}:/repo:ro", mounts_ro)
+        self.assertNotIn(f"{self.repo}:/repo:rw", mounts_ro)
+        self.assertFalse(any(".sock" in m for m in mounts_ro))
+        self.assertNotIn("read-write", res_ro.stderr)
+
+        log.unlink(missing_ok=True)
+        res_rw = self._run_wrapper(
+            ["init", "--apply", "--branch", "init/lo", "--commit", "--force", "--baseline-mode", "incremental"],
+            bindir=bindir,
+        )
+        self.assertEqual(res_rw.returncode, 0, res_rw.stderr)
+        argv_rw = next(c for c in _read_calls(log) if c and c[0] == "run")
+        mounts_rw = _extract_mount_pairs(argv_rw)
+        self.assertIn(f"{self.repo}:/repo:rw", mounts_rw)
+        self.assertNotIn(f"{self.repo}:/repo:ro", mounts_rw)
+        self.assertFalse(any(".sock" in m for m in mounts_rw))
+        rw_notices = [ln for ln in res_rw.stderr.splitlines() if "read-write" in ln]
+        self.assertEqual(len(rw_notices), 1, res_rw.stderr)
+
+        log.unlink(missing_ok=True)
+        res_eng = self._run_wrapper(
+            ["init", "--engine", "--apply"],
+            bindir=bindir,
+            extra_env={"FAKE_REMOTE_SOCK": fake_sock, "FAKE_REMOTE_EXISTS": "true"},
+        )
+        self.assertEqual(res_eng.returncode, 0, res_eng.stderr)
+        argv_eng = next(c for c in _read_calls(log) if c and c[0] == "run")
+        mounts_eng = _extract_mount_pairs(argv_eng)
+        self.assertIn(f"{self.repo}:/repo:rw", mounts_eng)
+        self.assertIn(f"{fake_sock}:/var/run/docker.sock", mounts_eng)
 
 
 class WrapperConsoleAdaptersAndSecretsTests(WrapperPlaneBase):

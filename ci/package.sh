@@ -123,7 +123,7 @@ keys() { grep -Ev '^[[:space:]]*#' "$1" | grep -oE '[A-Z][A-Z0-9_]*=/?\*' | sed 
 
 READONLY_CMDS="init gates test-proof test-integrity triage postmortem"
 STATE_CMDS="next dora spend cloud-setup"
-PLANE_CMDS="start intake answer intake-confirm assign up down smoke release promote console evidence"
+PLANE_CMDS="start intake answer intake-confirm assign up down smoke release promote console evidence provenance"
 ALL_CMDS="$READONLY_CMDS doctor version $STATE_CMDS $PLANE_CMDS"
 
 # wrapper_flaws ROOT [MODE]: what is wrong with ROOT/lights-out, one line each.

@@ -23,7 +23,7 @@ printf 'mutation-baseline: %s over %s, in %s\n' "$MUTATION_CMD" "$WORKLOAD_MUTAT
 
 start=$(date +%s)
 set +e
-result=$(MUTATION_LINES=all run_in_toolchain "$MUTATION_CMD")
+result=$(MUTATION_LINES=${MUTATION_LINES:-all} run_in_toolchain "$MUTATION_CMD")
 rc=$?
 set -e
 elapsed=$(( $(date +%s) - start ))
