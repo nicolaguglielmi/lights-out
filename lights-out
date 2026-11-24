@@ -16,12 +16,19 @@
 #   lights-out postmortem INCIDENT=<file>   an incident document in, a post mortem and tickets out
 #   lights-out doctor                   engine, image, key: one line each, then GO or NO-GO
 #   lights-out version                  wrapper version and images (or --version)
+#   lights-out completion bash|zsh|fish print a shell completion script (no engine, docs/adr/0112)
+#   lights-out map [MAP_FILE=]          build the project map of this repository
 #
 # State-only (socket-free, mounts $LIGHTS_OUT_OUT/crew -> /opt/lights-out/.crew):
 #   lights-out next [MODE=junior|expert] [--json]       inspect repo, contract and state; print next E2E command
 #   lights-out dora [WINDOW_DAYS=30]                    compute the four DORA measures from the logbook
 #   lights-out spend                                    cost and time per ticket, role and day
 #   lights-out cloud-setup CLOUD=<provider>             stage Terraform + OIDC starter into crew state
+#   lights-out network [TICKET= ATTEMPT=]               one ticket's agent network in text
+#   lights-out scoreboard                               per provider and harness: first-attempt merges, reworks, cost
+#   lights-out auto-incident [RELEASE_RECORD=]          incident document from a rolled-back release record
+#   lights-out incident NAME= FROM= TO= [LOGS=]         incident document from the release record (TICKET= needs the plane)
+#   lights-out alert-webhook ALERT_FILE=<path>          normalize an alert JSON file in the repository
 #
 # Opt-in plane & workflow (mounts engine socket with stderr notice, host-mirrored $LIGHTS_OUT_OUT/platform):
 #   lights-out start [--non-interactive ...]            guided setup wizard or preset plan
@@ -34,8 +41,19 @@
 #   lights-out smoke                                    run the workload's smoke path through the edge
 #   lights-out release [CANARY_VERSION= CANARY_TAG=]    deploy canary and run SLO verification controller
 #   lights-out promote [GO_FOR_LAUNCH=GO|NO-GO REASON=] go-for-launch brief and human promotion gate
+#   lights-out try                                      draft the contract and judge the last commit, keep the draft
+#   lights-out watch [ONCE=1] [POLL_S=<sec>]            continuous tower orchestrator draining the event bus
+#   lights-out request TICKET=<id> [REQUEST_BY=]        start a ticket at requested
+#   lights-out resume TICKET=<id>                       request again the step a ticket failed
+#   lights-out audit TICKET=<id>                        rebuild the chain deploy to spec from the state store
+#   lights-out production-readiness                     GO only with a conformant delivery, metrics and a human gate
 #   lights-out console                                  serve the console on CONSOLE_PUBLISH:CONSOLE_PORT (default 127.0.0.1:8098)
 #   lights-out evidence VERSION=<v>                     build, sign and verify release evidence pack
+#
+# Grammar (docs/adr/0112): lights-out <domain> <verb> [--flag value | KEY=VALUE ...] with domains
+#   repo ticket release ops config completion; --flag value is KEY=VALUE, flat commands still work.
+#   --json / --jsonl print a structured envelope on non-gate commands. Exit codes: 0 GO, 1 NO-GO,
+#   2 usage error, 3 waiting on a human or a lock, 4 budget stop.
 #
 # init, gates, test-proof and test-integrity run the gates image,
 # ghcr.io/nicolaguglielmi/lights-out-gates; triage, postmortem, state-only,
@@ -50,52 +68,224 @@ gates_image=${LIGHTS_OUT_IMAGE:-ghcr.io/nicolaguglielmi/lights-out-gates:$versio
 full_image=${LIGHTS_OUT_IMAGE:-ghcr.io/nicolaguglielmi/lights-out:$version}
 keys="GEMINI_API_KEY ANTHROPIC_API_KEY OPENAI_API_KEY ZAI_API_KEY"
 plane_keys="GITHUB_TOKEN GITLAB_TOKEN METRICS_AUTH_HEADER"
-all_cmds="init gates test-proof test-integrity triage postmortem doctor version next dora spend cloud-setup start intake answer intake-confirm assign up down smoke release promote console evidence"
+all_cmds="init gates test-proof test-integrity triage postmortem doctor version next dora spend cloud-setup map network scoreboard auto-incident incident alert-webhook start intake answer intake-confirm assign up down smoke release promote console evidence try watch request resume audit production-readiness completion"
 all_keys="BASE HEAD JUDGED STAGED ALERT INCIDENT PROFILE MODEL_PROVIDER MODEL TICKET TEXT ANSWER DECISIONS VERSION CANARY_VERSION CANARY_TAG GO_FOR_LAUNCH REASON MODE PRESET CLOUD DELIVERY CODE_HOST AGENT_HARNESS PROVIDER ADAPTERS_PATH WINDOW_DAYS SPEND_BUDGET_TICKET_USD SPEND_BUDGET_DAY_USD"
+# Socket tiers (docs/adr/0112 §6); gate_cmds keep the one-line contract and take no --json/--jsonl.
+state_cmds="next dora spend cloud-setup map network scoreboard auto-incident incident alert-webhook"
+plane_cmds="start intake answer intake-confirm assign up down smoke release promote console evidence try watch request resume audit production-readiness"
+gate_cmds="init try gates test-proof test-integrity doctor map production-readiness version"
+domains="repo ticket release ops config completion"
+top_words="repo ticket release ops config completion init try gates test-proof test-integrity doctor map corpus intake request answer intake-confirm assign resume network audit up down smoke promote evidence production-readiness watch alert-webhook triage auto-incident incident postmortem dora spend start next cloud-setup scoreboard agents console version"
+completion_extra_keys="REQUEST_BY REQUEST_VIA ATTEMPT ONCE POLL_S ALERT_FILE RELEASE_RECORD NAME FROM TO LOGS MAP_FILE SLO_MODE CORPUS_FULL"
 
-die() { printf 'lights-out: %s\n' "$*" >&2; exit 1; }
+# die MESSAGE [STATUS]: one stderr line, exit 1; a usage or contract error exits 2 before any
+# engine (docs/adr/0112 §3).
+die() { printf 'lights-out: %s\n' "$1" >&2; exit "${2:-1}"; }
+usage_die() { die "$*" 2; }
+member() { case " $2 " in *" $1 "*) return 0 ;; esac; return 1; }
+
+verbs_of() {
+  case "$1" in
+    repo) echo "init try gates test-proof test-integrity doctor map corpus" ;;
+    ticket) echo "intake request answer intake-confirm assign resume network audit" ;;
+    release) echo "up down smoke deploy promote evidence production-readiness" ;;
+    ops) echo "watch alert-webhook triage auto-incident incident postmortem dora spend" ;;
+    config) echo "start next cloud-setup scoreboard agents" ;;
+    completion) echo "bash zsh fish" ;;
+  esac
+}
+
+# The keys beyond the 29 a command takes (docs/adr/0112 §2); a function, not case arms,
+# so the allowlist equality with package/entrypoint.sh (docs/adr/0105) is untouched.
+extra_keys_for() {
+  case "$1" in
+    request) echo "REQUEST_BY REQUEST_VIA" ;;
+    network) echo "ATTEMPT" ;;
+    watch) echo "ONCE POLL_S" ;;
+    alert-webhook) echo "ALERT_FILE" ;;
+    auto-incident) echo "RELEASE_RECORD" ;;
+    incident) echo "NAME FROM TO LOGS" ;;
+    map) echo "MAP_FILE" ;;
+    cloud-setup) echo "SLO_MODE" ;;
+  esac
+}
+
+# Flags the command owns, which are not translated to KEY=VALUE (docs/adr/0112 §2).
+native_flag() {
+  case "$1:$2" in
+    start:--preset|start:--provider|start:--harness|start:--delivery|start:--profile|start:--ticket-budget-usd|start:--day-budget-usd|start:--mode|next:--mode) return 0 ;;
+  esac
+  return 1
+}
+
+flag_words() {
+  fw="--json --jsonl --help --engine --non-interactive --mode --preset --provider --harness --delivery --profile --ticket-budget-usd --day-budget-usd --level --staged --once"
+  for k in $all_keys $completion_extra_keys; do
+    f="--$(printf '%s' "$k" | tr 'A-Z_' 'a-z-')"
+    member "$f" "$fw" || fw="$fw $f"
+  done
+  printf '%s' "$fw"
+}
+
+# Byte-identical to `python3 core/cli.py completion <shell>` (ci/tests/test_cli_wrapper_parity.py).
+# shellcheck disable=SC2016 # the scripts are literal shell text
+emit_completion() {
+  fw=$(flag_words)
+  case "$1" in
+    bash)
+      printf '%s\n' '# lights-out bash completion: eval "$(lights-out completion bash)"' '_lights_out() {' '  local cur=${COMP_WORDS[COMP_CWORD]}' '  if [ "$COMP_CWORD" -eq 1 ]; then'
+      printf '    COMPREPLY=($(compgen -W "%s" -- "$cur"))\n' "$top_words"
+      printf '%s\n' '    return 0' '  fi' '  case "${COMP_WORDS[1]}:$COMP_CWORD" in'
+      for d in $domains; do printf '    %s:2) COMPREPLY=($(compgen -W "%s" -- "$cur")) ;;\n' "$d" "$(verbs_of "$d")"; done
+      printf '    *) COMPREPLY=($(compgen -W "%s" -- "$cur")) ;;\n' "$fw"
+      printf '%s\n' '  esac' '}' 'complete -F _lights_out lights-out' ;;
+    zsh)
+      printf '%s\n' '#compdef lights-out' '# lights-out zsh completion: eval "$(lights-out completion zsh)"' '_lights_out() {' '  if (( CURRENT == 2 )); then'
+      printf '    compadd -- %s\n' "$top_words"
+      printf '%s\n' '    return 0' '  fi' '  case "${words[2]}:$CURRENT" in'
+      for d in $domains; do printf '    %s:3) compadd -- %s ;;\n' "$d" "$(verbs_of "$d")"; done
+      printf '    *) compadd -- %s ;;\n' "$fw"
+      printf '%s\n' '  esac' '}' 'compdef _lights_out lights-out' ;;
+    fish)
+      printf '%s\n' '# lights-out fish completion: lights-out completion fish | source' 'complete -c lights-out -f'
+      printf "complete -c lights-out -n '__fish_use_subcommand' -a '%s'\n" "$top_words"
+      for d in $domains; do printf "complete -c lights-out -n '__fish_seen_subcommand_from %s' -a '%s'\n" "$d" "$(verbs_of "$d")"; done
+      for f in $fw; do printf 'complete -c lights-out -l %s\n' "${f#--}"; done ;;
+    *) usage_die "completion supports: bash zsh fish" ;;
+  esac
+}
 
 usage() {
   sed -n 's/^#   //p' "$0" >&2
 }
 
+# --json / --jsonl may lead (lights-out --json ticket assign ...): they join the arguments below.
+lead=""
+while [ $# -gt 0 ]; do
+  case "$1" in --json|--jsonl) lead="$lead $1"; shift ;; *) break ;; esac
+done
 cmd=${1:-help}
 [ $# -gt 0 ] && shift
+domain=""
+case "$cmd" in
+  repo|ticket|release|ops|config)
+    case "${1:-}" in
+      -h|--help|help) printf 'usage: lights-out %s <verb> [--flag value | KEY=VALUE ...]\nverbs: %s\n' "$cmd" "$(verbs_of "$cmd")"; exit 0 ;;
+    esac
+    # release is both a domain and the flat deploy command: a domain only when a verb follows.
+    if [ "$cmd" != release ] || { [ $# -gt 0 ] && member "$1" "$(verbs_of release)"; }; then domain=$cmd; fi ;;
+esac
+if [ -n "$domain" ]; then
+  verb=${1:-}
+  case "$verb" in ""|-*) usage_die "$domain needs a verb: $(verbs_of "$domain")" ;; esac
+  member "$verb" "$(verbs_of "$domain")" || usage_die "unknown $domain verb '$verb'; one of: $(verbs_of "$domain")"
+  shift
+  case "$domain:$verb" in
+    release:deploy) cmd=release ;;
+    repo:corpus|config:agents) usage_die "$domain $verb needs a clone of lights-out, not the image: run ./go $verb" ;;
+    *) cmd=$verb ;;
+  esac
+fi
 case "$cmd" in
   init|gates|test-proof|test-integrity|triage|postmortem|doctor|version) ;;
-  next|dora|spend|cloud-setup) ;;
+  next|dora|spend|cloud-setup|map|network|scoreboard|auto-incident|incident|alert-webhook) ;;
   start|intake|answer|intake-confirm|assign|up|down|smoke|release|promote|console|evidence) ;;
+  try|watch|request|resume|audit|production-readiness) ;;
   --version) cmd=version ;;
   help|-h|--help) usage; exit 0 ;;
-  *) die "unknown command '$cmd'; one of: $all_cmds" ;;
+  completion)
+    [ -z "$lead" ] || usage_die "completion takes no --json or --jsonl"
+    [ $# -eq 1 ] || usage_die "completion takes exactly one shell: bash zsh fish"
+    emit_completion "$1"
+    exit 0 ;;
+  *) die "unknown command '$cmd'; one of: $all_cmds; or a domain: $domains" 2 ;;
 esac
 
+for f in $lead; do set -- "$@" "$f"; done
+
+# POSIX flags to KEY=VALUE (docs/adr/0112 §2); the flags a command owns pass through untouched.
+n=$#
+i=0
+while [ "$i" -lt "$n" ]; do
+  a=$1
+  shift
+  i=$((i + 1))
+  case "$a" in
+    --json|--jsonl|--engine|--non-interactive|--help|-h) set -- "$@" "$a" ;;
+    --staged) set -- "$@" STAGED=1 ;;
+    --once) set -- "$@" ONCE=1 ;;
+    --*=*)
+      name=${a%%=*}
+      if native_flag "$cmd" "$name"; then
+        set -- "$@" "$a"
+      else
+        name=${name#--}
+        set -- "$@" "$(printf '%s' "$name" | tr 'a-z-' 'A-Z_')=${a#*=}"
+      fi ;;
+    --*)
+      [ "$i" -lt "$n" ] || usage_die "'$a' requires a value"
+      v=$1
+      shift
+      i=$((i + 1))
+      if native_flag "$cmd" "$a"; then
+        set -- "$@" "$a" "$v"
+      else
+        name=${a#--}
+        set -- "$@" "$(printf '%s' "$name" | tr 'a-z-' 'A-Z_')=$v"
+      fi ;;
+    *) set -- "$@" "$a" ;;
+  esac
+done
+
 validate_args() {
+  json_opt=""
   while [ $# -gt 0 ]; do
     a=$1
     shift
     case "$a" in
       BASE=*|HEAD=*|JUDGED=*|STAGED=*|ALERT=*|INCIDENT=*|PROFILE=*|MODEL_PROVIDER=*|MODEL=*|TICKET=*|TEXT=*|ANSWER=*|DECISIONS=*|VERSION=*|CANARY_VERSION=*|CANARY_TAG=*|GO_FOR_LAUNCH=*|REASON=*|MODE=*|PRESET=*|CLOUD=*|DELIVERY=*|CODE_HOST=*|AGENT_HARNESS=*|PROVIDER=*|ADAPTERS_PATH=*|WINDOW_DAYS=*|SPEND_BUDGET_TICKET_USD=*|SPEND_BUDGET_DAY_USD=*) ;;
-      --json|--mode=*)
-        case "$cmd" in start|next) ;; *) die "'$a' is only valid with start or next" ;; esac ;;
+      --json)
+        [ -z "$json_opt" ] || [ "$json_opt" = "$a" ] || usage_die "--json and --jsonl are mutually exclusive"
+        json_opt=$a
+        member "$cmd" "start next" || ! member "$cmd" "$gate_cmds" \
+          || usage_die "'$a' is not offered for $cmd: a gate keeps its one-line GO/NO-GO contract (docs/adr/0112 §5)" ;;
+      --jsonl)
+        [ -z "$json_opt" ] || [ "$json_opt" = "$a" ] || usage_die "--json and --jsonl are mutually exclusive"
+        json_opt=$a
+        ! member "$cmd" "start next $gate_cmds" \
+          || usage_die "'$a' is not offered for $cmd: a gate keeps its one-line GO/NO-GO contract, and start and next keep their native --json" ;;
+      --mode=*)
+        case "$cmd" in start|next) ;; *) usage_die "'$a' is only valid with start or next" ;; esac ;;
       --mode)
-        case "$cmd" in start|next) ;; *) die "'$a' is only valid with start or next" ;; esac
-        [ $# -gt 0 ] || die "'$a' requires a value"
+        case "$cmd" in start|next) ;; *) usage_die "'$a' is only valid with start or next" ;; esac
+        [ $# -gt 0 ] || usage_die "'$a' requires a value"
         shift ;;
       --non-interactive|--preset=*|--provider=*|--harness=*|--delivery=*|--profile=*|--ticket-budget-usd=*|--day-budget-usd=*)
-        [ "$cmd" = start ] || die "'$a' is only valid with start" ;;
+        [ "$cmd" = start ] || usage_die "'$a' is only valid with start" ;;
       --preset|--provider|--harness|--delivery|--profile|--ticket-budget-usd|--day-budget-usd)
-        [ "$cmd" = start ] || die "'$a' is only valid with start"
-        [ $# -gt 0 ] || die "'$a' requires a value"
+        [ "$cmd" = start ] || usage_die "'$a' is only valid with start"
+        [ $# -gt 0 ] || usage_die "'$a' requires a value"
         shift ;;
       --engine)
-        case "$cmd" in init|gates|test-proof|test-integrity) ;; *) die "'$a' is only valid with init, gates, test-proof, or test-integrity" ;; esac ;;
+        case "$cmd" in init|gates|test-proof|test-integrity) ;; *) die "'$a' is only valid with init, gates, test-proof, or test-integrity" 2 ;; esac ;;
+      [A-Z]*=*)
+        # Only the key is echoed: a value may be a secret that must never reach a terminal log.
+        member "${a%%=*}" "$(extra_keys_for "$cmd")" \
+          || usage_die "'${a%%=*}=' is not an argument lights-out takes; one of $all_keys $(extra_keys_for "$cmd")" ;;
       *)
-        die "'$a' is not an argument lights-out takes; one of $all_keys" ;;
+        usage_die "'${a%%=*}' is not an argument lights-out takes; one of $all_keys $(extra_keys_for "$cmd")" ;;
     esac
   done
 }
 validate_args "$@"
+
+if [ "$cmd" = alert-webhook ]; then
+  has_file=0
+  for a do
+    case "$a" in "ALERT_FILE="*) has_file=1 ;; esac
+  done
+  [ "$has_file" = 1 ] || usage_die "alert-webhook from the image normalizes a file in the repository: ALERT_FILE=<path>; serving the webhook needs a published port: ./go alert-webhook"
+fi
 
 engine_gates=0
 case "$cmd" in
@@ -196,26 +386,33 @@ fi
 # init and gates judge a repository: run from its top level, whatever the
 # subdirectory. State and plane commands also resolve to the repository root
 # when inside a git repository.
-case "$cmd" in
-  init|gates|test-proof|test-integrity)
-    top=$(git rev-parse --show-toplevel 2>/dev/null) || die "lights-out $cmd runs inside a git repository"
-    cd "$top" ;;
-  next|dora|spend|start|intake|answer|intake-confirm|assign|up|down|smoke|release|promote|console|evidence)
-    if top=$(git rev-parse --show-toplevel 2>/dev/null); then
-      cd "$top"
-    fi ;;
-esac
+if member "$cmd" "init gates test-proof test-integrity"; then
+  top=$(git rev-parse --show-toplevel 2>/dev/null) || die "lights-out $cmd runs inside a git repository"
+  cd "$top"
+elif member "$cmd" "$state_cmds $plane_cmds"; then
+  if top=$(git rev-parse --show-toplevel 2>/dev/null); then
+    cd "$top"
+  fi
+fi
 here=$(pwd -P)
 out=${LIGHTS_OUT_OUT:-${XDG_STATE_HOME:-$HOME/.local/state}/lights-out/$(basename "$here")}
 mkdir -p "$out" || die "cannot create $out (LIGHTS_OUT_OUT)"
 out=$(CDPATH='' cd -- "$out" && pwd -P)
 
 tier="readonly"
-case "$cmd" in
-  next|dora|spend|cloud-setup) tier="state" ;;
-  start|intake|answer|intake-confirm|assign|up|down|smoke|release|promote|console|evidence) tier="plane" ;;
-  init|gates|test-proof|test-integrity) [ "$engine_gates" != 1 ] || tier="engine-gates" ;;
-esac
+if member "$cmd" "$state_cmds"; then
+  tier="state"
+elif member "$cmd" "$plane_cmds"; then
+  tier="plane"
+elif member "$cmd" "init gates test-proof test-integrity"; then
+  [ "$engine_gates" != 1 ] || tier="engine-gates"
+fi
+# incident reads the release record; only its TICKET= option needs the state store (the plane).
+if [ "$cmd" = incident ]; then
+  for a do
+    case "$a" in "TICKET="*) tier="plane" ;; esac
+  done
+fi
 
 # STAGED=1: the staged changes as this host's git sees them, handed to the
 # image as a file. Read through the engine's mount, .git/index can be a
@@ -344,6 +541,8 @@ else
     -e WORKBENCH_IMAGE="$image" \
     -e LIGHTS_OUT_HOST_OUT="$out"
   [ "$profile_explicit" = 0 ] || set -- "$@" -e PROFILE="$profile"
+  # try names its draft after the repository's host path (docs/adr/0093 §5).
+  [ "$cmd" != try ] || set -- "$@" -e TRY_SOURCE="$here"
 fi
 
 set -- "$@" "$image" "$cmd"
