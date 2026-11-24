@@ -1,0 +1,40 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# Continuous lights-out tower orchestrator recipe for GitLab CI (docs/adr/0109).
+# Include this file from your repository's .gitlab-ci.yml (do NOT replace
+# surfaces/gitlab-ci/.gitlab-ci.yml, which runs PR gates as a surface):
+#
+#   include:
+#     - local: surfaces/gitlab-ci/tower-orchestrator.yml
+#
+# Configure masked CI/CD variables in GitLab project settings:
+#   GITLAB_TOKEN   project/group token with api + write_repository scope
+#   PROFILE        optional profile (default: l1 when running with credentials)
+
+tower-orchestrator:
+  image: localhost/lights-out-workbench:latest
+  resource_group: lights-out-tower
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "schedule"
+    - if: $CI_PIPELINE_SOURCE == "trigger"
+    - if: $CI_PIPELINE_SOURCE == "web"
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+  variables:
+    GIT_DEPTH: "0"
+    STATE_STORE: sqlite
+    EVENT_BUS: spool
+    CODE_HOST: gitlab
+    AUTO_INCIDENT_ON_ROLLBACK: "on"
+  script:
+    - |
+      set -eu
+      sh "adapters/${EVENT_BUS}/ready.sh"
+      python3 core/runner.py --once --lockfile .crew/runner.lock
+  artifacts:
+    when: always
+    expire_in: 7 days
+    paths:
+      - .crew/incidents/
+      - .crew/alerts/
+      - .crew/release.json
+      - .crew/releases.jsonl

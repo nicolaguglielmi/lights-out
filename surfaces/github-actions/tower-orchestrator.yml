@@ -1,0 +1,102 @@
+# SPDX-License-Identifier: Apache-2.0
+#
+# Event-driven lights-out tower orchestrator recipe (docs/adr/0109):
+# Copy into .github/workflows/tower-orchestrator.yml in a repository that
+# runs lights-out's control plane from GitHub Actions events.
+#
+# Least-privilege permissions, SHA-pinned third-party actions, and safe env
+# binding (no direct expression interpolation in shell run blocks).
+name: tower-orchestrator
+
+on:
+  issues:
+    types: [opened, labeled]
+  issue_comment:
+    types: [created]
+  pull_request:
+    types: [opened, synchronize, reopened, closed]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tower-${{ github.repository }}-${{ github.event.issue.number || github.event.pull_request.number || github.run_id }}
+  cancel-in-progress: false
+
+jobs:
+  orchestrate:
+    runs-on: ubuntu-latest
+    if: github.server_url == 'https://github.com'
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: write
+      checks: write
+    env:
+      EVENT_NAME: ${{ github.event_name }}
+      EVENT_ACTION: ${{ github.event.action }}
+      ISSUE_NUMBER: ${{ github.event.issue.number }}
+      COMMENT_BODY: ${{ github.event.comment.body }}
+      PR_NUMBER: ${{ github.event.pull_request.number }}
+      PR_MERGED: ${{ github.event.pull_request.merged }}
+      STATE_STORE: sqlite
+      EVENT_BUS: spool
+      CODE_HOST: github
+      AUTO_INCIDENT_ON_ROLLBACK: "on"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+
+      - name: Initialize event bus spool
+        run: sh "adapters/${EVENT_BUS}/ready.sh"
+
+      - name: Route event to tower state machine
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -eu
+          case "${EVENT_NAME}" in
+            issues)
+              ticket_id=$(printf '%04d' "${ISSUE_NUMBER}")
+              if [ -f "tickets/${ticket_id}.md" ]; then
+                sh core/tower.sh request "${ticket_id}" || sh core/tower.sh open "${ticket_id}"
+              else
+                printf '[orchestrator] issue #%s has no tickets/%s.md; skipping\n' "${ISSUE_NUMBER}" "${ticket_id}" >&2
+              fi
+              ;;
+            issue_comment)
+              ticket_id=$(printf '%04d' "${ISSUE_NUMBER}")
+              case "${COMMENT_BODY}" in
+                /lights-out\ resume*)
+                  sh core/tower.sh resume "${ticket_id}" ;;
+                /lights-out\ answer\ *)
+                  ANSWER=${COMMENT_BODY#/lights-out answer }
+                  export ANSWER
+                  sh core/tower.sh answer "${ticket_id}" ;;
+                *)
+                  printf '[orchestrator] comment on #%s carries no tower command\n' "${ISSUE_NUMBER}" >&2 ;;
+              esac
+              ;;
+            pull_request)
+              printf '[orchestrator] pull_request #%s action=%s merged=%s\n' \
+                "${PR_NUMBER}" "${EVENT_ACTION}" "${PR_MERGED:-false}" >&2
+              ;;
+          esac
+
+      - name: Drain queued tower steps once
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python3 core/runner.py --once --lockfile .crew/runner.lock
+
+      - name: Upload ops loop state
+        if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: tower-orchestrator-state
+          path: |
+            .crew/incidents/
+            .crew/alerts/
+            .crew/release.json
+            .crew/releases.jsonl
+          if-no-files-found: ignore
