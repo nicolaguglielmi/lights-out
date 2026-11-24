@@ -106,6 +106,46 @@ class CorpusCatalogTest(unittest.TestCase):
             self.assertEqual(by_name[req_neg].kind, "negative")
             self.assertTrue(by_name[req_neg].expected_error_tokens)
 
+    def test_catalog_covers_thirty_six_shapes_across_polyglot_enterprise_stacks(self) -> None:
+        shapes = corpus.default_shapes()
+        self.assertEqual(len(shapes), 36)
+        by_name = {s.name: s for s in shapes}
+
+        for req_pos in (
+            "dotnet-sdk-http",
+            "dotnet-cpm-sln-lib",
+            "kotlin-gradle-lib",
+            "kotlin-maven-http",
+            "swift-spm-lib",
+            "php-composer-lib",
+            "ruby-bundler-rspec",
+            "monorepo-dotnet-ruby-service",
+        ):
+            self.assertIn(req_pos, by_name)
+            self.assertEqual(by_name[req_pos].kind, "positive")
+
+        self.assertEqual(by_name["dotnet-sdk-http"].expected_stack, "dotnet")
+        self.assertTrue(by_name["dotnet-sdk-http"].expected_has_plane)
+        self.assertEqual(by_name["dotnet-cpm-sln-lib"].expected_lockfiles, "Directory.Packages.props")
+        self.assertEqual(by_name["kotlin-gradle-lib"].expected_stack, "kotlin")
+        self.assertEqual(by_name["kotlin-maven-http"].expected_stack, "kotlin")
+        self.assertTrue(by_name["kotlin-maven-http"].expected_has_plane)
+        self.assertEqual(by_name["swift-spm-lib"].expected_stack, "swift")
+        self.assertEqual(by_name["php-composer-lib"].expected_stack, "php")
+        self.assertEqual(by_name["ruby-bundler-rspec"].expected_stack, "ruby")
+        self.assertEqual(by_name["monorepo-dotnet-ruby-service"].init_service, "services/notifier")
+        self.assertEqual(by_name["monorepo-dotnet-ruby-service"].expected_stack, "ruby")
+
+        for req_neg in (
+            "neg-dotnet-no-lock",
+            "neg-swift-no-resolved",
+            "neg-php-no-lock",
+            "neg-ruby-no-lock",
+        ):
+            self.assertIn(req_neg, by_name)
+            self.assertEqual(by_name[req_neg].kind, "negative")
+            self.assertTrue(by_name[req_neg].expected_error_tokens)
+
 
 class CorpusRunTest(unittest.TestCase):
     def test_run_with_contract_subdir_and_callback_writes_report(self) -> None:

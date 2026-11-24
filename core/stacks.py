@@ -1,6 +1,6 @@
-"""Additional stack inference & monorepo discovery (ADR 0102, ADR 0110): stdlib only.
+"""Additional stack inference & monorepo discovery (ADR 0102, ADR 0110, ADR 0129): stdlib only.
 
-Implements Go, Rust, Java/Kotlin (Maven & Gradle), TypeScript/JavaScript
+Implements Go, Rust, Java, Kotlin, C#/.NET, Swift, PHP, Ruby, TypeScript/JavaScript
 (npm, pnpm, yarn, bun), Python fallbacks (poetry, pinned requirements.txt), and
 monorepo sub-service discovery (INIT_SERVICE) without touching vendor, model,
 or contract-directory literals (ci/vendor-free.sh, ci/app-free.sh,
@@ -25,13 +25,25 @@ JAVA_TEST_PATHS = (
     "src/test/*:*/src/test/*:*Test.java:*/*Test.java:*Tests.java:*/*Tests.java:"
     "*Test.kt:*/*Test.kt:*Tests.kt:*/*Tests.kt"
 )
+KOTLIN_TEST_PATHS = "src/test/*:*/src/test/*:*Test.kt:*/*Test.kt:*Tests.kt:*/*Tests.kt"
+DOTNET_TEST_PATHS = "tests/*:test/*:*Tests/*:*.Tests/*:*Test.cs:*/*Test.cs:*Tests.cs:*/*Tests.cs"
+SWIFT_TEST_PATHS = "Tests/*:Tests/*/*:*Tests.swift:*/*Tests.swift:*Test.swift:*/*Test.swift"
+PHP_TEST_PATHS = "tests/*:test/*:*/tests/*:*Test.php:*/*Test.php"
+RUBY_TEST_PATHS = (
+    "spec/*:test/*:*/spec/*:*/test/*:*_spec.rb:*/*_spec.rb:"
+    "*_test.rb:*/*_test.rb:test_*.rb:*/test_*.rb"
+)
 JAVASCRIPT_TEST_PATHS = "test/*:*/test/*:*.test.*:*-test.*:*_test.*"
 TYPESCRIPT_TEST_PATHS = "test/*:*/test/*:*.test.*:*.spec.*:*-test.*:*_test.*"
 
 _GO_SKIP_DIRS = {"vendor", "testdata"}
 _RUST_SKIP_DIRS = {"target", "tests", "benches", "examples"}
 _JAVA_SKIP_DIRS = {"target", "build", "out", ".gradle", "test"}
-_WORKSPACE_SKIP_DIRS = {"node_modules", "target", "build", "dist", "vendor", ".git"}
+_DOTNET_SKIP_DIRS = {"bin", "obj", "tests", "test", "Tests", "Test"}
+_SWIFT_SKIP_DIRS = {".build", "Tests", "test", "tests"}
+_PHP_SKIP_DIRS = {"vendor", "tests", "test", "cache", "var"}
+_RUBY_SKIP_DIRS = {"vendor", "spec", "test", "tests", "bin", "db", "config", "tmp", "log"}
+_WORKSPACE_SKIP_DIRS = {"node_modules", "target", "build", "dist", "vendor", ".git", "obj"}
 _MANIFEST_NAMES = (
     "pyproject.toml",
     "requirements.txt",
@@ -40,6 +52,9 @@ _MANIFEST_NAMES = (
     "pom.xml",
     "build.gradle",
     "build.gradle.kts",
+    "Package.swift",
+    "composer.json",
+    "Gemfile",
     "package.json",
 )
 _PIP_SKIP_FLAGS = {
@@ -735,6 +750,591 @@ def infer_python_fallback(repo, runners_dir="runners"):
     raise init.Undraftable("no poetry.lock or requirements.txt found at the repository root")
 
 
+# --- Polyglot enterprise stacks (ADR 0129) --------------------------------
+
+
+def has_dotnet_manifest(dirpath):
+    """Return True when dirpath holds a top-level *.csproj or *.sln file."""
+    if not os.path.isdir(dirpath):
+        return False
+    try:
+        with os.scandir(dirpath) as entries:
+            return any(e.is_file() and e.name.endswith((".csproj", ".sln")) for e in entries)
+    except OSError:
+        return False
+
+
+def _dir_has_manifest(dirpath):
+    return any(os.path.isfile(os.path.join(dirpath, mf)) for mf in _MANIFEST_NAMES) or has_dotnet_manifest(dirpath)
+
+
+def _is_dotnet_test_dir(dirname):
+    return dirname in _DOTNET_SKIP_DIRS or dirname.endswith(("Tests", ".Tests", "Test", ".Test"))
+
+
+def _find_dotnet_scope(repo):
+    is_cs = lambda f: f.endswith(".cs") and not f.endswith(("Test.cs", "Tests.cs"))  # noqa: E731
+
+    def walk_has_cs(base):
+        for root, dirs, files in os.walk(base):
+            dirs[:] = sorted(d for d in dirs if not d.startswith(".") and not _is_dotnet_test_dir(d))
+            if any(is_cs(f) for f in files):
+                return True
+        return False
+
+    src_dir = os.path.join(repo, "src")
+    if os.path.isdir(src_dir) and walk_has_cs(src_dir):
+        return "src/", "src/ holds C# production source files"
+    for entry in sorted(os.listdir(repo)):
+        if entry.startswith(".") or _is_dotnet_test_dir(entry):
+            continue
+        path = os.path.join(repo, entry)
+        if os.path.isdir(path) and walk_has_cs(path):
+            return entry + "/", f"{entry}/ holds C# production source files"
+    with os.scandir(repo) as entries:
+        if any(e.is_file() and is_cs(e.name) for e in entries):
+            return ".", "C# source files sit at the repository root"
+    raise init.Undraftable(
+        "no C# source files (*.cs) found in src/, non-test subdirectories, or at the root"
+    )
+
+
+def _collect_dotnet_csproj(repo):
+    found = []
+    for root, dirs, files in os.walk(repo):
+        rel = os.path.relpath(root, repo).replace(os.sep, "/")
+        depth = 0 if rel == "." else len(rel.split("/"))
+        dirs[:] = sorted(d for d in dirs if not d.startswith(".") and d not in {"bin", "obj"})
+        if depth >= 2:
+            dirs[:] = []
+        for f in sorted(files):
+            if f.endswith(".csproj"):
+                found.append(os.path.join(root, f))
+    return found
+
+
+def _detect_dotnet_major(repo, workspace_root=None):
+    majors = []
+    for csproj in _collect_dotnet_csproj(repo):
+        try:
+            with open(csproj, encoding="utf-8", errors="replace") as fh:
+                text = fh.read()
+        except OSError:
+            continue
+        for block in re.findall(r"<TargetFrameworks?>\s*([^<]+?)\s*</TargetFrameworks?>", text, flags=re.IGNORECASE):
+            for m in re.finditer(r"\bnet(\d+)\.\d+\b", block, flags=re.IGNORECASE):
+                majors.append(int(m.group(1)))
+    if majors:
+        best = max(majors)
+        return best, f"TargetFramework declares net{best}.0"
+    for cand_root in (repo, workspace_root):
+        if not cand_root:
+            continue
+        gj = os.path.join(cand_root, "global.json")
+        if os.path.isfile(gj):
+            try:
+                with open(gj, encoding="utf-8") as fh:
+                    ver = str(((json.load(fh).get("sdk") or {}).get("version") or ""))
+                m = re.match(r"^(\d+)\.", ver)
+                if m:
+                    maj = int(m.group(1))
+                    return maj, f"global.json sdk.version = {ver!r}"
+            except (OSError, ValueError):
+                pass
+    return 8, "no explicit net<major>.0 TargetFramework found; defaulting to .NET 8 LTS"
+
+
+def _detect_dotnet_lockfiles(repo, workspace_root=None):
+    for name in ("packages.lock.json", "Directory.Packages.props"):
+        if os.path.isfile(os.path.join(repo, name)):
+            return name, f"{name} at the root (verified supported by osv-scanner 2.6.0)", False
+
+    nested = []
+    for root, dirs, files in os.walk(repo):
+        rel = os.path.relpath(root, repo).replace(os.sep, "/")
+        depth = 0 if rel == "." else len(rel.split("/"))
+        dirs[:] = sorted(d for d in dirs if not d.startswith(".") and not _is_dotnet_test_dir(d))
+        if depth >= 2:
+            dirs[:] = []
+        if rel != "." and "packages.lock.json" in files:
+            nested.append(f"{rel}/packages.lock.json")
+    if nested:
+        joined = ":".join(sorted(nested))
+        return joined, f"{joined} under solution projects (verified supported by osv-scanner 2.6.0)", False
+
+    if workspace_root:
+        for name in ("Directory.Packages.props", "packages.lock.json"):
+            if os.path.isfile(os.path.join(workspace_root, name)):
+                return name, f"{name} at workspace root (verified supported by osv-scanner 2.6.0)", True
+
+    raise init.Undraftable(
+        "*.csproj or *.sln found without packages.lock.json or Directory.Packages.props: "
+        "enable RestorePackagesWithLockFile (`dotnet restore --use-lock-file`) or Central Package Management "
+        "and commit packages.lock.json or Directory.Packages.props"
+    )
+
+
+def infer_dotnet(repo, runners_dir="runners", workspace_root=None):
+    """Infer contract metadata for a C#/.NET project or solution."""
+    repo = os.fspath(repo)
+    if not has_dotnet_manifest(repo):
+        raise init.Undraftable("no *.csproj or *.sln found at the project root")
+
+    lockfiles, lock_evidence, lock_at_root = _detect_dotnet_lockfiles(repo, workspace_root=workspace_root)
+    major, tfm_reason = _detect_dotnet_major(repo, workspace_root=workspace_root)
+    scope, scope_evidence = _find_dotnet_scope(repo)
+    scope_arg = scope.rstrip("/") or "."
+    toolchain = f"mcr.microsoft.com/dotnet/sdk:{major}.0"
+    toolchain_evidence = (
+        f"{tfm_reason}; the official Microsoft .NET SDK {major}.0 image, a tag: "
+        "pin it by digest before committing (workbench has no .NET SDK)"
+    )
+    test_cmd = "dotnet test"
+    test_dirs = [
+        d + "/" for d in ("tests", "test") if os.path.isdir(os.path.join(repo, d))
+    ]
+    return {
+        "stack": "dotnet",
+        "notes": [f"stack dotnet: scope {scope}, lockfile {lockfiles}, toolchain {toolchain}"],
+        "scope": scope,
+        "scope_evidence": scope_evidence,
+        "lockfiles": lockfiles,
+        "lockfiles_evidence": lock_evidence,
+        "lockfile_at_workspace_root": lock_at_root,
+        "test_root": "",
+        "test_root_evidence": "the project or solution sits at the repository root, nothing to strip",
+        "test_paths": DOTNET_TEST_PATHS,
+        "test_paths_evidence": "standard .NET test directories and *Test.cs/*Tests.cs files",
+        "toolchain": toolchain,
+        "toolchain_evidence": toolchain_evidence,
+        "test_cmd": test_cmd,
+        "test_cmd_evidence": "standard .NET SDK test runner",
+        "sast_cmd": f"sh {runners_dir}/sast.sh {scope_arg}",
+        "sast_cmd_evidence": "C#/.NET static security analyzer over the scope, the stack's runner (stacks/dotnet/runners/sast.sh)",
+        "mutation_cmd": f'sh {runners_dir}/mutation.sh {scope_arg} "{test_cmd}"',
+        "mutation_cmd_evidence": "line-scoped C#/.NET mutator over the scope, the stack's runner (stacks/dotnet/runners/mutation.sh)",
+        "scope_paths": [scope] + test_dirs,
+        "tests_sentence": f"From the repository root, `{test_cmd}`. Use exactly this command.",
+    }
+
+
+def is_kotlin_project(repo):
+    """Return True when a Maven/Gradle repository declares Kotlin or is Kotlin-first."""
+    repo = os.fspath(repo)
+    pom_path = os.path.join(repo, "pom.xml")
+    if os.path.isfile(pom_path):
+        try:
+            with open(pom_path, encoding="utf-8", errors="replace") as fh:
+                pom_text = re.sub(r"<!--.*?-->", "", fh.read(), flags=re.DOTALL)
+            if re.search(r"kotlin-maven-plugin|kotlin-stdlib|org\.jetbrains\.kotlin", pom_text):
+                return True
+        except OSError:
+            pass
+
+    for gname in ("build.gradle.kts", "build.gradle"):
+        gpath = os.path.join(repo, gname)
+        if os.path.isfile(gpath):
+            try:
+                with open(gpath, encoding="utf-8", errors="replace") as fh:
+                    gtext = re.sub(r"/\*.*?\*/", "", fh.read(), flags=re.DOTALL)
+                    gtext = re.sub(r"//[^\n]*", "", gtext)
+                if re.search(
+                    r"""\bkotlin\s*\(\s*['"](?:jvm|multiplatform|android|plugin\.[^'"]+)['"]\s*\)"""
+                    r"""|org\.jetbrains\.kotlin|id\s*\(?\s*['"]kotlin['"]""",
+                    gtext,
+                ):
+                    return True
+            except OSError:
+                pass
+
+    is_kt = lambda f: f.endswith(".kt") and not f.endswith(("Test.kt", "Tests.kt", "Spec.kt"))  # noqa: E731
+    is_java = lambda f: f.endswith(".java") and not f.endswith(("Test.java", "Tests.java", "Spec.java"))  # noqa: E731
+    src_dir = os.path.join(repo, "src")
+    has_kt = os.path.isdir(src_dir) and _dir_has_files(src_dir, is_kt, _JAVA_SKIP_DIRS)
+    has_java = os.path.isdir(src_dir) and _dir_has_files(src_dir, is_java, _JAVA_SKIP_DIRS)
+    return bool(has_kt and not has_java)
+
+
+def _find_kotlin_scope(repo):
+    is_kt = lambda f: f.endswith(".kt") and not f.endswith(("Test.kt", "Tests.kt", "Spec.kt"))  # noqa: E731
+    is_java = lambda f: f.endswith(".java") and not f.endswith(("Test.java", "Tests.java", "Spec.java"))  # noqa: E731
+    src_main_kt = os.path.join(repo, "src", "main", "kotlin")
+    src_main_java = os.path.join(repo, "src", "main", "java")
+    has_main_java = os.path.isdir(src_main_java) and _dir_has_files(src_main_java, is_java, _JAVA_SKIP_DIRS)
+    if os.path.isdir(src_main_kt) and _dir_has_files(src_main_kt, is_kt, _JAVA_SKIP_DIRS) and not has_main_java:
+        return "src/main/kotlin/", "src/main/kotlin/ holds Kotlin production source files"
+    src_main = os.path.join(repo, "src", "main")
+    if os.path.isdir(src_main) and _dir_has_files(src_main, lambda f: is_kt(f) or is_java(f), _JAVA_SKIP_DIRS):
+        return "src/main/", "src/main/ holds Kotlin/JVM production source files"
+    src_dir = os.path.join(repo, "src")
+    if os.path.isdir(src_dir) and _dir_has_files(src_dir, is_kt, _JAVA_SKIP_DIRS):
+        return "src/", "src/ holds Kotlin production source files"
+    raise init.Undraftable(
+        "no Kotlin source files (*.kt) found under src/main/kotlin/, src/main/, or src/"
+    )
+
+
+def infer_kotlin(repo, runners_dir="runners", workspace_root=None):
+    """Infer contract metadata for a first-class Kotlin Maven or Gradle project."""
+    repo = os.fspath(repo)
+    has_pom = os.path.isfile(os.path.join(repo, "pom.xml"))
+    has_gradle = os.path.isfile(os.path.join(repo, "build.gradle")) or os.path.isfile(
+        os.path.join(repo, "build.gradle.kts")
+    )
+    if not has_pom and not has_gradle:
+        raise init.Undraftable("no pom.xml, build.gradle, or build.gradle.kts found for kotlin")
+
+    lockfile_at_workspace_root = False
+    if has_pom:
+        lockfiles = "pom.xml"
+        lockfiles_evidence = "pom.xml at the root (verified directly supported by osv-scanner 2.6.0)"
+        toolchain = "docker.io/library/maven:3.9-eclipse-temurin-21"
+        toolchain_evidence = (
+            "pom.xml declares a Kotlin Maven build; the official Maven/Temurin 21 image, a tag: "
+            "pin it by digest before committing (workbench has no Kotlin/JVM toolchain)"
+        )
+        test_cmd, test_evidence = _wrapper_cmd(repo, "mvnw", "mvn", workspace_root=workspace_root)
+    else:
+        gradle_locks = ("gradle.lockfile", "gradle/verification-metadata.xml", "buildscript-gradle.lockfile")
+        chosen_lock = next(
+            (cand for cand in gradle_locks if os.path.isfile(os.path.join(repo, cand))),
+            None,
+        )
+        if chosen_lock is None and workspace_root:
+            chosen_lock = next(
+                (cand for cand in gradle_locks if os.path.isfile(os.path.join(workspace_root, cand))),
+                None,
+            )
+            if chosen_lock is not None:
+                lockfile_at_workspace_root = True
+        if chosen_lock is None:
+            raise init.Undraftable(
+                "Gradle build file found without gradle.lockfile or gradle/verification-metadata.xml: "
+                "osv-scanner 2.6.0 exits 127 on build.gradle.kts; run `./gradlew dependencies --write-locks` "
+                "and commit gradle.lockfile"
+            )
+        lockfiles = chosen_lock
+        lockfiles_evidence = f"{chosen_lock} (verified supported by osv-scanner 2.6.0)"
+        toolchain = "docker.io/library/gradle:8-jdk21"
+        toolchain_evidence = (
+            "Gradle build declares a Kotlin JVM project; the official Gradle 8/JDK 21 image, a tag: "
+            "pin it by digest before committing (workbench has no Kotlin/JVM toolchain)"
+        )
+        test_cmd, test_evidence = _wrapper_cmd(repo, "gradlew", "gradle", workspace_root=workspace_root)
+
+    scope, scope_evidence = _find_kotlin_scope(repo)
+    scope_arg = scope.rstrip("/")
+    return {
+        "stack": "kotlin",
+        "notes": [f"stack kotlin: scope {scope}, lockfile {lockfiles}, toolchain {toolchain}"],
+        "scope": scope,
+        "scope_evidence": scope_evidence,
+        "lockfiles": lockfiles,
+        "lockfiles_evidence": lockfiles_evidence,
+        "lockfile_at_workspace_root": lockfile_at_workspace_root,
+        "test_root": "",
+        "test_root_evidence": "the project sits at the repository root, nothing to strip",
+        "test_paths": KOTLIN_TEST_PATHS,
+        "test_paths_evidence": "Kotlin test directories and *Test.kt/*Tests.kt suffixes",
+        "toolchain": toolchain,
+        "toolchain_evidence": toolchain_evidence,
+        "test_cmd": test_cmd,
+        "test_cmd_evidence": test_evidence,
+        "sast_cmd": f"sh {runners_dir}/sast.sh {scope_arg}",
+        "sast_cmd_evidence": "Kotlin static security analyzer over the scope, the stack's runner (stacks/kotlin/runners/sast.sh)",
+        "mutation_cmd": f'sh {runners_dir}/mutation.sh {scope_arg} "{test_cmd}"',
+        "mutation_cmd_evidence": "line-scoped Kotlin mutator over the scope, the stack's runner (stacks/kotlin/runners/mutation.sh)",
+        "scope_paths": [scope] + (["src/test/"] if os.path.isdir(os.path.join(repo, "src", "test")) else []),
+        "tests_sentence": f"From the repository root, `{test_cmd}`. Use exactly this command.",
+    }
+
+
+def _find_swift_scope(repo):
+    is_swift = lambda f: (  # noqa: E731
+        f.endswith(".swift")
+        and f != "Package.swift"
+        and not f.endswith(("Tests.swift", "Test.swift"))
+    )
+    for cand in ("Sources", "src"):
+        path = os.path.join(repo, cand)
+        if os.path.isdir(path) and _dir_has_files(path, is_swift, _SWIFT_SKIP_DIRS):
+            return cand + "/", f"{cand}/ holds Swift target source files"
+    for entry in sorted(os.listdir(repo)):
+        if entry.startswith(".") or entry in _SWIFT_SKIP_DIRS:
+            continue
+        path = os.path.join(repo, entry)
+        if os.path.isdir(path) and _dir_has_files(path, is_swift, _SWIFT_SKIP_DIRS):
+            return entry + "/", f"{entry}/ holds Swift source files"
+    with os.scandir(repo) as entries:
+        if any(e.is_file() and is_swift(e.name) for e in entries):
+            return ".", "Swift source files sit at the repository root"
+    raise init.Undraftable(
+        "no Swift source files (*.swift) found under Sources/, subdirectories, or at the root"
+    )
+
+
+def infer_swift(repo, runners_dir="runners", workspace_root=None):
+    """Infer contract metadata for a Swift Package Manager repository."""
+    repo = os.fspath(repo)
+    if not os.path.isfile(os.path.join(repo, "Package.swift")):
+        raise init.Undraftable("Package.swift not found at the package root")
+
+    lockfile_at_workspace_root = False
+    if os.path.isfile(os.path.join(repo, "Package.resolved")):
+        lock_evidence = "Package.resolved beside Package.swift (verified supported by osv-scanner 2.6.0)"
+    elif workspace_root and os.path.isfile(os.path.join(workspace_root, "Package.resolved")):
+        lockfile_at_workspace_root = True
+        lock_evidence = "Package.resolved at workspace root (verified supported by osv-scanner 2.6.0)"
+    else:
+        raise init.Undraftable(
+            "Package.swift found without Package.resolved: run `swift package resolve` "
+            "and commit Package.resolved so the deps gate scans pinned dependencies"
+        )
+
+    scope, scope_evidence = _find_swift_scope(repo)
+    scope_arg = scope.rstrip("/") or "."
+    toolchain = "docker.io/library/swift:6.0"
+    toolchain_evidence = (
+        "Package.swift declares a Swift package; the official swift 6.0 image, a tag: "
+        "pin it by digest before committing (workbench has no Swift toolchain)"
+    )
+    test_cmd = "swift test"
+    return {
+        "stack": "swift",
+        "notes": [f"stack swift: scope {scope}, toolchain {toolchain}"],
+        "scope": scope,
+        "scope_evidence": scope_evidence,
+        "lockfiles": "Package.resolved",
+        "lockfiles_evidence": lock_evidence,
+        "lockfile_at_workspace_root": lockfile_at_workspace_root,
+        "test_root": "",
+        "test_root_evidence": "the Swift package sits at the repository root, nothing to strip",
+        "test_paths": SWIFT_TEST_PATHS,
+        "test_paths_evidence": "SwiftPM Tests/ targets and *Tests.swift/*Test.swift files",
+        "toolchain": toolchain,
+        "toolchain_evidence": toolchain_evidence,
+        "test_cmd": test_cmd,
+        "test_cmd_evidence": "standard Swift Package Manager test suite",
+        "sast_cmd": f"sh {runners_dir}/sast.sh {scope_arg}",
+        "sast_cmd_evidence": "Swift static security analyzer over the scope, the stack's runner (stacks/swift/runners/sast.sh)",
+        "mutation_cmd": f'sh {runners_dir}/mutation.sh {scope_arg} "{test_cmd}"',
+        "mutation_cmd_evidence": "line-scoped Swift mutator over the scope, the stack's runner (stacks/swift/runners/mutation.sh)",
+        "scope_paths": [scope] + (["Tests/"] if os.path.isdir(os.path.join(repo, "Tests")) else []),
+        "tests_sentence": f"From the repository root, `{test_cmd}`. Use exactly this command.",
+    }
+
+
+def _detect_php_version(composer_data):
+    platform_php = ((composer_data.get("config") or {}).get("platform") or {}).get("php")
+    req_php = (composer_data.get("require") or {}).get("php")
+    for label, raw in (("config.platform.php", platform_php), ("require.php", req_php)):
+        if not raw:
+            continue
+        m = re.search(r"\b([78]\.\d+)\b", str(raw))
+        if m:
+            return m.group(1), f"composer.json {label} = {raw!r}"
+    return "8.3", "composer.json declares no minor PHP constraint; defaulting to PHP 8.3"
+
+
+def _find_php_scope(repo):
+    is_php = lambda f: f.endswith(".php") and not f.endswith(("Test.php", "Tests.php"))  # noqa: E731
+    for cand in ("src", "lib"):
+        path = os.path.join(repo, cand)
+        if os.path.isdir(path) and _dir_has_files(path, is_php, _PHP_SKIP_DIRS):
+            return cand + "/", f"{cand}/ holds PHP production source files"
+    for entry in sorted(os.listdir(repo)):
+        if entry.startswith(".") or entry in _PHP_SKIP_DIRS:
+            continue
+        path = os.path.join(repo, entry)
+        if os.path.isdir(path) and _dir_has_files(path, is_php, _PHP_SKIP_DIRS):
+            return entry + "/", f"{entry}/ holds PHP production source files"
+    with os.scandir(repo) as entries:
+        if any(e.is_file() and is_php(e.name) for e in entries):
+            return ".", "PHP source files sit at the repository root"
+    raise init.Undraftable(
+        "no PHP source files (*.php) found in src/, lib/, subdirectories, or at the root"
+    )
+
+
+def infer_php(repo, runners_dir="runners", workspace_root=None):
+    """Infer contract metadata for a PHP Composer repository."""
+    repo = os.fspath(repo)
+    composer_path = os.path.join(repo, "composer.json")
+    if not os.path.isfile(composer_path):
+        raise init.Undraftable("composer.json not found at the repository root")
+    try:
+        with open(composer_path, encoding="utf-8") as fh:
+            composer_data = json.load(fh)
+    except (OSError, ValueError) as exc:
+        raise init.Undraftable(f"composer.json is not valid JSON: {exc}") from None
+
+    lockfile_at_workspace_root = False
+    if os.path.isfile(os.path.join(repo, "composer.lock")):
+        lock_evidence = "composer.lock beside composer.json (verified supported by osv-scanner 2.6.0)"
+    elif workspace_root and os.path.isfile(os.path.join(workspace_root, "composer.lock")):
+        lockfile_at_workspace_root = True
+        lock_evidence = "composer.lock at workspace root (verified supported by osv-scanner 2.6.0)"
+    else:
+        raise init.Undraftable(
+            "composer.json found without composer.lock: run `composer install` or "
+            "`composer update --lock` and commit composer.lock"
+        )
+
+    php_ver, php_reason = _detect_php_version(composer_data)
+    scope, scope_evidence = _find_php_scope(repo)
+    scope_arg = scope.rstrip("/") or "."
+    toolchain = f"docker.io/library/php:{php_ver}-cli"
+    toolchain_evidence = (
+        f"{php_reason}; the official php {php_ver}-cli image, a tag: "
+        "pin it by digest before committing (workbench has no PHP runtime)"
+    )
+    test_cmd = "vendor/bin/phpunit"
+    tests_dir = next((c for c in ("tests", "test") if os.path.isdir(os.path.join(repo, c))), None)
+    return {
+        "stack": "php",
+        "notes": [f"stack php: scope {scope}, lockfile composer.lock, toolchain {toolchain}"],
+        "scope": scope,
+        "scope_evidence": scope_evidence,
+        "lockfiles": "composer.lock",
+        "lockfiles_evidence": lock_evidence,
+        "lockfile_at_workspace_root": lockfile_at_workspace_root,
+        "test_root": "",
+        "test_root_evidence": "the Composer project sits at the repository root, nothing to strip",
+        "test_paths": PHP_TEST_PATHS,
+        "test_paths_evidence": "PHPUnit tests/ directory and *Test.php files",
+        "toolchain": toolchain,
+        "toolchain_evidence": toolchain_evidence,
+        "test_cmd": test_cmd,
+        "test_cmd_evidence": "Composer PHPUnit entrypoint (vendor/bin/phpunit)",
+        "sast_cmd": f"sh {runners_dir}/sast.sh {scope_arg}",
+        "sast_cmd_evidence": "PHP static security analyzer over the scope, the stack's runner (stacks/php/runners/sast.sh)",
+        "mutation_cmd": f'sh {runners_dir}/mutation.sh {scope_arg} "{test_cmd}"',
+        "mutation_cmd_evidence": "line-scoped PHP mutator over the scope, the stack's runner (stacks/php/runners/mutation.sh)",
+        "scope_paths": [scope] + ([tests_dir + "/"] if tests_dir else []),
+        "tests_sentence": f"From the repository root, `{test_cmd}`. Use exactly this command.",
+    }
+
+
+def _detect_ruby_version(repo, lock_path):
+    rv_path = os.path.join(repo, ".ruby-version")
+    if os.path.isfile(rv_path):
+        try:
+            with open(rv_path, encoding="utf-8") as fh:
+                raw = fh.read().strip()
+            m = re.search(r"(\d+\.\d+)", raw)
+            if m:
+                return m.group(1), f".ruby-version = {raw!r}"
+        except OSError:
+            pass
+    gemfile_path = os.path.join(repo, "Gemfile")
+    if os.path.isfile(gemfile_path):
+        try:
+            with open(gemfile_path, encoding="utf-8", errors="replace") as fh:
+                gtext = fh.read()
+            m = re.search(r"""(?m)^\s*ruby\s+['"][~>=\s]*(\d+\.\d+)""", gtext)
+            if m:
+                return m.group(1), f"Gemfile declares ruby {m.group(1)}"
+        except OSError:
+            pass
+    if lock_path and os.path.isfile(lock_path):
+        try:
+            with open(lock_path, encoding="utf-8", errors="replace") as fh:
+                ltext = fh.read()
+            m = re.search(r"RUBY VERSION\s+ruby\s+(\d+\.\d+)", ltext)
+            if m:
+                return m.group(1), f"Gemfile.lock records ruby {m.group(1)}"
+        except OSError:
+            pass
+    return "3.3", "no explicit Ruby version found; defaulting to Ruby 3.3"
+
+
+def _find_ruby_scope(repo):
+    is_rb = lambda f: (  # noqa: E731
+        f.endswith(".rb")
+        and not f.endswith(("_spec.rb", "_test.rb"))
+        and not f.startswith("test_")
+    )
+    lib_dir = os.path.join(repo, "lib")
+    if os.path.isdir(lib_dir) and _dir_has_files(lib_dir, is_rb, _RUBY_SKIP_DIRS):
+        return "lib/", "lib/ holds Ruby source files"
+    for entry in sorted(os.listdir(repo)):
+        if entry.startswith(".") or entry in _RUBY_SKIP_DIRS:
+            continue
+        path = os.path.join(repo, entry)
+        if os.path.isdir(path) and _dir_has_files(path, is_rb, _RUBY_SKIP_DIRS):
+            return entry + "/", f"{entry}/ holds Ruby source files"
+    with os.scandir(repo) as entries:
+        if any(e.is_file() and is_rb(e.name) for e in entries):
+            return ".", "Ruby source files sit at the repository root"
+    raise init.Undraftable(
+        "no Ruby source files (*.rb) found in lib/, subdirectories, or at the root"
+    )
+
+
+def infer_ruby(repo, runners_dir="runners", workspace_root=None):
+    """Infer contract metadata for a Ruby Bundler repository."""
+    repo = os.fspath(repo)
+    if not os.path.isfile(os.path.join(repo, "Gemfile")):
+        raise init.Undraftable("Gemfile not found at the repository root")
+
+    lockfile_at_workspace_root = False
+    local_lock = os.path.join(repo, "Gemfile.lock")
+    ws_lock = os.path.join(workspace_root, "Gemfile.lock") if workspace_root else None
+    if os.path.isfile(local_lock):
+        lock_path = local_lock
+        lock_evidence = "Gemfile.lock beside Gemfile (verified supported by osv-scanner 2.6.0)"
+    elif ws_lock and os.path.isfile(ws_lock):
+        lock_path = ws_lock
+        lockfile_at_workspace_root = True
+        lock_evidence = "Gemfile.lock at workspace root (verified supported by osv-scanner 2.6.0)"
+    else:
+        raise init.Undraftable(
+            "Gemfile found without Gemfile.lock: run `bundle lock` or `bundle install` and commit Gemfile.lock"
+        )
+
+    ruby_ver, ruby_reason = _detect_ruby_version(repo, lock_path)
+    scope, scope_evidence = _find_ruby_scope(repo)
+    scope_arg = scope.rstrip("/") or "."
+    toolchain = f"docker.io/library/ruby:{ruby_ver}"
+    toolchain_evidence = (
+        f"{ruby_reason}; the official ruby {ruby_ver} image, a tag: "
+        "pin it by digest before committing (workbench has no Ruby runtime)"
+    )
+    has_spec = os.path.isdir(os.path.join(repo, "spec"))
+    if has_spec:
+        test_cmd = "bundle exec rspec"
+        test_evidence = "spec/ exists; Bundler runs RSpec"
+        tests_dir = "spec"
+    else:
+        test_cmd = "bundle exec rake test"
+        test_evidence = "no spec/ directory: Bundler runs rake test"
+        tests_dir = next((c for c in ("test", "tests") if os.path.isdir(os.path.join(repo, c))), None)
+
+    return {
+        "stack": "ruby",
+        "notes": [f"stack ruby: scope {scope}, lockfile Gemfile.lock, toolchain {toolchain}"],
+        "scope": scope,
+        "scope_evidence": scope_evidence,
+        "lockfiles": "Gemfile.lock",
+        "lockfiles_evidence": lock_evidence,
+        "lockfile_at_workspace_root": lockfile_at_workspace_root,
+        "test_root": "",
+        "test_root_evidence": "the Bundler project sits at the repository root, nothing to strip",
+        "test_paths": RUBY_TEST_PATHS,
+        "test_paths_evidence": "Ruby spec/ and test/ directories plus *_spec.rb, *_test.rb, and test_*.rb files",
+        "toolchain": toolchain,
+        "toolchain_evidence": toolchain_evidence,
+        "test_cmd": test_cmd,
+        "test_cmd_evidence": test_evidence,
+        "sast_cmd": f"sh {runners_dir}/sast.sh {scope_arg}",
+        "sast_cmd_evidence": "Ruby static security analyzer over the scope, the stack's runner (stacks/ruby/runners/sast.sh)",
+        "mutation_cmd": f'sh {runners_dir}/mutation.sh {scope_arg} "{test_cmd}"',
+        "mutation_cmd_evidence": "line-scoped Ruby mutator over the scope, the stack's runner (stacks/ruby/runners/mutation.sh)",
+        "scope_paths": [scope] + ([tests_dir + "/"] if tests_dir else []),
+        "tests_sentence": f"From the repository root, `{test_cmd}`. Use exactly this command.",
+    }
+
+
 # --- monorepo & sub-service discovery (ADR 0110) --------------------------
 
 
@@ -782,7 +1382,7 @@ def _expand_workspace_globs(repo, patterns, require_manifest=True):
                 continue
             if is_neg:
                 excluded.add(rel)
-            elif not require_manifest or any(os.path.isfile(os.path.join(m, mf)) for mf in _MANIFEST_NAMES):
+            elif not require_manifest or _dir_has_manifest(m):
                 included.add(rel)
     return sorted(included - excluded)
 
@@ -854,7 +1454,9 @@ def _scan_subdir_services(repo):
         dirs[:] = sorted(d for d in dirs if not d.startswith(".") and d not in _WORKSPACE_SKIP_DIRS)
         if depth >= 2:
             dirs[:] = []
-        if rel_dir != "." and any(f in files for f in _MANIFEST_NAMES):
+        if rel_dir != "." and any(
+            f in _MANIFEST_NAMES or f.endswith((".csproj", ".sln")) for f in files
+        ):
             found.add(rel_dir)
             dirs[:] = []
     return sorted(found)
@@ -916,8 +1518,7 @@ def discover_workspace_services(repo):
         if modules:
             return "pom.xml <modules>", modules, not os.path.isdir(os.path.join(repo, "src"))
 
-    has_root_manifest = any(os.path.isfile(os.path.join(repo, mf)) for mf in _MANIFEST_NAMES)
-    if not has_root_manifest:
+    if not _dir_has_manifest(repo):
         services = _scan_subdir_services(repo)
         if len(services) >= 2:
             return "multi-service repository", services, True

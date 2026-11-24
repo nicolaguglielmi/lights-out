@@ -58,6 +58,31 @@ def self_test(root: Path | None = None) -> str | None:
     repo_root = root or Path(__file__).resolve().parents[2]
     stacks = repo_root / "stacks"
     shapes = core_corpus.default_shapes()
+    if len(shapes) != 36:
+        return f"expected 36 canonical corpus shapes (ADR 0129), got {len(shapes)}"
+
+    dotnet_shape = next(s for s in shapes if s.name == "dotnet-sdk-http")
+    broken_stack = core_corpus.Shape(
+        name="self-test-wrong-polyglot-stack",
+        kind="positive",
+        expected_stack="java",
+        expected_has_plane=dotnet_shape.expected_has_plane,
+        expected_port=dotnet_shape.expected_port,
+        expected_probe=dotnet_shape.expected_probe,
+        expected_lockfiles=dotnet_shape.expected_lockfiles,
+        expected_test_cmd_substr=dotnet_shape.expected_test_cmd_substr,
+        expected_toolchain=dotnet_shape.expected_toolchain,
+        files=dotnet_shape.files,
+    )
+    passed, total, _ = core_corpus.run(
+        contract_rel=".lights-out",
+        stacks_dir=stacks,
+        report_path=None,
+        verify_light=False,
+        shapes=[broken_stack],
+    )
+    if (passed, total) != (0, 1):
+        return "corpus accepted a polyglot shape with mismatched expected stack"
 
     go_shape = next(s for s in shapes if s.name == "go-http")
     broken_port = core_corpus.Shape(
