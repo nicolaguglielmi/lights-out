@@ -31,7 +31,7 @@ regexTarget = "match"
 description = "the Gemini API key line .env.example tells the user to write into their own .env (amended 2026-11-02); scoped like the cosign entry: that path AND that line, and ci/secrets.sh proves .env is gitignored and untracked first"
 condition = "AND"
 paths = ['''^\.env$''']
-regexes = ['''^GEMINI_API_KEY=''', '''^ANTHROPIC_API_KEY=''', '''^OPENAI_API_KEY=''', '''^ZAI_API_KEY=''', '''^METRICS_AUTH_HEADER=''', '''^GITHUB_TOKEN=''']
+regexes = ['''^GEMINI_API_KEY=''', '''^ANTHROPIC_API_KEY=''', '''^OPENAI_API_KEY=''', '''^ZAI_API_KEY=''', '''^METRICS_AUTH_HEADER=''', '''^GITHUB_TOKEN=''', '''^GITLAB_TOKEN=''']
 regexTarget = "line"
 
 [[allowlists]]

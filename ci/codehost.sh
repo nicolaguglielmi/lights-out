@@ -95,6 +95,7 @@ credential_flaw() {  # ROOT
     h=$(basename "$(dirname "$c")")
     case "$h" in
       github) proto=https host=github.com user=x-access-token var=GITHUB_TOKEN ;;
+      gitlab) proto=https host=gitlab.com user=oauth2 var=GITLAB_TOKEN ;;
       *) printf 'adapters/%s/credential.sh: ci/codehost.sh does not know the host and token variable it serves; add them to its table' "$h"; return 0 ;;
     esac
     printf 'protocol=%s\nhost=%s\n\n' "$proto" "$host" > "$t/in-right"
@@ -105,7 +106,7 @@ credential_flaw() {  # ROOT
     if grep -qF "$tok" "$t/cred.err"; then
       printf '%s: get wrote the token on stderr' "$h"; return 0
     fi
-    for other in "https example.com" "https github.com.example.test" "https api.github.com" "http github.com"; do
+    for other in "https example.com" "https $host.example.test" "https api.$host" "http $host"; do
       printf 'protocol=%s\nhost=%s\n\n' "${other%% *}" "${other#* }" > "$t/in-other"
       cred_run "$c" get "$t/in-other" "$var=$tok"
       if [ "$cred_rc" -ne 0 ] || [ -s "$t/cred.out" ]; then

@@ -21,7 +21,12 @@ title=$(jq -r '.title // ""' "$pr_json")
 mr=$(api -f -G "$GITLAB_PROJECT/merge_requests" --data-urlencode state=opened --data-urlencode "source_branch=$branch" \
   | jq -c 'first // empty') || die "listing merge requests failed"
 if [ -z "$mr" ]; then
-  payload=$(jq -c --arg b "$branch" '{source_branch: $b, target_branch: "main", title: .title, description: (.body // "")}' "$pr_json")
+  target=main
+  if [ -n "${GITLAB_PROJECT_PATH:-}" ]; then
+    target=$(api -f "$GITLAB_PROJECT" | jq -er '.default_branch // empty') \
+      || die "reading default branch for $GITLAB_PROJECT_PATH failed"
+  fi
+  payload=$(jq -c --arg b "$branch" --arg t "$target" '{source_branch: $b, target_branch: $t, title: .title, description: (.body // "")}' "$pr_json")
   mr=$(api -f -X POST -H 'Content-Type: application/json' -d "$payload" "$GITLAB_PROJECT/merge_requests") \
     || die "create merge request failed"
 fi

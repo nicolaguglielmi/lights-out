@@ -10,4 +10,10 @@ branch=${2:?usage: push.sh <workspace> <branch>}
 here=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 # shellcheck source=adapters/gitlab/env.sh
 . "$here/env.sh"
+if [ -n "${GITLAB_PROJECT_PATH:-}" ]; then
+  case "$branch" in
+    ticket/* | conformance/*) : ;;
+    *) printf 'push-gitlab: refusing to push %s: lights-out pushes only ticket/<id> branches to your repository\n' "$branch" >&2; exit 1 ;;
+  esac
+fi
 git -C "$workspace" push --force "$GITLAB_PUSH_URL" "HEAD:refs/heads/$branch" >&2

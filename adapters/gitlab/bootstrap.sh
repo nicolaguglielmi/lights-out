@@ -1,20 +1,42 @@
 #!/bin/sh
 # SPDX-License-Identifier: Apache-2.0
 #
-# bootstrap-gitlab: creates the public project root/workload and force-pushes
-# the workload repository's HEAD to its main (docs/adr/0043 §3: afterwards the
-# default branch is at the workload's HEAD). CODE_HOST_KEEP_MAIN leaves main
-# as it is, as adapters/gitea/bootstrap.sh does. GitLab protects a project's
-# default branch against force pushes; the protection is removed before and
-# after the push, since a mirror of the local clone is all main is here.
-# Idempotent. Adapter convention (docs/adr/0012 §6): silent on success, one
-# stderr line and exit 1 on failure.
+# bootstrap-gitlab: in local conformance mode (GITLAB_PROJECT_PATH unset),
+# creates the public project root/workload and force-pushes the workload
+# repository's HEAD to its main (docs/adr/0058 §8). In remote mode
+# (GITLAB_PROJECT_PATH set), creates and pushes nothing (docs/adr/0043 §3,
+# 0101): checks attached mode, token access, and that the remote default
+# branch head matches the attached clone's HEAD.
 set -eu
 # shellcheck disable=SC1007 # CDPATH= is the portable way to neutralise CDPATH
 here=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
 # shellcheck source=adapters/gitlab/env.sh
 . "$here/env.sh"
 die() { printf 'bootstrap-gitlab: %s\n' "$*" >&2; exit 1; }
+
+if [ -n "${GITLAB_PROJECT_PATH:-}" ]; then
+  [ -n "${WORKLOAD_ATTACHED:-}" ] \
+    || die "remote CODE_HOST=gitlab serves an attached repository: ./go attach <your clone>"
+  tmp=$(mktemp)
+  trap 'rm -f "$tmp"' EXIT
+  code=$(api -o "$tmp" -w '%{http_code}' "$GITLAB_PROJECT") || code=000
+  case "$code" in
+    200) : ;;
+    401) die "GitLab refused GITLAB_TOKEN (401); check the token in .env" ;;
+    404) die "$GITLAB_PROJECT_PATH not found with this token (404): check GITLAB_PROJECT_PATH and GITLAB_TOKEN in .env" ;;
+    *) die "GET $GITLAB_PROJECT_PATH returned $code" ;;
+  esac
+  base=$(jq -r '.default_branch // empty' "$tmp")
+  [ -n "$base" ] || die "$GITLAB_PROJECT_PATH reports no default branch"
+  base_enc=$(printf '%s' "$base" | jq -Rr @uri)
+  code=$(api -o "$tmp" -w '%{http_code}' "$GITLAB_PROJECT/repository/branches/$base_enc") || code=000
+  [ "$code" = 200 ] || die "GET branch $base of $GITLAB_PROJECT_PATH returned $code"
+  remote=$(jq -r '.commit.id // empty' "$tmp")
+  local=$(git -C "${WORKLOAD:?WORKLOAD not set; run this via ./go}" rev-parse HEAD)
+  [ "$remote" = "$local" ] \
+    || die "$GITLAB_PROJECT_PATH's $base is at $remote, the attached clone at $local: pull, then ./go attach again"
+  exit 0
+fi
 
 # 1. The project, public. 201 created, 400 "has already been taken".
 tmp=$(mktemp)
