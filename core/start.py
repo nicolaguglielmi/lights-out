@@ -135,6 +135,8 @@ def discover_adapters(root: Path, providers: dict[str, dict] | None = None) -> d
     cloud_dir = root / "plugins" / "cloud"
     deliveries: list[str] = []
     harnesses: list[str] = []
+    registries: list[str] = []
+    flags: list[str] = []
     all_adapters: list[str] = []
     known_harnesses = {
         h
@@ -150,6 +152,10 @@ def discover_adapters(root: Path, providers: dict[str, dict] | None = None) -> d
             all_adapters.append(entry.name)
             if (entry / "deploy.sh").is_file():
                 deliveries.append(entry.name)
+            if (entry / "publish.sh").is_file() and (entry / "verify.sh").is_file():
+                registries.append(entry.name)
+            if (entry / "evaluate.sh").is_file() and (entry / "set.sh").is_file():
+                flags.append(entry.name)
             if (
                 entry.name in known_harnesses
                 or (entry / "conformance.env").is_file()
@@ -159,18 +165,24 @@ def discover_adapters(root: Path, providers: dict[str, dict] | None = None) -> d
                 harnesses.append(entry.name)
 
     cloud_plugins: list[str] = []
+    cloud_slo_ingress: list[str] = []
     if cloud_dir.is_dir():
         for entry in sorted(cloud_dir.iterdir()):
             if entry.is_dir() and not entry.name.startswith(".") and (
                 (entry / "deploy.sh").is_file() or (entry / "README.md").is_file()
             ):
                 cloud_plugins.append(entry.name)
+                if (entry / "slo-ingress.promql").is_file():
+                    cloud_slo_ingress.append(entry.name)
 
     return {
         "all": all_adapters,
         "deliveries": deliveries,
         "harnesses": harnesses,
+        "registries": registries,
+        "flags": flags,
         "cloud_plugins": cloud_plugins,
+        "cloud_slo_ingress": cloud_slo_ingress,
     }
 
 
@@ -706,7 +718,10 @@ def evaluate_next(
         "adapters": adapters["all"],
         "deliveries": adapters["deliveries"],
         "harnesses": adapters["harnesses"],
+        "registries": adapters["registries"],
+        "flags": adapters["flags"],
         "cloud_plugins": adapters["cloud_plugins"],
+        "cloud_slo_ingress": adapters["cloud_slo_ingress"],
     }
 
 
@@ -980,6 +995,17 @@ def run_start(
         plan_fields["SPEND_BUDGET_DAY_USD"] = clean_day_budget
     _write_plan_env(plan_path, plan_fields)
 
+    has_proxy_slo = delivery_source == "plugins/cloud" and delivery in adapters["cloud_slo_ingress"]
+    slo_promql = f"plugins/cloud/{delivery}/slo-ingress.promql" if has_proxy_slo else ""
+    cloud_registry = (
+        "oci-registry"
+        if "oci-registry" in adapters["registries"]
+        else (adapters["registries"][0] if adapters["registries"] else "")
+    )
+    cloud_flags = [f for f in ("flags-file", "flags-http") if f in adapters["flags"]]
+    if not cloud_flags:
+        cloud_flags = list(adapters["flags"])
+
     # Build copy-paste E2E commands
     commands: list[str] = []
     if env_var and not key_configured:
@@ -990,10 +1016,23 @@ def run_start(
     elif not contract["has_baseline"]:
         commands.append("./go mutation-baseline")
     if delivery_source == "plugins/cloud":
-        commands.append(f"./go cloud-setup CLOUD={delivery}")
-        commands.append(
-            f"./go delivery-conformance DELIVERY=outside/{delivery} ADAPTERS_PATH=$(pwd)/plugins/cloud"
-        )
+        setup_cmd = f"./go cloud-setup CLOUD={delivery} --slo-mode proxy" if has_proxy_slo else f"./go cloud-setup CLOUD={delivery}"
+        commands.append(setup_cmd)
+        if cloud_registry == "oci-registry":
+            commands.append("./go registry-conformance REGISTRY=oci-registry")
+        if cloud_flags:
+            if len(cloud_flags) > 1:
+                commands.append(f"./go flags-conformance FLAGS={cloud_flags[0]}  # or FLAGS={cloud_flags[1]}")
+            else:
+                commands.append(f"./go flags-conformance FLAGS={cloud_flags[0]}")
+        bridge_parts = [f"DELIVERY=outside/{delivery}", "ADAPTERS_PATH=$(pwd)/plugins/cloud"]
+        if cloud_registry:
+            bridge_parts.append(f"REGISTRY={cloud_registry}")
+        if cloud_flags:
+            bridge_parts.append(f"FLAGS={cloud_flags[0]}")
+        if slo_promql:
+            bridge_parts.append(f"SLO_PROMQL={slo_promql}")
+        commands.append(f"./go delivery-conformance {' '.join(bridge_parts)}")
     commands.extend([
         f"MODE={mode} ./go next",
         f'PROFILE={profile} MODEL_PROVIDER={provider} AGENT_HARNESS={harness} ./go intake TEXT="Describe your feature"',
@@ -1001,6 +1040,7 @@ def run_start(
         "./go up && ./go release",
         "./go promote",
         "./go logbook && ./go dora && ./go spend && ./go console",
+        f"# Ops loop: ./go watch [ONCE=1] and ./go alert-webhook (AUTO_INCIDENT_ON_ROLLBACK={auto_incident})",
     ])
 
     verdict_line = (
@@ -1014,6 +1054,12 @@ def run_start(
         "doctor_status": doctor_status,
         "doctor_lines": doctor_lines,
         "budget_guidance": str(pinfo.get("budget_guidance") or ""),
+        "discovered": {
+            "registries": adapters["registries"],
+            "flags": adapters["flags"],
+            "cloud_slo_ingress": adapters["cloud_slo_ingress"],
+            "slo_promql": slo_promql,
+        },
         "commands": commands,
     }
 
@@ -1025,9 +1071,20 @@ def render_start_summary(result: dict) -> str:
         f"start: non-secret plan written to {result['plan_path']}",
         f"  preset={plan['START_PRESET']} mode={plan['START_MODE']} profile={plan['START_PROFILE']}",
         f"  provider={plan['MODEL_PROVIDER']} harness={plan['AGENT_HARNESS']} delivery={plan['DELIVERY_ADAPTER']} ({plan['DELIVERY_SOURCE']})",
+        f"  defaults: decide={plan['DECIDE_ADAPTER']} AUTO_INCIDENT_ON_ROLLBACK={plan['AUTO_INCIDENT_ON_ROLLBACK']}",
         f"  budget guidance: {result['budget_guidance']}",
         f"  doctor status: {result['doctor_status']}",
     ]
+    disc = result.get("discovered") or {}
+    if disc.get("registries") or disc.get("flags") or disc.get("slo_promql"):
+        parts = []
+        if disc.get("registries"):
+            parts.append(f"registries={','.join(disc['registries'])}")
+        if disc.get("flags"):
+            parts.append(f"flags={','.join(disc['flags'])}")
+        if disc.get("slo_promql"):
+            parts.append(f"slo={disc['slo_promql']} (--slo-mode proxy)")
+        lines.append(f"  discovered: {' '.join(parts)}")
     for dl in result["doctor_lines"]:
         lines.append(f"    {dl}")
     lines.append("")

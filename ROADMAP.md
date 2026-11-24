@@ -78,12 +78,20 @@ wins when the two disagree. Decisions behind each step are in
 | 0.8.0 | Tagged 2026-11-16: the first run without friction (M60), GLM and a budget per provider (M59), closed decisions (M58), Flagger and the CI recipes (M62), the second Python slice (M61) |
 | 0.8.1 | Cut 2026-11-19, no new command or flag: a dev container and Open in Codespaces with the seven levels (M64, [ADR 0097](docs/adr/0097-from-zero-to-hero-and-a-start-with-nothing-installed.md)), the mutation runner stopping with one line on a coverage-hook failure ([ADR 0076](docs/adr/0076-a-mutant-runs-the-tests-that-reach-it.md) amendment), DAST scanning the stable again when its report lost whole paths ([ADR 0072](docs/adr/0072-security-scanning-sast-sca-dast-sbom.md) amendment), plain git hooks, the gates image waiting for a `.git` file a podman machine shows late; [release notes](docs/releases/v0.8.1.md) |
 | Agent network, built | The dev-worker step split between workers behind one harness port, governed like any PR (ADR 0036, still *proposed*; hand-written at L0) |
+| Cloud E2E bridge | `adapters/oci-registry/`, `adapters/flags-file/`, `adapters/flags-http/`, `gates/registry-conformance.sh`, `gates/flags-conformance.sh`, `./go registry-conformance`, `./go flags-conformance`, `plugins/cloud/*/slo-ingress.promql`, and `plugins/cloud/setup.py` `--slo-mode` (`SLO_MODE=proxy\|otel`), contract-tested locally against stub HTTP/CLI servers (`ci/tests/test_oci_registry_and_flags.py`); live remote cloud/registry conformance requires user accounts ([ADR 0107](docs/adr/0107-cloud-registry-flags-and-proxy-slos.md)) |
+| UX Glue | `.crew/start-plan.env` Make/`./go` precedence wiring (`core/start.py` discovering `oci-registry`, `flags-file`, `flags-http`, `slo-ingress.promql`, and `AUTO_INCIDENT_ON_ROLLBACK`), opt-in socket `lights-out gates --engine`, and non-blocking `core/promote_hint.py` guidance ([ADR 0108](docs/adr/0108-start-plan-wiring-wrapper-engine-gates-and-promote-clarity.md)) |
+| Continuous ops loop | `core/runner.py` (`./go watch`), `core/webhook.py` (`./go alert-webhook`), `core/ops_loop.py` (`./go auto-incident`, `AUTO_INCIDENT_ON_ROLLBACK` in `core/releases.py`), and orchestrator/alert recipes (`surfaces/github-actions/tower-orchestrator.yml`, `surfaces/gitlab-ci/tower-orchestrator.yml`, `surfaces/alerts/README.md`) ([ADR 0109](docs/adr/0109-continuous-orchestration-auto-incident-and-alert-webhook.md)) |
+| Complex stacks & 24-shape corpus | Rust (`Cargo.toml` + `Cargo.lock`, `stacks/rust/`), Java Maven/Gradle (`stacks/java/`), JS/TS `pnpm`/`yarn`/`bun`, monorepo `INIT_SERVICE`, stateful compose/auth smoke (`SMOKE_AUTH_HEADER`)/egress templates (`core/init_plane.py`), `workloads/minimal-rust/`, `workloads/minimal-java/`, and 24-shape `core/corpus.py` (`./go corpus`) ([ADR 0110](docs/adr/0110-stateful-monorepo-rust-java-and-js-managers.md)) |
+| Hive UI & OIDC proxy | `#hive` animated control center and accessible `<dialog id="onboard-wizard">` in `console/index.html`, plus OIDC reverse-proxy recipes (`deploy/proxy/Caddyfile`, `deploy/proxy/oauth2-proxy.cfg`, `deploy/proxy/cloudflare-access.md`) for `CONSOLE_AUTH=proxy` ([ADR 0111](docs/adr/0111-hive-guided-onboarding-ui-and-proxy-recipes.md)) |
 
 ## Next
 
 The third arc (plan §16) is built, except for the runs that are the
-owner's: the OpenAI recording, a committed Claude recording and the L1
-end-to-end on GitHub.
+owner's: the OpenAI recording, a committed Claude recording, the L1
+end-to-end on GitHub, live cloud/remote-registry runs (`./go delivery-conformance`
+and `./go registry-conformance` against real cloud accounts), live remote OIDC
+proxy validation behind `deploy/proxy/`, and the next release push (`version=0.8.1`
+remains untouched until the owner tags).
 
 Left from the sprint of 2026-11-16: an outside AgentHarness, the full
 tower on GitLab and on a real Jenkins (after M62), and `ci/` under the

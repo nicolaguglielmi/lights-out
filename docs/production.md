@@ -9,10 +9,11 @@ Decisions: [ADR 0057](adr/0057-the-stepped-way-in.md) §10 and §11. Cloud level
 Later layers win over earlier ones.
 
 1. **The profile**, `profiles/<level>.env`: the level, the model, the harness and the name of each adapter. `PROFILE=l1` picks it. The Makefile includes it first.
-2. **The workload's contract**, `.lights-out/workload.env`: the commands and paths that are yours. `lights-out init` drafts it with a provenance line above every value ([ADR 0042](adr/0042-gates-anywhere-init-and-the-toolchain-contract.md)).
-3. **Policy**: `policy/merge.env` is the platform's default. The workload's `.lights-out/policy.env` overrides nine keys, each under a `Provenance, measurement|external|decision:` line, and `core/policy.py` refuses an override without one. A PR is judged by its base's copy of both.
-4. **`.env`**, this machine: ignored by git, included after the profile. Copy `.env.example`.
-5. **The command line**: `./go demo PROFILE=l1`, `./go verify METRICS_URL=...`.
+2. **The guided plan** (optional, non-secret), `.crew/start-plan.env`: written by `./go start`, loaded after `profiles/$(PROFILE).env` (when not running `demo`, `ci`, `e2e`, `corpus`, or contract/gate targets), before `.crew/ports.env` and `.crew/remote.env` ([ADR 0108](adr/0108-start-plan-wiring-wrapper-engine-gates-and-promote-clarity.md)). Secrets here are refused.
+3. **The workload's contract**, `.lights-out/workload.env`: the commands and paths that are yours. `lights-out init` drafts it with a provenance line above every value ([ADR 0042](adr/0042-gates-anywhere-init-and-the-toolchain-contract.md)), using `INIT_SERVICE=<subdir>` in monorepos and optional stateful compose hints ([ADR 0110](adr/0110-stateful-monorepo-rust-java-and-js-managers.md)).
+4. **Policy**: `policy/merge.env` is the platform's default. The workload's `.lights-out/policy.env` overrides nine keys, each under a `Provenance, measurement|external|decision:` line, and `core/policy.py` refuses an override without one. A PR is judged by its base's copy of both.
+5. **`.env`**, this machine: ignored by git, included after the profile, guided plan, and auto-detected ports/remotes. Copy `.env.example`.
+6. **The command line**: `./go demo PROFILE=l1`, `./go verify METRICS_URL=...`.
 
 Role budgets sit beside these in `roles/<role>/role.env`. `core/crew.sh` reads the one of the role it runs.
 
@@ -75,11 +76,15 @@ Both numbers come from a free-tier quota. On a paid key they are a decision to r
 ```sh
 ./go delivery-conformance     # the suite, on the adapter DELIVERY names
 ./go argo-conformance         # the same suite for argo-rollouts, on a k3s node (rootful engine)
+./go registry-conformance     # Registry port suite (zot locally, or REGISTRY=oci-registry)
+./go flags-conformance        # Flags port suite (FLAGS=flags-file, FLAGS=flags-http, or flagd)
 ```
 
 | Key | Default | Layer | Provenance |
 |---|---|---|---|
 | `DELIVERY` | `envoy-canary` at L0 and L1, `cloud-deploy` at L2 and L3; `argo-rollouts` is opt-in | `profiles/<level>.env` | `profiles/l0.env`: "Adapter names are directory names under adapters/". No provenance recorded for the choice |
+| `REGISTRY`, `FLAGS` | `zot` and `flagd` at L0/L1; `oci-registry` and `flags-file`/`flags-http` for remote cloud E2E | `profiles/<level>.env` or CLI | Remote OCI distribution + keyless OIDC signing and daemonless/HTTP OFREP flags ([ADR 0107](adr/0107-cloud-registry-flags-and-proxy-slos.md)); contract-tested locally against stub servers, live cloud runs require user accounts |
+| `SLO_MODE`, `SLO_PROMQL` | `proxy` (`plugins/cloud/*/slo-ingress.promql` in `cloud-setup`) or explicit `verify/slo.promql` / plugin `slo.promql` | `.env`, CLI, or `plugins/cloud/setup.py` | Default `proxy` reads ingress/Envoy cluster stats without app `/metrics` or `target_info` ([ADR 0098](adr/0098-verify-from-the-proxy.md), [ADR 0107](adr/0107-cloud-registry-flags-and-proxy-slos.md)) |
 | `STAGE_SECONDS` | `60` | the Makefile, overridable on the command line | The Makefile: "equal to the slo.promql window, so a stage's numbers describe only this stage's canary" ([ADR 0013](adr/0013-launchpad-canary-verify-rollback-at-l0.md) §2, §5) |
 | `READY_TIMEOUT` | `180` | the Makefile | Measurement: 60 was four times the 15 s a cold plane took at M2 close; raised to 180 on 2026-11-02 after a GitHub runner measured envoy-canary still not ready at 60 s. A ceiling, not a delay |
 | `ARGO_NAMESPACE`, `ARGO_ROLLOUT`, `ARGO_HEALTH_PORT`, `ARGO_REGISTRY_HOST`, `KUBECONFIG` | `lights-out`, `backend`, `8000`, `localhost:5050`; `KUBECONFIG` has none | environment or `.env`; read by `adapters/argo-rollouts/` | [Its README](../adapters/argo-rollouts/README.md) states the defaults and what the cluster must allow. No provenance recorded |
@@ -117,7 +122,19 @@ Readiness is GO here when `GO_FOR_LAUNCH` is not preset in `.env` or the environ
 | `CONSOLE_LAUNCHERS` | none | environment or `.env` | ADR 0047 §5: comma-separated identities, compared verbatim; "kept in .env or the profile; it is not a secret" |
 | `CONSOLE_PORT` | `8098` | environment or `.env` | ADR 0047: "That port is my decision" |
 
-In `proxy` mode the console trusts the identity header verbatim. It cannot authenticate it. Keep the console reachable from the proxy only. Readiness cannot see whether the port is open around the proxy ([ADR 0057](adr/0057-the-stepped-way-in.md), consequences).
+In `proxy` mode the console trusts the identity header verbatim. It cannot authenticate it. Keep the console reachable from the proxy only; ready-to-adapt OIDC reverse-proxy templates live in [`deploy/proxy/README.md`](../deploy/proxy/README.md) (`deploy/proxy/Caddyfile`, `deploy/proxy/oauth2-proxy.cfg`, `deploy/proxy/cloudflare-access.md`, [ADR 0111](adr/0111-hive-guided-onboarding-ui-and-proxy-recipes.md); live remote proxy validation requires user hosting). Readiness cannot see whether the port is open around the proxy ([ADR 0057](adr/0057-the-stepped-way-in.md), consequences).
+
+## 7. Continuous ops loop & rollback automation
+
+Continuous tower polling (`./go watch`, `core/runner.py`), fail-closed alert webhook intake (`./go alert-webhook`, `core/webhook.py`), and automatic rollback incident creation (`./go auto-incident`, `core/ops_loop.py`) follow [ADR 0109](adr/0109-continuous-orchestration-auto-incident-and-alert-webhook.md):
+
+| Key | Default | Layer | Provenance |
+|---|---|---|---|
+| `POLL_S`, `ONCE` | `5.0` s poll interval, continuous | command line or `.env` for `./go watch` | `core/runner.py`: single-instance `fcntl.flock`, graceful `SIGTERM`/`SIGINT` exit |
+| `ALERT_WEBHOOK_TOKEN` | empty (refuses non-loopback `--serve`) | shell environment (forwarded by name by `./go`) | `core/webhook.py`: `hmac.compare_digest` bearer auth + 64 KiB body cap (`./go alert-webhook`) |
+| `AUTO_INCIDENT_ON_ROLLBACK`, `AUTO_POSTMORTEM_ON_ROLLBACK` | `off` in `core/releases.py` (`on` written into `.crew/start-plan.env` by `./go start`) | `.crew/start-plan.env`, `.env`, or CLI | `core/ops_loop.py`: deterministic `.crew/incidents/rollback-*.json` on rollback, optional postmortem dispatch |
+
+Trigger-ready CI orchestrator and alert integration recipes live in [`surfaces/github-actions/tower-orchestrator.yml`](../surfaces/github-actions/tower-orchestrator.yml), [`surfaces/gitlab-ci/tower-orchestrator.yml`](../surfaces/gitlab-ci/tower-orchestrator.yml), and [`surfaces/alerts/README.md`](../surfaces/alerts/README.md).
 
 ## What this page does not cover
 

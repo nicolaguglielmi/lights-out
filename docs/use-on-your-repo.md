@@ -251,31 +251,10 @@ NO-GO that names the socket. It never falls back to the workbench.
 
 ### What init infers, and from what
 
-- **The stack.** A `pyproject.toml` with a `uv.lock` makes a python
-  repository. A `package.json` with a `package-lock.json` makes a javascript
-  one. Python wins when both are there. A `pyproject.toml` without
-  `uv.lock`, or a `package.json` without `package-lock.json`, is a NO-GO
-  that names the missing file, because the deps gate scans a lockfile. A root
-  with neither is a NO-GO that names both.
-- **`WORKLOAD_LOCKFILES`.** `uv.lock` or `package-lock.json`, at the root.
-- **`WORKLOAD_MUTATION_SCOPE`.** Python: the package named by
-  `[tool.hatch.build.targets.wheel].packages`, else the directory named by
-  `[project].name` at the root or under `src/`, else the first package at the
-  root. Javascript: `src/`, else `lib/`.
-- **`WORKLOAD_TEST_ROOT`.** Empty, because the sources sit at the root.
-- **`TEST_CMD`.** Python: `uv run --locked pytest tests -q -p no:cacheprovider`,
-  with `test/` in place of `tests` when that is the directory, and pytest's
-  own discovery when neither exists. The lock is honoured in every case.
-  Javascript: `npm ci && npm test` when `package.json` has a `test` script,
-  else `npm ci && node --test`.
-- **`TOOLCHAIN_IMAGE`.** The runtime the repository declares: `requires-python`
-  in `pyproject.toml`, `engines.node` in `package.json`. If the declared range
-  admits the workbench's Python 3.13 or Node 24, the draft says `workbench`.
-  If it does not, the draft names an image: astral's uv image for the first
-  admitted Python (`ghcr.io/astral-sh/uv:python<X.Y>-trixie-slim`), or the
-  official node image for the first admitted major, 24, 22, 20 or 18
-  (`docker.io/library/node:<major>`). Those are tags. The comment asks you to
-  pin them by digest before you commit.
+- **The stack & monorepo root.** Set `INIT_SERVICE=<subdir>` to target a sub-service inside a monorepo (ambiguous multi-service roots refuse cleanly until `INIT_SERVICE=` is set; [ADR 0110](adr/0110-stateful-monorepo-rust-java-and-js-managers.md)). Under the selected root, `init` infers Python (`uv.lock`, `poetry.lock`, or pinned `requirements.txt`), JavaScript (`package.json` with `package-lock.json`, `pnpm-lock.yaml`, `yarn.lock`, or `bun.lock`), TypeScript (`tsconfig.json`), Go (`go.mod` + `go.sum`), Rust (`Cargo.toml` + `Cargo.lock`), or Java (Maven/Gradle with lockfiles/wrappers; `workloads/minimal-rust/`, `workloads/minimal-java/`). Missing lockfiles or binary `bun.lockb` fail closed naming the exact fix.
+- **`WORKLOAD_LOCKFILES`.** Lockfiles discovered at the root or under `INIT_SERVICE`.
+- **`WORKLOAD_MUTATION_SCOPE`, `WORKLOAD_TEST_ROOT`, `TEST_CMD`, `TOOLCHAIN_IMAGE`.** Derived from the stack and monorepo sub-service path (`TEST_CMD` supports `pnpm`, `yarn`, `bun`, `cargo test`, `mvn test`, `gradle test`, Go, pytest, unittest, npm, node). Where a runtime range exceeds the workbench's default toolchains, `init` names an image tag to pin by digest before committing.
+- **Plane hints (`core/init_plane.py`).** When `Containerfile` or `Dockerfile` exists (under `INIT_SERVICE` or root), `init` also detects `postgres`, `redis`, and `mysql` hints from non-comment lines in `.env.example` / compose files and emits commented `crew-*`, `x-crew-worker`, and `migrate` snippets in `compose.yaml`, `SMOKE_AUTH_HEADER` support in `smoke.sh` and `load.sh`, and commented `crew-egress.txt.example`.
 - **`SAST_CMD` and `MUTATION_CMD`.** The stack's runners over the scope, read
   from `.lights-out/runners/`. Their comments say `default:`. The SAST runner
   prints the findings' rule, file and line, so the gate can judge the diff. A
@@ -372,8 +351,7 @@ lights-out start     # or lights-out next to follow the guided end-to-end flow
   Your repository is mounted read-only. Read-only/gates and state-only
   commands never receive the engine socket.
 - Only `TOOLCHAIN_IMAGE=workbench` works through socket-free `lights-out gates`.
-  A `compose:` or image form gets a NO-GO that names the socket; judge it
-  from a clone with `./go gates`.
+  A `compose:` or image form gets a NO-GO naming the socket and `lights-out gates --engine` / `./go gates` ([ADR 0108](adr/0108-start-plan-wiring-wrapper-engine-gates-and-promote-clarity.md)): pass `--engine` (or `LIGHTS_OUT_ENGINE_GATES=1`) on `gates`, `test-proof`, or `test-integrity` to mount the engine socket explicitly without breaking socket-free defaults.
 - Opt-in plane and E2E workflow commands (`start`, `intake`, `answer`,
   `intake-confirm`, `assign`, `up`, `down`, `smoke`, `release`, `promote`,
   `console`, `evidence`) explicitly mount the engine socket with a 1-line
@@ -1255,25 +1233,39 @@ checkout. Change one byte and it is refused again. Without a proof, every
 STATE_STORE=outside/json-files is refused: sha256 267adb317a89 has no statestore-conformance GO on record for its suite as it is; run ./go statestore-conformance STATE_STORE=outside/json-files
 ```
 
-The suites are `codehost-`, `delivery-`, `statestore-` and
-`eventbus-conformance`, one per wired port (`CODE_HOST`, `DELIVERY`,
-`STATE_STORE`, `EVENT_BUS`). `./go` mounts `ADAPTERS_PATH` read-only, and
-your verbs run with the lights-out checkout as their working directory. A
-code host names the secret for the suite's case 10 as `CODEHOST_SECRET` in
-its `env.sh`. A symlink anywhere in the tree is refused.
+The suites are `codehost-`, `delivery-`, `statestore-`, `eventbus-`,
+`registry-`, and `flags-conformance`, one per wired port (`CODE_HOST`,
+`DELIVERY`, `STATE_STORE`, `EVENT_BUS`, `REGISTRY`, `FLAGS`). `./go` mounts
+`ADAPTERS_PATH` read-only, and your verbs run with the lights-out checkout as
+their working directory. A code host names the secret for the suite's case 10
+as `CODEHOST_SECRET` in its `env.sh`. A symlink anywhere in the tree is
+refused.
 
 What is proven: a test StateStore (`fixtures/outside-adapters/json-files/`),
-Delivery (`fixtures/outside-adapters/file-delivery/`) and CodeHost
-(`fixtures/outside-adapters/file-codehost/`) by `ci/outside.sh` in `./go ci`
-([ADR 0104](adr/0104-cloud-delivery-plugins-and-outside-conformance.md)). Four
-installable cloud Delivery plugins (`plugins/cloud/`: `gcp-cloud-deploy`,
-`aws-ecs-codedeploy`, `azure-container-apps`, `hetzner-k3s`, staged with
-`./go cloud-setup`) are contract-tested locally against stateful stub CLIs
-(`ci/tests/test_cloud_plugins.py`); live cloud runs require your own cloud
-account and OIDC setup. Not proven: an outside `EVENT_BUS`. An outside
-`AGENT_HARNESS` is refused, and so is `outside/` on a port with no suite
-(`TRACKER`, `ORCHESTRATOR`, `METRICS`, `FLAGS`, `REGISTRY`). The register guards
-against mistakes and drift, not against whoever owns the checkout.
+Delivery (`fixtures/outside-adapters/file-delivery/`), CodeHost
+(`fixtures/outside-adapters/file-codehost/`), Registry
+(`fixtures/outside-adapters/file-registry/`), and Flags
+(`fixtures/outside-adapters/file-flags/`) by `ci/outside.sh` in `./go ci`
+([ADR 0104](adr/0104-cloud-delivery-plugins-and-outside-conformance.md), [ADR 0107](adr/0107-cloud-registry-flags-and-proxy-slos.md)).
+For cloud E2E pipelines, four installable cloud Delivery plugins
+(`plugins/cloud/`: `gcp-cloud-deploy`, `aws-ecs-codedeploy`,
+`azure-container-apps`, `hetzner-k3s`, staged with `./go cloud-setup CLOUD=<provider> --slo-mode proxy`)
+pair with generic remote OCI distribution (`adapters/oci-registry/`,
+`./go registry-conformance REGISTRY=oci-registry`), daemonless or HTTP OFREP flags
+(`adapters/flags-file/`, `adapters/flags-http/`, `./go flags-conformance`), and
+ingress proxy SLO templates (`plugins/cloud/*/slo-ingress.promql`). Each is
+contract-tested locally against stateful stub CLIs and mock HTTP servers
+(`ci/tests/test_cloud_plugins.py`, `ci/tests/test_oci_registry_and_flags.py`);
+live cloud and remote-registry runs require your own cloud account and OIDC
+credentials. Not proven: an outside `EVENT_BUS`. An outside `AGENT_HARNESS` is
+refused, and so is `outside/` on a port with no suite (`TRACKER`,
+`ORCHESTRATOR`, `METRICS`). Continuous tower orchestrator recipes live in
+`surfaces/github-actions/tower-orchestrator.yml`,
+`surfaces/gitlab-ci/tower-orchestrator.yml`, and `surfaces/alerts/README.md`
+([ADR 0109](adr/0109-continuous-orchestration-auto-incident-and-alert-webhook.md));
+OIDC reverse-proxy configs for `CONSOLE_AUTH=proxy` live in
+[`deploy/proxy/README.md`](../deploy/proxy/README.md) ([ADR 0111](adr/0111-hive-guided-onboarding-ui-and-proxy-recipes.md)). The register
+guards against mistakes and drift, not against whoever owns the checkout.
 
 ## Your CI as a surface
 

@@ -44,6 +44,9 @@
 #   ./go incident       build an incident document from the release record: NAME= FROM= TO= [LOGS=] [TICKET=]
 #   ./go postmortem     run the ops-triage role on an incident document: INCIDENT=<file>, one ticket per action item
 #   ./go demo-postmortem prove the incident captured from demo-rollback becomes a post mortem and a fix ticket, no plane
+#   ./go watch          continuous tower orchestrator draining EVENT_BUS: [ONCE=1] [POLL_S=<sec>] (ADR 0109)
+#   ./go alert-webhook  normalize an alert JSON file or serve alert webhook on localhost:8097: [ALERT_FILE=<json>] (ADR 0109)
+#   ./go auto-incident  build a deterministic incident document from rolled-back .crew/release.json (ADR 0109)
 #   ./go board          the pipeline explained, live when the plane is up, on localhost:8099
 #   ./go console        the client's console on localhost:8098: the record, and go-for-launch from a browser (ADR 0047)
 #   ./go logbook        write the logbook, the one versioned record the console reads: [LOGBOOK_FILE=<file>]
@@ -63,6 +66,8 @@
 #   ./go flagger-proof  Flagger's own rollback on bad metrics and its promotion held at the gate, on that cluster (ADR 0095)
 #   ./go codehost-conformance  ten cases on the CODE_HOST set: Gitea with the plane up, or CODE_HOST=github on an attached repository (ADR 0043)
 #   ./go gitlab-conformance  the same ten cases on adapters/gitlab, GitLab CE in a container beside the plane, no plane needed (ADR 0058)
+#   ./go registry-conformance  six-case Registry suite on REGISTRY (zot or oci-registry) (ADR 0107)
+#   ./go flags-conformance  six-case Flags suite on FLAGS (flags-file daemonless JSON, flags-http OFREP, or flagd) (ADR 0107)
 #   ./go engine-compat  host-side engine gate: versions, then up and smoke
 #   ./go doctor         engine, versions, ports, the key: one line each, then GO or NO-GO (host-side)
 #   ./go doctor --level <l0|l1|l2|l3>   what that level still lacks, one line per item (host-side, ADR 0057)
@@ -73,7 +78,7 @@
 #   ./go demo-jenkins   prove Jenkins as a surface: Jenkinsfile Runner posts the gates line on a local Gitea PR (ADR 0058)
 #   ./go demo-gitlab-ci  prove GitLab CI as a surface: a real gitlab-runner posts the gates line on a local GitLab merge request (ADR 0095)
 #   ./go demo-circleci  prove the CircleCI recipe as far as runs without an account: config validate, its step against a local Gitea PR (ADR 0095)
-#   ./go cloud-setup CLOUD=<provider>  stage Terraform + OIDC starter for a cloud Delivery plugin into .crew/cloud/<provider>/ (ADR 0104)
+#   ./go cloud-setup CLOUD=<provider> [SLO_MODE=proxy|otel]  stage Terraform + OIDC starter for a cloud Delivery plugin into .crew/cloud/<provider>/ (ADR 0104, 0107)
 #   ./go shell          interactive shell inside workbench
 #   ./go clean          remove the workbench image
 #
@@ -357,9 +362,9 @@ fi
 # a NO-GO naming it inside, never a silent in-process run.
 socket_flags=""
 socket_optional=""
-case "$cmd" in gates|init|try|mutation-baseline|demo-init|console|logbook|network|dora) socket_optional=1 ;; esac
+case "$cmd" in gates|init|try|mutation-baseline|demo-init|console|logbook|network|dora|watch|registry-conformance) socket_optional=1 ;; esac
 case "$cmd" in
-  up|down|test|demo|release|demo-rollback|demo-hold|demo-dast|demo-seam|demo-seam-plain|demo-network|e2e|resume|shell|gates|demo-gates|mutation-baseline|assign|demo-crew|record|demo-launch|review|demo-review|record-review|delivery-conformance|argo-conformance|flagger-conformance|flagger-proof|harness-conformance|codehost-conformance|gitlab-conformance|unsigned-refused|board|demo-rework|demo-mainline|init|try|demo-init|console|logbook|network|dora|demo-console|request|answer)
+  up|down|test|demo|release|demo-rollback|demo-hold|demo-dast|demo-seam|demo-seam-plain|demo-network|e2e|resume|shell|gates|demo-gates|mutation-baseline|assign|demo-crew|record|demo-launch|review|demo-review|record-review|delivery-conformance|argo-conformance|flagger-conformance|flagger-proof|harness-conformance|codehost-conformance|gitlab-conformance|registry-conformance|unsigned-refused|board|demo-rework|demo-mainline|init|try|demo-init|console|logbook|network|dora|demo-console|request|answer|watch)
     sock=""
     if [ "$engine" = podman ]; then
       sock=$(podman info --format '{{.Host.RemoteSocket.Path}}'); sock=${sock#unix://}
@@ -407,6 +412,18 @@ if [ "$cmd" = console ]; then
   publish=${CONSOLE_PUBLISH:-127.0.0.1}
   port_flags="-p $publish:${CONSOLE_PORT:-8098}:8098 -e CONSOLE_PORT=${CONSOLE_PORT:-8098} -e CONSOLE_BIND=0.0.0.0 -e CONSOLE_PUBLISH=$publish"
 fi
+if [ "$cmd" = alert-webhook ]; then
+  alert_file=${ALERT_FILE:-}
+  for a in "$@"; do
+    case "$a" in
+      ALERT_FILE=*) alert_file=${a#ALERT_FILE=} ;;
+    esac
+  done
+  if [ -z "$alert_file" ]; then
+    publish=${ALERT_WEBHOOK_PUBLISH:-127.0.0.1}
+    port_flags="-p $publish:${ALERT_WEBHOOK_PORT:-8097}:8097 -e WEBHOOK_PORT=8097 -e WEBHOOK_BIND=0.0.0.0"
+  fi
+fi
 # -e NAME, no value: the engine copies it from this environment, so a
 # value with spaces is never split. An unset one is not passed. The
 # console's settings go to the console and to production-readiness, which
@@ -420,6 +437,12 @@ if [ "$cmd" = console ] || [ "$cmd" = production-readiness ]; then
 fi
 # shellcheck disable=SC2013 # variable names, one word each
 for v in $(awk '/^[A-Za-z0-9_]*(_KEY|_TOKEN|_SECRET|_PASSWORD)=/ || /^METRICS_AUTH_HEADER=/ { sub(/=.*/, ""); print }' "$here/.env.example" | sort -u); do
+  if env | grep -q "^$v="; then port_flags="$port_flags -e $v"; fi
+done
+for v in POLL_S ONCE ALERT_FILE ALERT_WEBHOOK_TOKEN ALERT_WEBHOOK_OUT WEBHOOK_ARGS \
+         AUTO_INCIDENT_ON_ROLLBACK AUTO_POSTMORTEM_ON_ROLLBACK \
+         SLO_PROMQL SLO_MODE INIT_SERVICE SMOKE_AUTH_HEADER \
+         FLAGS_AUTH_HEADER OCI_REGISTRY_TOKEN OCI_REGISTRY_PASSWORD; do
   if env | grep -q "^$v="; then port_flags="$port_flags -e $v"; fi
 done
 if env | grep -q "^CORPUS_FULL="; then port_flags="$port_flags -e CORPUS_FULL"; fi
@@ -508,6 +531,29 @@ if [ "$cmd" = start ] || [ "$cmd" = next ]; then
     rm -f "$doc_out" "$doc_err"
     export LIGHTS_OUT_DOCTOR_RC LIGHTS_OUT_DOCTOR_OUT LIGHTS_OUT_DOCTOR_ERR
     port_flags="$port_flags -e LIGHTS_OUT_DOCTOR_RC -e LIGHTS_OUT_DOCTOR_OUT -e LIGHTS_OUT_DOCTOR_ERR"
+  fi
+fi
+
+if [ "$cmd" = cloud-setup ]; then
+  cs_sep=$(printf '\037')
+  cs_args=""
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --slo-mode=*) cs_args="$cs_args${cs_args:+$cs_sep}SLO_MODE=${1#--slo-mode=}"; shift ;;
+      --slo-mode)
+        [ $# -ge 2 ] || die "cloud-setup: --slo-mode requires a value (proxy|otel)"
+        cs_args="$cs_args${cs_args:+$cs_sep}SLO_MODE=$2"; shift 2 ;;
+      *) cs_args="$cs_args${cs_args:+$cs_sep}$1"; shift ;;
+    esac
+  done
+  if [ -n "$cs_args" ]; then
+    old_ifs=$IFS
+    IFS=$(printf '\037')
+    set -f
+    # shellcheck disable=SC2086 # deliberate unit-separator splitting for cloud-setup args
+    set -- $cs_args
+    set +f
+    IFS=$old_ifs
   fi
 fi
 

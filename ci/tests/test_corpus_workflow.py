@@ -57,7 +57,8 @@ class CorpusCheckContractTest(unittest.TestCase):
             self.assertEqual(report["contract_rel"], ".lights-out")
             self.assertEqual(report["passed"], report["total"])
             self.assertGreaterEqual(report["total"], 22)
-            self.assertLess(report["duration_ms"], 10000)
+            # Expanded from 12 to 24 shapes (ADR 0110); allow CPU headroom under parallel container runs.
+            self.assertLess(report["duration_ms"], 20000)
             by_name = {item["name"]: item for item in report["shapes"]}
             for required in (
                 "rust-crate-lib",

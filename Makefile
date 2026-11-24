@@ -75,7 +75,7 @@ CORPUS_FULL ?= 0
 # `init`/`try` draft one (docs/adr/0042 §6, 0093 §5), `cloud-setup` stages
 # cloud infrastructure templates (docs/adr/0104), and `start`/`next` guide a
 # repo from Stage 1 before a contract exists (docs/adr/0103).
-ifneq ($(filter $(MAKECMDGOALS),init try cloud-setup start next),)
+ifneq ($(filter $(MAKECMDGOALS),init try cloud-setup start next alert-webhook auto-incident),)
 -include $(WORKLOAD_CONTRACT)/workload.env
 else
 include $(WORKLOAD_CONTRACT)/workload.env
@@ -89,7 +89,7 @@ export
 # goals only tries the adapter instead: its recipe goes through `conform`.
 OUTSIDE_PORTS := AGENT_HARNESS CODE_HOST DELIVERY STATE_STORE EVENT_BUS TRACKER ORCHESTRATOR METRICS FLAGS REGISTRY
 ifneq ($(filter outside/%,$(foreach p,$(OUTSIDE_PORTS),$($(p)))),)
-ifneq ($(filter-out %-conformance start next cloud-setup,$(or $(MAKECMDGOALS),help)),)
+ifneq ($(filter-out %-conformance start next cloud-setup alert-webhook auto-incident,$(or $(MAKECMDGOALS),help)),)
 ADMIT := $(shell python3 core/adapters.py admit 2>&1)
 ifneq ($(ADMIT),)
 $(error $(ADMIT))
@@ -1440,6 +1440,20 @@ incident: ## Build an incident document from the release record: NAME=<slug> FRO
 postmortem: ## Run the ops-triage role on an incident document: INCIDENT=<file> → .crew/postmortem/<name>/postmortem.md and one ticket per action item (docs/adr/0044 §5)
 	@INCIDENT="$(INCIDENT)" sh core/postmortem.sh
 
+.PHONY: watch
+watch: ## Continuous tower orchestrator draining EVENT_BUS: [ONCE=1] [POLL_S=<seconds>] (docs/adr/0109)
+	@python3 core/runner.py $(if $(filter 1 true yes,$(ONCE)),--once,$(if $(POLL_S),--poll-s $(POLL_S),))
+
+WEBHOOK_BIND ?= 127.0.0.1
+WEBHOOK_PORT ?= 8097
+.PHONY: alert-webhook
+alert-webhook: ## Normalize an alert JSON file or serve alert webhook on localhost:8097: [ALERT_FILE=<json>] [WEBHOOK_ARGS=--dispatch] (docs/adr/0109)
+	@python3 core/webhook.py $(if $(ALERT_FILE),--normalize "$(ALERT_FILE)",--serve --bind "$(WEBHOOK_BIND)" --port "$(WEBHOOK_PORT)") $(WEBHOOK_ARGS)
+
+.PHONY: auto-incident
+auto-incident: ## Build a deterministic incident document from a rolled-back .crew/release.json: [RELEASE_RECORD=.crew/release.json] [TICKET=<id>] (docs/adr/0109)
+	@TICKET="$(if $(filter command line environment,$(origin TICKET)),$(TICKET))" python3 core/ops_loop.py on-rollback --record "$(RELEASE_RECORD)"
+
 # The incident captured from a real `demo-rollback` run is committed under
 # fixtures/incidents/ (its README says when and how). The role answers from
 # the recording `record-postmortem` makes at L1; until it exists this says
@@ -1778,11 +1792,15 @@ codehost-conformance: ## Ten-case CodeHost conformance suite on the CODE_HOST se
 # profile's adapters, through their verbs only. At L0 they need no plane
 # (sqlite and spool are files under .crew/); an emulator needs `./go up`
 # with it named first. The bus suite refuses a bus that is not idle.
-.PHONY: statestore-conformance eventbus-conformance
+.PHONY: statestore-conformance eventbus-conformance registry-conformance flags-conformance
 statestore-conformance: ## Eight-case StateStore conformance suite on the STATE_STORE set: sqlite at L0, no plane (docs/adr/0060 §4)
 	$(call conform,STATE_STORE,statestore-conformance)
 eventbus-conformance: ## Six-case EventBus conformance suite on the EVENT_BUS set, an idle bus: spool at L0, no plane; the redelivery case needs CONFORMANCE_ACK_DEADLINE (docs/adr/0060 §4)
 	$(call conform,EVENT_BUS,eventbus-conformance)
+registry-conformance: ## Six-case Registry conformance suite on REGISTRY (zot at L0, or oci-registry for remote OCI) (docs/adr/0107)
+	$(call conform,REGISTRY,registry-conformance)
+flags-conformance: ## Six-case Flags conformance suite on FLAGS (flags-file daemonless JSON, flags-http OFREP, or flagd) (docs/adr/0107)
+	$(call conform,FLAGS,flags-conformance)
 
 .PHONY: delivery-conformance
 delivery-conformance: ## Six-case Delivery/Flags conformance suite, real releases on the plane (docs/adr/0026)
@@ -1924,8 +1942,8 @@ record-evals: ## Record the ADK roles' responses at L1 and keep them only if the
 CLOUD ?=
 CLOUD_SETUP_DIR ?= .crew/cloud
 .PHONY: cloud-setup
-cloud-setup: ## Stage Terraform + OIDC starter for a cloud Delivery plugin: CLOUD=<provider> (docs/adr/0104)
-	@python3 plugins/cloud/setup.py --cloud "$(CLOUD)" --out "$(CLOUD_SETUP_DIR)"
+cloud-setup: ## Stage Terraform + OIDC starter for a cloud Delivery plugin: CLOUD=<provider> [SLO_MODE=proxy|otel] (docs/adr/0104, 0107)
+	@python3 plugins/cloud/setup.py --cloud "$(CLOUD)" --out "$(CLOUD_SETUP_DIR)" $(if $(SLO_MODE),--slo-mode "$(SLO_MODE)",)
 
 .PHONY: corpus
 corpus: ## Verify the unknown-repository corpus against init, light gates, and workload contracts: [CORPUS_FULL=1] (docs/adr/0106)
