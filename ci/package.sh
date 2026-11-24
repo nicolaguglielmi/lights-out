@@ -1,21 +1,27 @@
 #!/bin/sh
 # SPDX-License-Identifier: Apache-2.0
 #
-# ci-package: docs/adr/0045 §8 and docs/adr/0057 §3-§8, engine-free and
-# network-free (the engine half is `./go demo-package`); written from the
-# ADRs, not from the wrapper.
+# ci-package: docs/adr/0045 §8, docs/adr/0057 §3-§8, and docs/adr/0105,
+# engine-free and network-free (the engine half is `./go demo-package`);
+# written from the ADRs, not from the wrapper.
 #   wrapper    lights-out is an executable #!/bin/sh file, clean under
 #              `shellcheck -s sh` (ci/shell.sh does not list it), one semver
-#              version= line, no socket, --env-file or :z in its code; the
-#              subcommands are eight (init gates test-proof test-integrity
-#              triage postmortem doctor version); an unknown subcommand or
-#              KEY=VALUE is refused, naming the accepted ones, before any
-#              engine is touched (test-proof and test-integrity take BASE=
-#              and HEAD=); with no engine on PATH an engine subcommand exits
+#              version= line, no --env-file or :z/:Z in its code; the
+#              subcommands are 24 (8 read-only/host: init gates test-proof
+#              test-integrity triage postmortem doctor version; 4 state-only:
+#              next dora spend cloud-setup; 12 opt-in plane/workflow: start
+#              intake answer intake-confirm assign up down smoke release
+#              promote console evidence); an unknown subcommand, disallowed
+#              flag, or unknown KEY=VALUE is refused before any engine is
+#              touched; with no engine on PATH an engine subcommand exits
 #              non-zero with one stderr line and nothing on stdout; `version`
-#              still works; `--version` aliases `version` without touching an
-#              engine and matches `pyproject.toml`'s `[project].version`
-#              (ADR 0099).
+#              and `--version` work without touching an engine and match
+#              `pyproject.toml`'s `[project].version` (ADR 0099); behavioral
+#              fake-engine checks prove read-only/gates and state-only
+#              commands NEVER pass a socket mount or DOCKER_HOST, while
+#              opt-in plane commands DO (with stderr notice, platform/crew
+#              mirroring, console port forwarding, and clean missing-socket
+#              refusal).
 #   allowlist  the wrapper's KEY=* case arms equal package/entrypoint.sh's and
 #              each is taken.
 #   yaml       (PyYAML) the Action is action.yml at the repository root, and
@@ -74,8 +80,8 @@ sh_bin=$(command -v sh)
 w=$(mktemp -d)
 trap 'rm -rf "$w"' EXIT
 # tools: a PATH of plain tools and no engine. trip: a podman and docker that only leave a mark.
-mkdir "$w/tools" "$w/trip" "$w/repo" "$w/fake"
-for t in git awk sed grep tr sort head tail cut cksum cat uname basename dirname mkdir rm mktemp id env wc; do
+mkdir "$w/tools" "$w/trip" "$w/repo" "$w/fake" "$w/beh"
+for t in git awk sed grep tr sort head tail cut cksum cat uname basename dirname mkdir rm mktemp id env wc stat; do
   p=$(command -v "$t" 2>/dev/null || true)
   case "$p" in /*) ln -s "$p" "$w/tools/$t" ;; esac
 done
@@ -85,39 +91,77 @@ chmod +x "$w/trip/podman" "$w/trip/docker"
 # fake: a podman that answers every call, for a doctor whose only failing item is the one under test.
 printf '#!/bin/sh\ncase "$*" in *RemoteSocket*) echo true ;; *Client.Version*) echo 5.0.0 ;; esac\nexit 0\n' > "$w/fake/podman"
 chmod +x "$w/fake/podman"
+# beh: recording fake podman/docker engines that log `run` argv for behavioral socket-boundary checks.
+cat > "$w/beh/podman" <<SH
+#!/bin/sh
+case "\$1" in
+  run)
+    shift
+    : > "$w/beh.run"
+    for a do printf '%s\n' "\$a" >> "$w/beh.run"; done
+    exit 0 ;;
+esac
+case "\$*" in
+  *RemoteSocket.Path*) printf '%s\n' "\${FAKE_REMOTE_SOCK:-$w/fake-podman.sock}"; exit 0 ;;
+  *RemoteSocket.Exists*) printf '%s\n' "\${FAKE_REMOTE_EXISTS:-true}"; exit 0 ;;
+  *Client.Version*) printf '5.0.0\n'; exit 0 ;;
+esac
+exit 0
+SH
+cp "$w/beh/podman" "$w/beh/docker"
+chmod +x "$w/beh/podman" "$w/beh/docker"
+python3 -c 'import socket, sys; s = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM); s.bind(sys.argv[1]); s.close()' "$w/beh.sock"
 git init -q "$w/repo" >/dev/null 2>&1 || nogo "git init failed in a temporary directory"
 
 lines() { awk 'END{print NR}' "$1"; }
 has_all() { hf=$1; shift; for hx; do grep -qw -- "$hx" "$hf" || return 1; done; }
 # run PATH CMD...: CMD in an empty environment but PATH; stdout in $w/o, stderr in $w/e, status in $rc.
-run() { rp=$1; shift; rm -f "$w/tripped"; (cd "$w/repo" && env -i PATH="$rp" HOME="$w" "$@") >"$w/o" 2>"$w/e" && rc=0 || rc=$?; }
+run() { rp=$1; shift; rm -f "$w/tripped" "$w/beh.run"; (cd "$w/repo" && env -i PATH="$rp" HOME="$w" "$@") >"$w/o" 2>"$w/e" && rc=0 || rc=$?; }
+run_env() { rp=$1; shift; rm -f "$w/tripped" "$w/beh.run"; (cd "$w/repo" && env -i PATH="$rp" HOME="$w" "$@") >"$w/o" 2>"$w/e" && rc=0 || rc=$?; }
 # keys FILE: the KEY of each KEY=* case arm outside comments, sorted.
 keys() { grep -Ev '^[[:space:]]*#' "$1" | grep -oE '[A-Z][A-Z0-9_]*=/?\*' | sed 's/=.*//' | LC_ALL=C sort -u | tr '\n' ' '; }
 
-# wrapper_flaws ROOT: what is wrong with ROOT/lights-out, one line each.
+READONLY_CMDS="init gates test-proof test-integrity triage postmortem"
+STATE_CMDS="next dora spend cloud-setup"
+PLANE_CMDS="start intake answer intake-confirm assign up down smoke release promote console evidence"
+ALL_CMDS="$READONLY_CMDS doctor version $STATE_CMDS $PLANE_CMDS"
+
+# wrapper_flaws ROOT [MODE]: what is wrong with ROOT/lights-out, one line each.
+# MODE=full checks all 29 keys and all 24 subcommands; MODE=fast checks the
+# subset exercised by try()'s planted-defect self-tests.
 wrapper_flaws() {
   f=$1/lights-out
+  wf_mode=${2:-fast}
   k=$(keys "$1/package/entrypoint.sh")
   v=$(sed -n 's/^version=//p' "$f")
   { [ -x "$f" ] && [ "$(head -n 1 "$f")" = '#!/bin/sh' ]; } || echo "the wrapper is not an executable #!/bin/sh file"
   shellcheck -s sh --color=never "$f" >"$w/sc" 2>&1 || { echo "shellcheck -s sh reports problems in the wrapper"; cat "$w/sc"; }
   { [ "$(grep -c '^version=' "$f")" = 1 ] && printf '%s\n' "$v" | grep -Eq '^(0|[1-9][0-9]*)(\.(0|[1-9][0-9]*)){2}$'; } \
     || echo "the wrapper needs exactly one version= line, semver X.Y.Z"
-  ! grep -Ev '^[[:space:]]*#' "$f" | grep -qE '\.sock|DOCKER_HOST|RemoteSocket|--env-file|[:,][zZ]([^A-Za-z0-9_]|$)' \
-    || echo "the wrapper names an engine socket, --env-file or a :z/:Z mount"
+  ! grep -Ev '^[[:space:]]*#' "$f" | grep -qE -- '--env-file|[:,][zZ]([^A-Za-z0-9_]|$)' \
+    || echo "the wrapper names --env-file or a :z/:Z mount"
   { [ -n "$k" ] && [ "$k" = "$(keys "$f")" ]; } || echo "the allowlists differ: the wrapper takes [$(keys "$f")], the entrypoint [$k]"
   run "$w/trip:$w/tools" "$f" frobnicate
-  { [ "$rc" -ne 0 ] && [ ! -e "$w/tripped" ] && [ ! -s "$w/o" ] && has_all "$w/e" init gates test-proof test-integrity triage postmortem doctor version; } \
-    || echo "an unknown subcommand is not refused on stderr, before any engine, naming the eight"
-  for a in "init NOPE=1" "gates NOPE=1" "triage BASEX=1" "postmortem base=x"; do
+  { [ "$rc" -ne 0 ] && [ ! -e "$w/tripped" ] && [ ! -s "$w/o" ] && has_all "$w/e" $ALL_CMDS; } \
+    || echo "an unknown subcommand is not refused on stderr, before any engine, naming all 24"
+  for a in "init NOPE=1" "gates NOPE=1" "triage BASEX=1" "postmortem base=x" "next NOPE=1" "up NOPE=1" "start base=x"; do
     run "$w/trip:$w/tools" "$f" $a
-    { [ "$rc" -ne 0 ] && [ ! -e "$w/tripped" ] && has_all "$w/e" $k; } || echo "'$a' is not refused before any engine, naming $k"
+    { [ "$rc" -ne 0 ] && [ ! -e "$w/tripped" ] && [ ! -s "$w/o" ] && has_all "$w/e" $k; } || echo "'$a' is not refused before any engine, naming $k"
   done
-  for a in "test-proof NOPE=1" "test-integrity NOPE=1" "test-proof base=x" "test-integrity BASEX=1"; do
+  for a in "test-proof NOPE=1" "test-integrity NOPE=1" "test-proof base=x" "test-integrity BASEX=1" "gates --json" "up --non-interactive" "next --bogus" "start --preset"; do
     run "$w/trip:$w/tools" "$f" $a
     { [ "$rc" -ne 0 ] && [ ! -e "$w/tripped" ] && [ ! -s "$w/o" ]; } || echo "'$a' is not refused before any engine"
   done
-  for x in $k; do
+  if [ "$wf_mode" = full ]; then
+    check_keys=$k
+    check_state=$STATE_CMDS
+    check_plane=$PLANE_CMDS
+  else
+    check_keys="BASE INCIDENT"
+    check_state="next"
+    check_plane="up console"
+  fi
+  for x in $check_keys; do
     run "$w/trip:$w/tools" "$f" gates "$x=x"
     [ -e "$w/tripped" ] || echo "$x= is in the entrypoint's allowlist and the wrapper refuses it"
   done
@@ -125,11 +169,69 @@ wrapper_flaws() {
     run "$w/trip:$w/tools" "$f" "$s" BASE=x HEAD=y
     [ -e "$w/tripped" ] || echo "$s refuses BASE= HEAD=, the range it judges"
   done
-  for a in init gates test-proof test-integrity "triage ALERT=a" "postmortem INCIDENT=i"; do
-    run "$w/tools" "$f" $a
-    { [ "$rc" -ne 0 ] && [ ! -s "$w/o" ] && [ "$(lines "$w/e")" = 1 ] && grep -qi engine "$w/e"; } \
-      || echo "'$a' with no engine: want non-zero, nothing on stdout, one stderr line naming the engine"
+  if [ "$wf_mode" = full ]; then
+    for a in init gates test-proof test-integrity "triage ALERT=a" "postmortem INCIDENT=i" $STATE_CMDS $PLANE_CMDS; do
+      run "$w/tools" "$f" $a
+      { [ "$rc" -ne 0 ] && [ ! -s "$w/o" ] && [ "$(lines "$w/e")" = 1 ] && grep -qi engine "$w/e"; } \
+        || echo "'$a' with no engine: want non-zero, nothing on stdout, one stderr line naming the engine"
+    done
+  else
+    for a in init gates test-proof test-integrity next up; do
+      run "$w/tools" "$f" "$a"
+      { [ "$rc" -ne 0 ] && [ ! -s "$w/o" ] && [ "$(lines "$w/e")" = 1 ] && grep -qi engine "$w/e"; } \
+        || echo "'$a' with no engine: want non-zero, nothing on stdout, one stderr line naming the engine"
+    done
+    for a in "triage ALERT=a" "postmortem INCIDENT=i"; do
+      run "$w/tools" "$f" $a
+      { [ "$rc" -ne 0 ] && [ ! -s "$w/o" ] && [ "$(lines "$w/e")" = 1 ] && grep -qi engine "$w/e"; } \
+        || echo "'$a' with no engine: want non-zero, nothing on stdout, one stderr line naming the engine"
+    done
+  fi
+  # Behavioral fake-engine socket boundary checks (ADR 0105):
+  if [ "$wf_mode" = full ]; then
+    for a in init gates test-proof test-integrity "triage ALERT=a" "postmortem INCIDENT=i"; do
+      run "$w/beh:$w/tools" "$f" $a
+      { [ "$rc" -eq 0 ] && [ -s "$w/beh.run" ]; } || { echo "read-only '$a' failed under fake engine: $(cat "$w/e")"; continue; }
+      ! grep -qF '.sock' "$w/beh.run" || echo "read-only '$a' mounted a socket"
+      ! grep -qE '^DOCKER_HOST' "$w/beh.run" || echo "read-only '$a' passed DOCKER_HOST"
+      ! grep -qE '^LIGHTS_OUT_PLATFORM_DIR=' "$w/beh.run" || echo "read-only '$a' passed LIGHTS_OUT_PLATFORM_DIR"
+    done
+  else
+    run "$w/beh:$w/tools" "$f" gates
+    if [ "$rc" -eq 0 ] && [ -s "$w/beh.run" ]; then
+      ! grep -qF '.sock' "$w/beh.run" || echo "read-only 'gates' mounted a socket"
+      ! grep -qE '^DOCKER_HOST' "$w/beh.run" || echo "read-only 'gates' passed DOCKER_HOST"
+      ! grep -qE '^LIGHTS_OUT_PLATFORM_DIR=' "$w/beh.run" || echo "read-only 'gates' passed LIGHTS_OUT_PLATFORM_DIR"
+    else
+      echo "read-only 'gates' failed under fake engine: $(cat "$w/e")"
+    fi
+  fi
+  for s in $check_state; do
+    run "$w/beh:$w/tools" "$f" "$s"
+    { [ "$rc" -eq 0 ] && [ -s "$w/beh.run" ]; } || { echo "state-only '$s' failed under fake engine: $(cat "$w/e")"; continue; }
+    ! grep -qF '.sock' "$w/beh.run" || echo "state-only '$s' mounted a socket"
+    ! grep -qE '^DOCKER_HOST' "$w/beh.run" || echo "state-only '$s' passed DOCKER_HOST"
+    ! grep -qE '^LIGHTS_OUT_PLATFORM_DIR=' "$w/beh.run" || echo "state-only '$s' passed LIGHTS_OUT_PLATFORM_DIR"
+    grep -qF ':/opt/lights-out/.crew' "$w/beh.run" || echo "state-only '$s' did not mount .crew"
   done
+  for s in $check_plane; do
+    run_env "$w/beh:$w/tools" LIGHTS_OUT_OUT="$w/out-$s" "$f" "$s"
+    { [ "$rc" -eq 0 ] && [ -s "$w/beh.run" ]; } || { echo "plane '$s' failed under fake engine: $(cat "$w/e")"; continue; }
+    grep -qF "$w/fake-podman.sock:/var/run/docker.sock" "$w/beh.run" || echo "plane '$s' did not mount the engine socket"
+    grep -qx 'DOCKER_HOST=unix:///var/run/docker.sock' "$w/beh.run" || echo "plane '$s' did not pass DOCKER_HOST"
+    grep -qE '^LIGHTS_OUT_PLATFORM_DIR=' "$w/beh.run" || echo "plane '$s' did not pass LIGHTS_OUT_PLATFORM_DIR"
+    grep -qE '^LIGHTS_OUT_CREW_DIR=' "$w/beh.run" || echo "plane '$s' did not pass LIGHTS_OUT_CREW_DIR"
+    grep -qx 'label=disable' "$w/beh.run" || echo "plane '$s' did not pass label=disable"
+    [ "$(grep -ci 'socket' "$w/e")" = 1 ] || echo "plane '$s' did not print a 1-line opt-in socket notice on stderr"
+  done
+  run_env "$w/beh:$w/tools" LIGHTS_OUT_OUT="$w/out-console" "$f" console
+  { [ "$rc" -eq 0 ] && grep -qx '127.0.0.1:8098:8098' "$w/beh.run"; } || echo "console did not publish 127.0.0.1:8098:8098"
+  run_env "$w/beh:$w/tools" CONTAINER_ENGINE=docker DOCKER_HOST="unix://$w/beh.sock" LIGHTS_OUT_OUT="$w/out-docker" "$f" up
+  { [ "$rc" -eq 0 ] && grep -qF "$w/beh.sock:/var/run/docker.sock" "$w/beh.run" && grep -qx -- '--group-add' "$w/beh.run"; } \
+    || echo "docker plane 'up' did not mount DOCKER_HOST socket with --group-add"
+  run_env "$w/beh:$w/tools" FAKE_REMOTE_EXISTS=false "$f" up
+  { [ "$rc" -ne 0 ] && [ ! -s "$w/beh.run" ] && [ ! -s "$w/o" ] && [ "$(lines "$w/e")" = 1 ] && grep -qi 'socket' "$w/e"; } \
+    || echo "missing podman socket on 'up' did not fail cleanly with 1 stderr line naming socket"
   run "$w/tools" "$f" version
   { [ "$rc" -eq 0 ] && grep -qF -- "${v:-?}" "$w/o"; } || echo "version does not work with no engine"
   cp "$w/o" "$w/ver.out"
@@ -523,7 +625,7 @@ PY
 
 # judge WHAT FLAWS: the first flaw is the one line, all of them go to stderr.
 judge() { [ -z "$2" ] || nogo "$1: $(printf '%s\n' "$2" | head -n 1)" "$2"; }
-judge wrapper "$(wrapper_flaws "$root")"
+judge wrapper "$(wrapper_flaws "$root" full)"
 judge doctor "$(doctor_all_flaws "$root")"
 judge first-run "$(first_run_flaws "$root")"
 judge yaml "$(python3 -I "$w/chk.py" "$root" check)"
@@ -545,7 +647,6 @@ try() {
     *) nogo "ci/package.sh named the wrong problem for: $3" "wanted: $2" "got: $got" ;;
   esac
 }
-try wrapper_flaws "engine socket" 'sed -i "1a : -v /var/run/docker.sock:/s" lights-out'
 try wrapper_flaws "--env-file" 'sed -i "1a : --env-file .env" lights-out'
 try wrapper_flaws ":z" 'sed -i "1a : -v x:/repo:ro,z" lights-out'
 try wrapper_flaws "not an executable" 'chmod -x lights-out'
@@ -554,23 +655,32 @@ try wrapper_flaws "shellcheck" 'sed -i "1a [[ -n x ]] || :" lights-out'
 try wrapper_flaws "semver" 'sed -i "s/^version=.*/version=1.2/" lights-out'
 try wrapper_flaws "semver" 'sed -i "/^version=/p" lights-out'
 try wrapper_flaws "unknown subcommand is not refused" 'sed -i "s/^  \*) die .unknown command.*/  *) ;;/" lights-out'
-try wrapper_flaws "is not refused before any engine, naming" 'sed -i "s/^    BASE=\*|/    *|BASE=*|/" lights-out'
-try wrapper_flaws "is not refused before any engine, naming" 'sed -i "s/ one of BASE= HEAD= JUDGED= STAGED= ALERT= INCIDENT= PROFILE= MODEL_PROVIDER= MODEL=//" lights-out'
+try wrapper_flaws "is not refused before any engine, naming" 'sed -i "s/^      BASE=\*|/      *|BASE=*|/" lights-out'
+try wrapper_flaws "is not refused before any engine, naming" 'sed -i "s/one of \$all_keys/bad args/" lights-out'
 try wrapper_flaws "unknown subcommand is not refused" 'sed -i "1a podman info" lights-out'
 try wrapper_flaws "with no engine" 'sed -i "s/^  die .no container engine found.*/  echo no engine found; exit 1/" lights-out'
 try wrapper_flaws "with no engine" 'sed -i "s/^  die .no container engine found.*/  echo no engine found >\&2; exit 0/" lights-out'
 try wrapper_flaws "version does not work" 'sed -i "s/= version \]/= nonesuch ]/" lights-out'
 try wrapper_flaws "allowlists differ" 'sed -i "s/INCIDENT=\*|//" lights-out'
 try wrapper_flaws "allowlists differ" 'printf "case x in FOO=*) ;; esac\n" >> package/entrypoint.sh'
-# The eight subcommands (ADR 0057 §5): every mention of a new one outside the comments misspelt.
+# Subcommand presence & socket-boundary planted defects (ADR 0057 §5, ADR 0105):
+for s in test-proof test-integrity next up; do
+  try wrapper_flaws "naming all 24" "sed -i \"/^[[:space:]]*#/!s/\\\\b$s\\\\b/${s}x/g\" lights-out"
+done
 for s in test-proof test-integrity; do
-  try wrapper_flaws "naming the eight" "sed -i \"/^[[:space:]]*#/!s/$s/${s}x/g\" lights-out"
   try wrapper_flaws "'$s' with no engine" "sed -i \"/^[[:space:]]*#/!s/$s/${s}x/g\" lights-out"
 done
-try wrapper_flaws "'test-proof NOPE=1' is not refused" 'sed -i "s/^    BASE=\*|/    *|BASE=*|/" lights-out'
-try wrapper_flaws "'test-integrity BASEX=1' is not refused" 'sed -i "s/^    BASE=\*|/    *|BASE=*|/" lights-out'
-try wrapper_flaws "test-proof refuses BASE= HEAD=" 'sed -i "s/^    BASE=\*|//" lights-out'
-try wrapper_flaws "test-integrity refuses BASE= HEAD=" 'sed -i "s/^    BASE=\*|//" lights-out'
+try wrapper_flaws "'test-proof NOPE=1' is not refused" 'sed -i "s/^      BASE=\*|/      *|BASE=*|/" lights-out'
+try wrapper_flaws "'test-integrity BASEX=1' is not refused" 'sed -i "s/^      BASE=\*|/      *|BASE=*|/" lights-out'
+try wrapper_flaws "test-proof refuses BASE= HEAD=" 'sed -i "s/^      BASE=\*|//" lights-out'
+try wrapper_flaws "test-integrity refuses BASE= HEAD=" 'sed -i "s/^      BASE=\*|//" lights-out'
+try wrapper_flaws "read-only 'gates' mounted a socket" 'sed -i "s|set -- \"\$@\" -v \"\$here:/repo:ro\" -v \"\$out:/out\"|set -- \"\$@\" -v \"\$here:/repo:ro\" -v \"\$out:/out\" -v /tmp/leak.sock:/var/run/docker.sock|" lights-out'
+try wrapper_flaws "state-only 'next' passed DOCKER_HOST" 'sed -i "s|set -- \"\$@\" -v \"\$here:/repo:ro\" -v \"\$out/crew:/opt/lights-out/.crew\"|set -- \"\$@\" -v \"\$here:/repo:ro\" -v \"\$out/crew:/opt/lights-out/.crew\" -e DOCKER_HOST=unix:///tmp/leak.sock|" lights-out'
+try wrapper_flaws "plane 'up' did not mount the engine socket" 'sed -i "s|-v \"\$sock:/var/run/docker.sock\"||" lights-out'
+try wrapper_flaws "plane 'up' did not pass DOCKER_HOST" 'sed -i "s|-e DOCKER_HOST=unix:///var/run/docker.sock||" lights-out'
+try wrapper_flaws "plane 'up' did not pass LIGHTS_OUT_PLATFORM_DIR" 'sed -i "s|-e LIGHTS_OUT_PLATFORM_DIR=\"\$out/platform\"||" lights-out'
+try wrapper_flaws "plane 'up' did not print a 1-line opt-in socket notice" 'sed -i "/mounting container engine socket/d" lights-out'
+try wrapper_flaws "console did not publish" 'sed -i "s|-p \"\$publish:\$cport:8098\"||" lights-out'
 try wrapper_flaws "--version does not match lights-out version" 'sed -i "s/--version)/--nonesuch)/" lights-out'
 try wrapper_flaws "--version does not match lights-out version" 'sed -i "s/--version) cmd=version/--version) printf \"lights-out %s (other)\\n\" \"\$version\"; exit 0/" lights-out'
 try wrapper_flaws "--version touched the engine" 'sed -i "s/--version)/--version) podman info;/" lights-out'

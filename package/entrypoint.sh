@@ -1,10 +1,11 @@
 #!/bin/sh
 # SPDX-License-Identifier: Apache-2.0
 #
-# The lights-out image's entrypoint (docs/adr/0045 §3), what the
+# The lights-out image's entrypoint (docs/adr/0045 §3, 0105), what the
 # `lights-out` wrapper runs: /repo is the user's repository, read-only;
-# /out is the one directory written on the host. There is no engine socket
-# in here, ever: a toolchain other than the workbench is refused up front.
+# /out is used by read-only/gates commands; state-only commands mount
+# /opt/lights-out/.crew; opt-in plane/workflow commands mirror /opt/lights-out
+# into LIGHTS_OUT_PLATFORM_DIR with .crew -> LIGHTS_OUT_CREW_DIR.
 #
 #   init [HEAD=]             attach /repo, draft .lights-out/ from HEAD (or that commit), copy it to /out/.lights-out, its summary to /out/init
 #   gates [BASE= HEAD=]      attach /repo, judge the range (default the last commit)
@@ -14,23 +15,42 @@
 #   test-integrity [BASE= HEAD=] the gates test-weakening and mutation only: no test weakened, the changed lines' mutants killed
 #   triage ALERT=<file>      a path under /repo (the full image only)
 #   postmortem INCIDENT=<file>   a path under /repo; tickets go to /out/tickets (the full image only)
+#   next [MODE=junior|expert] [--json]       inspect repo, contract and state; print next E2E command
+#   dora [WINDOW_DAYS=30]                    compute the four DORA measures from the logbook
+#   spend                                    cost and time per ticket, role and day
+#   cloud-setup CLOUD=<provider>             stage Terraform + OIDC starter into .crew/cloud
+#   start [--non-interactive ...]            guided setup wizard or preset plan
+#   intake [TICKET=] TEXT=<text>             start an intake interview
+#   answer TICKET=<id> ANSWER=<text>         answer an intake or ticket question
+#   intake-confirm TICKET=<id> DECISIONS=... confirm, edit or drop proposed intake tickets
+#   assign TICKET=<id>                       turn a ticket into a PR
+#   up                                       start the L0 compose plane and publish stable image
+#   down                                     stop the compose plane
+#   smoke                                    run the workload's smoke path through the edge
+#   release [CANARY_VERSION= CANARY_TAG=]    deploy canary and run SLO verification controller
+#   promote [GO_FOR_LAUNCH=GO|NO-GO REASON=] go-for-launch brief and human promotion gate
+#   console                                  serve the console on CONSOLE_PUBLISH:CONSOLE_PORT
+#   evidence VERSION=<v>                     build, sign and verify release evidence pack
 #   version
 #
 # One stdout line in the gate output contract (CLAUDE.md), the make
 # target's own; the rest on stderr. make exits 2 when a recipe fails: the
 # contract's NO-GO is 1, so every non-zero exit leaves here as 1.
 set -eu
-cd /opt/lights-out
+image_root=${LIGHTS_OUT_IMAGE_ROOT:-/opt/lights-out}
+repo_dir=${LIGHTS_OUT_REPO_DIR:-/repo}
+cd "$image_root"
 
 sub=${1:-help}
 [ $# -gt 0 ] && shift
 name=$sub
+# shellcheck source=ci/lib.sh disable=SC1091
 . ci/lib.sh
 
 case "$sub" in
   init|gates|test-proof|test-integrity) ;;
-  triage|postmortem)
-    # The gates image has no ADK and no recordings' runtime (docs/adr/0057 §3).
+  triage|postmortem|next|dora|spend|cloud-setup|start|intake|answer|intake-confirm|assign|up|down|smoke|release|promote|console|evidence)
+    # The gates image has no ADK, compose, cosign, or full platform runtime (docs/adr/0057 §3, 0105).
     [ "${LIGHTS_OUT_FLAVOUR:-full}" != gates ] \
       || nogo "this is the gates image; $sub runs in ghcr.io/nicolaguglielmi/lights-out:${LIGHTS_OUT_VERSION:-<version>} (LIGHTS_OUT_IMAGE)" ;;
   version)
@@ -38,28 +58,126 @@ case "$sub" in
     exit 0 ;;
   *)
     sed -n 's/^#   //p' "$0" >&2
+    # shellcheck disable=SC2034 # consumed by nogo in sourced ci/lib.sh
     name=lights-out
-    nogo "unknown command '$sub'; one of: init gates test-proof test-integrity triage postmortem version" ;;
+    nogo "unknown command '$sub'; one of: init gates test-proof test-integrity triage postmortem version next dora spend cloud-setup start intake answer intake-confirm assign up down smoke release promote console evidence" ;;
 esac
 
 host_out=${LIGHTS_OUT_HOST_OUT:-/out}
-# This image is the workbench. Nothing in here can start it (no socket);
-# the contract check's compose render only needs the name set.
+# This image is the workbench. For plane commands the wrapper sets
+# WORKBENCH_IMAGE and mounts the socket; otherwise compose render only needs a name.
 WORKBENCH_IMAGE=${WORKBENCH_IMAGE:-ghcr.io/nicolaguglielmi/lights-out:${LIGHTS_OUT_VERSION:-0.0.0}}
 export WORKBENCH_IMAGE
+
 staged=""
-for a do
+cli_args=""
+cli_sep=$(printf '\037')
+has_non_interactive=0
+want_non_interactive=0
+has_model_provider=0
+provider_val=""
+reason_val=""
+
+nargs=$#
+i=0
+while [ "$i" -lt "$nargs" ]; do
+  a=$1
   shift
+  i=$((i + 1))
   case "$a" in
     STAGED=*) staged=${a#STAGED=}; continue ;;
     ALERT=/*|INCIDENT=/*) ;;
-    ALERT=*) a="ALERT=/repo/${a#ALERT=}" ;;
-    INCIDENT=*) a="INCIDENT=/repo/${a#INCIDENT=}" ;;
-    BASE=*|HEAD=*|JUDGED=*|PROFILE=*|MODEL_PROVIDER=*|MODEL=*) ;;
-    *) nogo "'$a' is not an argument lights-out takes; one of BASE= HEAD= JUDGED= STAGED= ALERT= INCIDENT= PROFILE= MODEL_PROVIDER= MODEL=" ;;
+    ALERT=*) a="ALERT=$repo_dir/${a#ALERT=}" ;;
+    INCIDENT=*) a="INCIDENT=$repo_dir/${a#INCIDENT=}" ;;
+    DECISIONS=@/*) ;;
+    DECISIONS=@*)
+      dpath=${a#DECISIONS=@}
+      if [ -e "$repo_dir/$dpath" ]; then a="DECISIONS=@$repo_dir/$dpath"; fi ;;
+    MODEL_PROVIDER=*) has_model_provider=1 ;;
+    PROVIDER=*)
+      provider_val=${a#PROVIDER=}
+      if [ "$sub" = start ]; then
+        cli_args="$cli_args${cli_args:+$cli_sep}--provider${cli_sep}${provider_val}"
+        want_non_interactive=1
+      fi ;;
+    PRESET=*)
+      if [ "$sub" = start ]; then
+        cli_args="$cli_args${cli_args:+$cli_sep}--preset${cli_sep}${a#PRESET=}"
+        want_non_interactive=1
+      fi ;;
+    AGENT_HARNESS=*)
+      if [ "$sub" = start ]; then
+        cli_args="$cli_args${cli_args:+$cli_sep}--harness${cli_sep}${a#AGENT_HARNESS=}"
+        want_non_interactive=1
+      fi ;;
+    DELIVERY=*)
+      if [ "$sub" = start ]; then
+        cli_args="$cli_args${cli_args:+$cli_sep}--delivery${cli_sep}${a#DELIVERY=}"
+        want_non_interactive=1
+      fi ;;
+    PROFILE=*)
+      if [ "$sub" = start ]; then
+        cli_args="$cli_args${cli_args:+$cli_sep}--profile${cli_sep}${a#PROFILE=}"
+      fi ;;
+    MODE=*)
+      if [ "$sub" = start ] || [ "$sub" = next ]; then
+        cli_args="$cli_args${cli_args:+$cli_sep}--mode${cli_sep}${a#MODE=}"
+      fi ;;
+    SPEND_BUDGET_TICKET_USD=*)
+      if [ "$sub" = start ]; then
+        cli_args="$cli_args${cli_args:+$cli_sep}--ticket-budget-usd${cli_sep}${a#SPEND_BUDGET_TICKET_USD=}"
+      fi ;;
+    SPEND_BUDGET_DAY_USD=*)
+      if [ "$sub" = start ]; then
+        cli_args="$cli_args${cli_args:+$cli_sep}--day-budget-usd${cli_sep}${a#SPEND_BUDGET_DAY_USD=}"
+      fi ;;
+    REASON=*) reason_val=${a#REASON=} ;;
+    BASE=*|HEAD=*|JUDGED=*|MODEL=*|TICKET=*|TEXT=*|ANSWER=*|DECISIONS=*|VERSION=*|CANARY_VERSION=*|CANARY_TAG=*|GO_FOR_LAUNCH=*|CLOUD=*|CODE_HOST=*|ADAPTERS_PATH=*|WINDOW_DAYS=*) ;;
+    --json)
+      case "$sub" in start|next) cli_args="$cli_args${cli_args:+$cli_sep}$a"; continue ;; esac
+      nogo "'$a' is only valid with start or next" ;;
+    --mode=*)
+      case "$sub" in start|next) cli_args="$cli_args${cli_args:+$cli_sep}$a"; continue ;; esac
+      nogo "'$a' is only valid with start or next" ;;
+    --mode)
+      case "$sub" in start|next) ;; *) nogo "'$a' is only valid with start or next" ;; esac
+      [ "$i" -lt "$nargs" ] || nogo "'$a' requires a value"
+      v=$1; shift; i=$((i + 1))
+      cli_args="$cli_args${cli_args:+$cli_sep}$a${cli_sep}$v"
+      continue ;;
+    --non-interactive)
+      [ "$sub" = start ] || nogo "'$a' is only valid with start"
+      has_non_interactive=1
+      cli_args="$cli_args${cli_args:+$cli_sep}$a"
+      continue ;;
+    --preset=*|--provider=*|--harness=*|--delivery=*|--profile=*|--ticket-budget-usd=*|--day-budget-usd=*)
+      [ "$sub" = start ] || nogo "'$a' is only valid with start"
+      cli_args="$cli_args${cli_args:+$cli_sep}$a"
+      continue ;;
+    --preset|--provider|--harness|--delivery|--profile|--ticket-budget-usd|--day-budget-usd)
+      [ "$sub" = start ] || nogo "'$a' is only valid with start"
+      [ "$i" -lt "$nargs" ] || nogo "'$a' requires a value"
+      v=$1; shift; i=$((i + 1))
+      cli_args="$cli_args${cli_args:+$cli_sep}$a${cli_sep}$v"
+      continue ;;
+    *) nogo "'$a' is not an argument lights-out takes; one of BASE= HEAD= JUDGED= STAGED= ALERT= INCIDENT= PROFILE= MODEL_PROVIDER= MODEL= TICKET= TEXT= ANSWER= DECISIONS= VERSION= CANARY_VERSION= CANARY_TAG= GO_FOR_LAUNCH= REASON= MODE= PRESET= CLOUD= DELIVERY= CODE_HOST= AGENT_HARNESS= PROVIDER= ADAPTERS_PATH= WINDOW_DAYS= SPEND_BUDGET_TICKET_USD= SPEND_BUDGET_DAY_USD=" ;;
   esac
   set -- "$@" "$a"
 done
+
+if [ "$sub" = start ] && [ "$want_non_interactive" = 1 ] && [ "$has_non_interactive" = 0 ]; then
+  cli_args="--non-interactive${cli_args:+$cli_sep}$cli_args"
+fi
+if [ -n "$cli_args" ]; then
+  LIGHTS_OUT_CLI_ARGS=$cli_args
+  export LIGHTS_OUT_CLI_ARGS
+fi
+if [ -n "$provider_val" ] && [ "$has_model_provider" = 0 ]; then
+  set -- "$@" "MODEL_PROVIDER=$provider_val"
+fi
+if [ "$sub" = promote ] && [ -n "$reason_val" ]; then
+  set -- "$@" "GO_FOR_LAUNCH_REASON=$reason_val"
+fi
 
 # At L0 the roles replay lights-out's own recordings only (docs/adr/0045
 # §3): on any other alert or incident the NO-GO says what runs it live.
@@ -80,15 +198,129 @@ case "$sub" in
     role postmortem POSTMORTEM_OUT=/out/postmortem TICKETS_DIR=/out/tickets "$@" ;;
 esac
 
+run_make() {
+  rc=0
+  make --no-print-directory "$@" || rc=$?
+  [ "$rc" = 0 ] && exit 0
+  exit 1
+}
+
+# Host-mirrored platform staging (docs/adr/0105 §3): when LIGHTS_OUT_PLATFORM_DIR
+# is set, populate it from $image_root when .platform-revision differs, link
+# .crew -> LIGHTS_OUT_CREW_DIR, cd into it, attach $repo_dir (preserving any
+# uncommitted tickets generated by prior intake/intake-confirm calls), and run make.
+if [ -n "${LIGHTS_OUT_PLATFORM_DIR:-}" ]; then
+  plat=$LIGHTS_OUT_PLATFORM_DIR
+  crew=${LIGHTS_OUT_CREW_DIR:-$plat/.crew}
+  rev="${LIGHTS_OUT_VERSION:-?}:${LIGHTS_OUT_REVISION:-?}:${LIGHTS_OUT_FLAVOUR:-full}"
+  mkdir -p "$plat" "$crew"
+  cur_rev=$(cat "$plat/.platform-revision" 2>/dev/null || true)
+  if [ "$cur_rev" != "$rev" ]; then
+    for p in "$plat"/* "$plat"/.[!.]* "$plat"/..?*; do
+      [ -e "$p" ] || [ -L "$p" ] || continue
+      case "$(basename "$p")" in
+        .crew|.attached) continue ;;
+      esac
+      rm -rf "$p"
+    done
+    (cd "$image_root" && tar cf - --exclude='./.crew' --exclude='./.attached' --exclude='./.gates-out' .) \
+      | (cd "$plat" && tar xf -)
+    printf '%s\n' "$rev" > "$plat/.platform-revision"
+  fi
+  rm -rf "$plat/.crew"
+  ln -s "$crew" "$plat/.crew"
+  cd "$plat"
+
+  if [ "$sub" = cloud-setup ]; then
+    run_make cloud-setup "$@"
+  fi
+
+  attached="$plat/.attached"
+  has_repo=0
+  if sh core/await-head.sh "$repo_dir" 15; then
+    has_repo=1
+  else
+    case "$sub" in
+      down|console) ;;
+      *) nogo "the current directory is not a git repository with a commit" ;;
+    esac
+  fi
+
+  if [ "$has_repo" = 1 ]; then
+    saved_tickets=""
+    if [ -d "$attached/.git" ] && [ -d "$attached/.lights-out/tickets" ]; then
+      untracked=$(git -C "$attached" ls-files --others --exclude-standard -- .lights-out/tickets 2>/dev/null || true)
+      if [ -n "$untracked" ]; then
+        saved_tickets=$(mktemp -d)
+        for tf in $untracked; do
+          mkdir -p "$saved_tickets/$(dirname "$tf")"
+          cp "$attached/$tf" "$saved_tickets/$tf"
+        done
+      fi
+    fi
+    rm -rf "$attached"
+    sh core/attach.sh "$repo_dir" "$attached" || {
+      [ -z "$saved_tickets" ] || rm -rf "$saved_tickets"
+      nogo "could not clone the repository (see above)"
+    }
+    if [ -n "$saved_tickets" ]; then
+      for sf in "$saved_tickets"/.lights-out/tickets/*; do
+        [ -f "$sf" ] || continue
+        base_sf=$(basename "$sf")
+        [ -e "$attached/.lights-out/tickets/$base_sf" ] || {
+          mkdir -p "$attached/.lights-out/tickets"
+          cp "$sf" "$attached/.lights-out/tickets/$base_sf"
+        }
+      done
+      rm -rf "$saved_tickets"
+    fi
+  fi
+
+  if [ "$has_repo" = 1 ] && [ -f "$attached/.lights-out/workload.env" ]; then
+    run_make "$sub" WORKLOAD=.attached ATTACHED=.attached "$@"
+  else
+    case "$sub" in
+      start)
+        run_make "$sub" WORKLOAD=.attached ATTACHED=.attached "$@" ;;
+      down|console|promote|evidence)
+        run_make "$sub" ATTACHED=/tmp/lights-out/no-attached WORKLOAD=app "$@" ;;
+      *)
+        nogo "the repository has no .lights-out/workload.env committed; lights-out init drafts one" ;;
+    esac
+  fi
+fi
+
+# State-only commands (docs/adr/0105 §1): no socket, /opt/lights-out/.crew
+# mounted from $out/crew. cloud-setup skips attach; next/dora/spend attach
+# $repo_dir when available.
+case "$sub" in
+  cloud-setup)
+    run_make cloud-setup "$@" ;;
+  next|dora|spend)
+    attached=/tmp/lights-out/attached
+    mkdir -p /tmp/lights-out
+    if sh core/await-head.sh "$repo_dir" 15; then
+      rm -rf "$attached"
+      sh core/attach.sh "$repo_dir" "$attached" || nogo "could not clone the repository (see above)"
+      if [ "$sub" = next ] || [ -f "$attached/.lights-out/workload.env" ]; then
+        run_make "$sub" WORKLOAD="$attached" ATTACHED="$attached" "$@"
+      fi
+      run_make "$sub" WORKLOAD=app ATTACHED=/tmp/lights-out/no-attached "$@"
+    else
+      [ "$sub" != next ] || nogo "the current directory is not a git repository with a commit"
+      run_make "$sub" WORKLOAD=app ATTACHED=/tmp/lights-out/no-attached "$@"
+    fi ;;
+esac
+
 # init and gates: the repository's HEAD, cloned where only this container
 # sees it (docs/adr/0037 §1: lights-out reads the repository, never writes it).
 # On a podman machine /repo can lag the host for a few seconds after a
 # commit or a git switch: core/await-head.sh waits for HEAD, bounded.
-sh core/await-head.sh /repo 15 \
+sh core/await-head.sh "$repo_dir" 15 \
   || nogo "the current directory is not a git repository with a commit"
 attached=/tmp/lights-out/attached
 mkdir -p /tmp/lights-out
-sh core/attach.sh /repo "$attached" || nogo "could not clone the repository (see above)"
+sh core/attach.sh "$repo_dir" "$attached" || nogo "could not clone the repository (see above)"
 
 if [ "$sub" = init ]; then
   # HEAD=<commit> drafts from that commit (docs/adr/0064 §3): the Action
@@ -180,14 +412,14 @@ if [ -n "$staged" ] && [ "$staged" != 0 ]; then
   if [ -f /out/staged.patch ]; then
     cp /out/staged.patch "$patch"
   else
-    git -C /repo diff --cached --binary > "$patch"
+    git -C "$repo_dir" diff --cached --binary > "$patch"
   fi
   [ -s "$patch" ] || nogo "STAGED=1, and nothing is staged"
   git -C "$attached" apply --index "$patch" >&2 || nogo "the staged changes do not apply on HEAD"
   git -C "$attached" -c user.name=lights-out -c user.email=lights-out@localhost.invalid -c commit.gpgsign=false \
     commit -q --no-verify -m "lights-out: the staged changes, judged before they are committed" \
     || nogo "could not commit the staged changes in the clone"
-  printf '[lights-out] judging the staged changes as one commit on %s\n' "$(git -C /repo rev-parse --short HEAD)" >&2
+  printf '[lights-out] judging the staged changes as one commit on %s\n' "$(git -C "$repo_dir" rev-parse --short HEAD)" >&2
 fi
 
 # A range is judged by its base (docs/adr/0045 §3, ADR 0033): with a

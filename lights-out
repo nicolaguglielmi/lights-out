@@ -1,12 +1,12 @@
 #!/bin/sh
 # SPDX-License-Identifier: Apache-2.0
 #
-# lights-out: the gates, init, triage and post mortem of lights-out on any
-# repository, from the published image, with no clone of lights-out
-# (docs/adr/0045). The host needs a container engine (podman or docker)
-# and git, nothing else. The plane, the canary and the rollback stay the
-# clone's: git clone && ./go demo.
+# lights-out: gates, init, triage, post mortem, state reporting, and opt-in
+# plane/workflow orchestration on any repository from the published image,
+# with no clone of lights-out (docs/adr/0045, docs/adr/0105). The host needs
+# a container engine (podman or docker) and git, nothing else.
 #
+# Read-only & gates (socket-free):
 #   lights-out init [HEAD=]             draft .lights-out/ for this repository (or that commit), outside it
 #   lights-out gates [BASE= HEAD=]      judge the last commit, or a range; STAGED=1 judges what is staged;
 #                                       JUDGED="<sha> ..." names trees already judged, whose lines mutation skips (docs/adr/0074)
@@ -17,21 +17,41 @@
 #   lights-out doctor                   engine, image, key: one line each, then GO or NO-GO
 #   lights-out version                  wrapper version and images (or --version)
 #
+# State-only (socket-free, mounts $LIGHTS_OUT_OUT/crew -> /opt/lights-out/.crew):
+#   lights-out next [MODE=junior|expert] [--json]       inspect repo, contract and state; print next E2E command
+#   lights-out dora [WINDOW_DAYS=30]                    compute the four DORA measures from the logbook
+#   lights-out spend                                    cost and time per ticket, role and day
+#   lights-out cloud-setup CLOUD=<provider>             stage Terraform + OIDC starter into crew state
+#
+# Opt-in plane & workflow (mounts engine socket with stderr notice, host-mirrored $LIGHTS_OUT_OUT/platform):
+#   lights-out start [--non-interactive ...]            guided setup wizard or preset plan
+#   lights-out intake [TICKET=] TEXT=<text>             start an intake interview
+#   lights-out answer TICKET=<id> ANSWER=<text>         answer an intake or ticket question
+#   lights-out intake-confirm TICKET=<id> DECISIONS=... confirm, edit or drop proposed intake tickets
+#   lights-out assign TICKET=<id>                       turn a ticket into a PR
+#   lights-out up                                       start the L0 compose plane and publish stable image
+#   lights-out down                                     stop the compose plane
+#   lights-out smoke                                    run the workload's smoke path through the edge
+#   lights-out release [CANARY_VERSION= CANARY_TAG=]    deploy canary and run SLO verification controller
+#   lights-out promote [GO_FOR_LAUNCH=GO|NO-GO REASON=] go-for-launch brief and human promotion gate
+#   lights-out console                                  serve the console on CONSOLE_PUBLISH:CONSOLE_PORT (default 127.0.0.1:8098)
+#   lights-out evidence VERSION=<v>                     build, sign and verify release evidence pack
+#
 # init, gates, test-proof and test-integrity run the gates image,
-# ghcr.io/nicolaguglielmi/lights-out-gates; triage and postmortem the full
-# one, ghcr.io/nicolaguglielmi/lights-out (docs/adr/0057 §5).
-# LIGHTS_OUT_IMAGE, when set, is the image for every command.
-# The repository is mounted read-only; what lights-out writes (the init
-# draft, the gates' details, incidents, post mortems, tickets) goes to
-# LIGHTS_OUT_OUT, default ~/.local/state/lights-out/<repository>. The
-# engine socket is never mounted (docs/adr/0045 §3). Keys are read from
-# your environment by name, never from a file.
+# ghcr.io/nicolaguglielmi/lights-out-gates; triage, postmortem, state-only,
+# and plane/workflow commands run the full image, ghcr.io/nicolaguglielmi/lights-out
+# (docs/adr/0057 §5, docs/adr/0105). LIGHTS_OUT_IMAGE overrides the image.
+# The repository is mounted read-only; state goes to LIGHTS_OUT_OUT, default
+# ~/.local/state/lights-out/<repository>. Keys are passed by name only.
 set -eu
 
 version=0.8.1
 gates_image=${LIGHTS_OUT_IMAGE:-ghcr.io/nicolaguglielmi/lights-out-gates:$version}
 full_image=${LIGHTS_OUT_IMAGE:-ghcr.io/nicolaguglielmi/lights-out:$version}
 keys="GEMINI_API_KEY ANTHROPIC_API_KEY OPENAI_API_KEY ZAI_API_KEY"
+plane_keys="GITHUB_TOKEN GITLAB_TOKEN METRICS_AUTH_HEADER"
+all_cmds="init gates test-proof test-integrity triage postmortem doctor version next dora spend cloud-setup start intake answer intake-confirm assign up down smoke release promote console evidence"
+all_keys="BASE HEAD JUDGED STAGED ALERT INCIDENT PROFILE MODEL_PROVIDER MODEL TICKET TEXT ANSWER DECISIONS VERSION CANARY_VERSION CANARY_TAG GO_FOR_LAUNCH REASON MODE PRESET CLOUD DELIVERY CODE_HOST AGENT_HARNESS PROVIDER ADAPTERS_PATH WINDOW_DAYS SPEND_BUDGET_TICKET_USD SPEND_BUDGET_DAY_USD"
 
 die() { printf 'lights-out: %s\n' "$*" >&2; exit 1; }
 
@@ -43,20 +63,41 @@ cmd=${1:-help}
 [ $# -gt 0 ] && shift
 case "$cmd" in
   init|gates|test-proof|test-integrity|triage|postmortem|doctor|version) ;;
+  next|dora|spend|cloud-setup) ;;
+  start|intake|answer|intake-confirm|assign|up|down|smoke|release|promote|console|evidence) ;;
   --version) cmd=version ;;
   help|-h|--help) usage; exit 0 ;;
-  *) die "unknown command '$cmd'; one of: init gates test-proof test-integrity triage postmortem doctor version" ;;
+  *) die "unknown command '$cmd'; one of: $all_cmds" ;;
 esac
-for a do
-  case "$a" in
-    BASE=*|HEAD=*|JUDGED=*|STAGED=*|ALERT=*|INCIDENT=*|PROFILE=*|MODEL_PROVIDER=*|MODEL=*) ;;
-    *) die "'$a' is not an argument lights-out takes; one of BASE= HEAD= JUDGED= STAGED= ALERT= INCIDENT= PROFILE= MODEL_PROVIDER= MODEL=" ;;
-  esac
-done
+
+validate_args() {
+  while [ $# -gt 0 ]; do
+    a=$1
+    shift
+    case "$a" in
+      BASE=*|HEAD=*|JUDGED=*|STAGED=*|ALERT=*|INCIDENT=*|PROFILE=*|MODEL_PROVIDER=*|MODEL=*|TICKET=*|TEXT=*|ANSWER=*|DECISIONS=*|VERSION=*|CANARY_VERSION=*|CANARY_TAG=*|GO_FOR_LAUNCH=*|REASON=*|MODE=*|PRESET=*|CLOUD=*|DELIVERY=*|CODE_HOST=*|AGENT_HARNESS=*|PROVIDER=*|ADAPTERS_PATH=*|WINDOW_DAYS=*|SPEND_BUDGET_TICKET_USD=*|SPEND_BUDGET_DAY_USD=*) ;;
+      --json|--mode=*)
+        case "$cmd" in start|next) ;; *) die "'$a' is only valid with start or next" ;; esac ;;
+      --mode)
+        case "$cmd" in start|next) ;; *) die "'$a' is only valid with start or next" ;; esac
+        [ $# -gt 0 ] || die "'$a' requires a value"
+        shift ;;
+      --non-interactive|--preset=*|--provider=*|--harness=*|--delivery=*|--profile=*|--ticket-budget-usd=*|--day-budget-usd=*)
+        [ "$cmd" = start ] || die "'$a' is only valid with start" ;;
+      --preset|--provider|--harness|--delivery|--profile|--ticket-budget-usd|--day-budget-usd)
+        [ "$cmd" = start ] || die "'$a' is only valid with start"
+        [ $# -gt 0 ] || die "'$a' requires a value"
+        shift ;;
+      *)
+        die "'$a' is not an argument lights-out takes; one of $all_keys" ;;
+    esac
+  done
+}
+validate_args "$@"
 
 case "$cmd" in
-  triage|postmortem) image=$full_image ;;
-  *) image=$gates_image ;;
+  init|gates|test-proof|test-integrity|doctor) image=$gates_image ;;
+  *) image=$full_image ;;
 esac
 
 if [ "$cmd" = version ]; then
@@ -74,14 +115,18 @@ elif command -v docker >/dev/null 2>&1; then
 else
   die "no container engine found. Install podman (reference) or docker, or set CONTAINER_ENGINE."
 fi
+engine_kind=$(basename "$engine")
 
 # The key the chosen provider needs, by name; L0 replays and needs none.
 profile=${PROFILE:-l0}
-model_provider=${MODEL_PROVIDER:-gemini}
+model_provider=${MODEL_PROVIDER:-${PROVIDER:-gemini}}
+adapters_path=${ADAPTERS_PATH:-}
 for a do
   case "$a" in
     PROFILE=*) profile=${a#PROFILE=} ;;
     MODEL_PROVIDER=*) model_provider=${a#MODEL_PROVIDER=} ;;
+    PROVIDER=*) [ -n "${MODEL_PROVIDER:-}" ] || model_provider=${a#PROVIDER=} ;;
+    ADAPTERS_PATH=*) adapters_path=${a#ADAPTERS_PATH=} ;;
   esac
 done
 case "$model_provider" in
@@ -91,7 +136,7 @@ case "$model_provider" in
   *) key=GEMINI_API_KEY ;;
 esac
 
-if [ "$cmd" = doctor ]; then
+run_doctor() {
   bad=""
   item() { printf 'doctor: %-7s %s\n' "$1" "$2" >&2; }
   if "$engine" info >/dev/null 2>&1; then
@@ -105,12 +150,12 @@ if [ "$cmd" = doctor ]; then
   else
     item git "FAIL, git is not on PATH"; bad="$bad git"
   fi
-  if [ -z "$bad" ] && got=$("$engine" image inspect --format '{{index .Config.Labels "org.opencontainers.image.version"}}' "$image" 2>/dev/null); then
-    item image "ok, $image is here (version ${got:-unlabelled})"
-  elif [ -z "$bad" ] && "$engine" manifest inspect "$image" >/dev/null 2>&1; then
-    item image "ok, $image is in the registry, pulled on the first run"
+  if [ -z "$bad" ] && got=$("$engine" image inspect --format '{{index .Config.Labels "org.opencontainers.image.version"}}' "$1" 2>/dev/null); then
+    item image "ok, $1 is here (version ${got:-unlabelled})"
+  elif [ -z "$bad" ] && "$engine" manifest inspect "$1" >/dev/null 2>&1; then
+    item image "ok, $1 is in the registry, pulled on the first run"
   elif [ -z "$bad" ]; then
-    item image "FAIL, $image is neither here nor reachable: not published yet, private, or no login (docker login ghcr.io); from a clone, ./go package-gates builds localhost/lights-out-gates:dev for LIGHTS_OUT_IMAGE"
+    item image "FAIL, $1 is neither here nor reachable: not published yet, private, or no login (docker login ghcr.io); from a clone, ./go package-gates builds localhost/lights-out-gates:dev for LIGHTS_OUT_IMAGE"
     bad="$bad image"
   fi
   if [ "$profile" = l0 ]; then
@@ -123,23 +168,38 @@ if [ "$cmd" = doctor ]; then
   fi
   if [ -n "$bad" ]; then
     printf 'NO-GO: doctor —%s\n' "$bad"
-    exit 1
+    return 1
   fi
   printf 'GO: doctor\n'
-  exit 0
+  return 0
+}
+
+if [ "$cmd" = doctor ]; then
+  if run_doctor "$image"; then exit 0; else exit 1; fi
 fi
 
 # init and gates judge a repository: run from its top level, whatever the
-# subdirectory. triage and postmortem read files under the current one.
+# subdirectory. State and plane commands also resolve to the repository root
+# when inside a git repository.
 case "$cmd" in
   init|gates|test-proof|test-integrity)
     top=$(git rev-parse --show-toplevel 2>/dev/null) || die "lights-out $cmd runs inside a git repository"
     cd "$top" ;;
+  next|dora|spend|start|intake|answer|intake-confirm|assign|up|down|smoke|release|promote|console|evidence)
+    if top=$(git rev-parse --show-toplevel 2>/dev/null); then
+      cd "$top"
+    fi ;;
 esac
 here=$(pwd -P)
 out=${LIGHTS_OUT_OUT:-${XDG_STATE_HOME:-$HOME/.local/state}/lights-out/$(basename "$here")}
 mkdir -p "$out" || die "cannot create $out (LIGHTS_OUT_OUT)"
 out=$(CDPATH='' cd -- "$out" && pwd -P)
+
+tier="readonly"
+case "$cmd" in
+  next|dora|spend|cloud-setup) tier=state ;;
+  start|intake|answer|intake-confirm|assign|up|down|smoke|release|promote|console|evidence) tier=plane ;;
+esac
 
 # STAGED=1: the staged changes as this host's git sees them, handed to the
 # image as a file. Read through the engine's mount, .git/index can be a
@@ -153,25 +213,133 @@ for a do
   esac
 done
 
-# SELinux: never :z, which would relabel your repository (docs/adr/0045 §2).
-engine_flags="--security-opt label=disable"
-if [ "$engine" = docker ]; then
-  engine_flags="$engine_flags --user $(id -u):$(id -g) -e HOME=/tmp"
+mount_adapters=""
+if [ -n "$adapters_path" ]; then
+  if [ "$tier" != readonly ]; then
+    case "$adapters_path" in
+      /*) ;;
+      *) die "ADAPTERS_PATH=$adapters_path is not an absolute path" ;;
+    esac
+    [ -d "$adapters_path" ] || die "ADAPTERS_PATH=$adapters_path is not a directory"
+    mount_adapters=$adapters_path
+  elif [ -d "$adapters_path" ]; then
+    case "$adapters_path" in /*) mount_adapters=$adapters_path ;; esac
+  fi
 fi
-# Passed by name only: the value never appears on a command line.
-env_flags=""
-for k in $keys MODEL_PROVIDER MODEL; do
-  if eval "[ -n \"\${$k:-}\" ]"; then env_flags="$env_flags -e $k"; fi
+
+sock=""
+sock_gid=""
+if [ "$tier" = plane ]; then
+  if [ "$engine_kind" = podman ]; then
+    sock=$("$engine" info --format '{{.Host.RemoteSocket.Path}}' 2>/dev/null || true)
+    sock=${sock#unix://}
+    if [ "$("$engine" info --format '{{.Host.RemoteSocket.Exists}}' 2>/dev/null || true)" != true ] || [ -z "$sock" ]; then
+      die "podman's API socket ${sock:-(none)} does not exist. Enable it: systemctl --user enable --now podman.socket"
+    fi
+  else
+    sock=${DOCKER_HOST:-}
+    sock=${sock#unix://}
+    [ -n "$sock" ] || sock=/var/run/docker.sock
+    if [ ! -S "$sock" ]; then
+      die "$engine's socket $sock does not exist"
+    fi
+    sock_gid=$(stat -c %g "$sock" 2>/dev/null || stat -f %g "$sock" 2>/dev/null || true)
+  fi
+  printf 'lights-out: mounting container engine socket (%s) for opt-in plane command %s\n' "$sock" "$cmd" >&2
+fi
+
+if [ "$cmd" = start ]; then
+  doc_out=$(mktemp)
+  doc_err=$(mktemp)
+  doc_rc=0
+  run_doctor "$image" >"$doc_out" 2>"$doc_err" || doc_rc=$?
+  LIGHTS_OUT_DOCTOR_RC=$doc_rc
+  LIGHTS_OUT_DOCTOR_OUT=$(cat "$doc_out")
+  LIGHTS_OUT_DOCTOR_ERR=$(cat "$doc_err")
+  rm -f "$doc_out" "$doc_err"
+  export LIGHTS_OUT_DOCTOR_RC LIGHTS_OUT_DOCTOR_OUT LIGHTS_OUT_DOCTOR_ERR
+fi
+
+tty="-i"
+[ -t 0 ] && [ -t 1 ] && tty="-it"
+
+# SELinux: never :z, which would relabel your repository (docs/adr/0045 §2).
+# Passed by name only: secret values never appear on a command line.
+n=$#
+set -- "$@" --rm --init "$tty" --security-opt label=disable
+if [ "$engine_kind" = docker ]; then
+  set -- "$@" --user "$(id -u):$(id -g)" -e HOME=/tmp
+  if [ "$tier" = plane ]; then
+    set -- "$@" --add-host host.containers.internal:host-gateway
+  fi
+fi
+
+if [ "$tier" = readonly ]; then
+  for k in $keys MODEL_PROVIDER MODEL; do
+    if eval "[ -n \"\${$k:-}\" ]"; then set -- "$@" -e "$k"; fi
+  done
+  set -- "$@" -v "$here:/repo:ro" -v "$out:/out" -e LIGHTS_OUT_HOST_OUT="$out" -e PROFILE="$profile"
+elif [ "$tier" = state ]; then
+  mkdir -p "$out/crew" || die "cannot create $out/crew"
+  for k in $keys $plane_keys MODEL_PROVIDER MODEL AGENT_HARNESS DELIVERY CODE_HOST GITHUB_REPO METRICS_URL GOOGLE_CLOUD_PROJECT GOOGLE_CLOUD_LOCATION; do
+    if eval "[ -n \"\${$k:-}\" ]"; then set -- "$@" -e "$k"; fi
+  done
+  if [ -n "$mount_adapters" ]; then
+    set -- "$@" -v "$mount_adapters:$mount_adapters:ro" -e ADAPTERS_PATH="$mount_adapters"
+  fi
+  set -- "$@" -v "$here:/repo:ro" -v "$out/crew:/opt/lights-out/.crew" -e LIGHTS_OUT_HOST_OUT="$out" -e PROFILE="$profile"
+else
+  mkdir -p "$out/platform" "$out/crew" || die "cannot create $out/platform or $out/crew"
+  for k in $keys $plane_keys MODEL_PROVIDER MODEL AGENT_HARNESS DELIVERY CODE_HOST GITHUB_REPO METRICS_URL GOOGLE_CLOUD_PROJECT GOOGLE_CLOUD_LOCATION; do
+    if eval "[ -n \"\${$k:-}\" ]"; then set -- "$@" -e "$k"; fi
+  done
+  if [ -n "$mount_adapters" ]; then
+    set -- "$@" -v "$mount_adapters:$mount_adapters:ro" -e ADAPTERS_PATH="$mount_adapters"
+  fi
+  set -- "$@" -v "$sock:/var/run/docker.sock" -e DOCKER_HOST=unix:///var/run/docker.sock
+  if [ "$engine_kind" = docker ] && [ -n "$sock_gid" ]; then
+    set -- "$@" --group-add "$sock_gid"
+  fi
+  if [ "$cmd" = console ]; then
+    publish=${CONSOLE_PUBLISH:-127.0.0.1}
+    cport=${CONSOLE_PORT:-8098}
+    set -- "$@" -p "$publish:$cport:8098" -e CONSOLE_PORT="$cport" -e CONSOLE_BIND=0.0.0.0 -e CONSOLE_PUBLISH="$publish"
+    for cv in CONSOLE_AUTH CONSOLE_IDENTITY_HEADER CONSOLE_LAUNCHERS CONSOLE_SNAPSHOT CONSOLE_HOSTS CONSOLE_POLL_S; do
+      if eval "[ -n \"\${$cv:-}\" ]"; then set -- "$@" -e "$cv"; fi
+    done
+  fi
+  if [ "$cmd" = start ]; then
+    set -- "$@" -e LIGHTS_OUT_DOCTOR_RC -e LIGHTS_OUT_DOCTOR_OUT -e LIGHTS_OUT_DOCTOR_ERR
+  fi
+  set -- "$@" \
+    -v "$here:/repo:ro" \
+    -v "$out/platform:$out/platform" \
+    -v "$out/crew:$out/crew" \
+    -e LIGHTS_OUT_PLATFORM_DIR="$out/platform" \
+    -e LIGHTS_OUT_CREW_DIR="$out/crew" \
+    -e WORKBENCH_IMAGE="$image" \
+    -e LIGHTS_OUT_HOST_OUT="$out" \
+    -e PROFILE="$profile"
+fi
+
+set -- "$@" "$image" "$cmd"
+i=0
+while [ "$i" -lt "$n" ]; do
+  arg=$1
+  shift
+  set -- "$@" "$arg"
+  i=$((i + 1))
 done
 
 rc=0
-# shellcheck disable=SC2086 # flag strings are deliberately word-split
-"$engine" run --rm --init -i $engine_flags $env_flags \
-  -v "$here:/repo:ro" -v "$out:/out" \
-  -e LIGHTS_OUT_HOST_OUT="$out" -e PROFILE="$profile" \
-  "$image" "$cmd" "$@" || rc=$?
+"$engine" run "$@" || rc=$?
 if [ "$rc" = 125 ]; then
-  die "$engine could not start $image (exit 125, see above): not published yet, private, or no login (docker login ghcr.io); from a clone, ./go package-gates (./go package for triage and postmortem) builds one for LIGHTS_OUT_IMAGE"
+  die "$engine could not start $image (exit 125, see above): not published yet, private, or no login (docker login ghcr.io); from a clone, ./go package-gates (./go package for triage, postmortem, state, and plane commands) builds one for LIGHTS_OUT_IMAGE"
 fi
-[ "$rc" = 0 ] || [ "$cmd" = triage ] || [ "$cmd" = postmortem ] || [ "$cmd" = init ] || printf 'lights-out: the details of a NO-GO are above and in %s/gates/\n' "$out" >&2
+if [ "$rc" != 0 ]; then
+  case "$cmd" in
+    gates|test-proof|test-integrity)
+      printf 'lights-out: the details of a NO-GO are above and in %s/gates/\n' "$out" >&2 ;;
+  esac
+fi
 exit "$rc"
