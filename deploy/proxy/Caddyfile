@@ -1,0 +1,44 @@
+# Caddy reverse-proxy + forward_auth template for lights-out console (ADR 0111)
+#
+# Run Caddy in front of oauth2-proxy (127.0.0.1:4180) and console/serve.py (127.0.0.1:8098).
+# Console environment:
+#   CONSOLE_AUTH=proxy
+#   CONSOLE_IDENTITY_HEADER=X-Auth-Request-Email
+#   CONSOLE_LAUNCHERS=alice@example.com,bob@example.com
+#   CONSOLE_HOSTS=console.example.com
+#   CONSOLE_PUBLISH=127.0.0.1
+#   CONSOLE_PORT=8098
+
+console.example.com {
+	encode zstd gzip
+
+	# Route OAuth2 callbacks and sign-in directly to oauth2-proxy
+	handle /oauth2/* {
+		reverse_proxy 127.0.0.1:4180 {
+			header_up X-Real-IP {remote_host}
+			header_up X-Forwarded-Proto {scheme}
+		}
+	}
+
+	handle {
+		# Authenticate first via oauth2-proxy /oauth2/auth
+		forward_auth 127.0.0.1:4180 {
+			uri /oauth2/auth
+			copy_headers X-Auth-Request-Email X-Auth-Request-User
+
+			@error status 401
+			handle_response @error {
+				redir * /oauth2/start?rd={uri} 302
+			}
+		}
+
+		reverse_proxy 127.0.0.1:8098 {
+			# Strip any client-supplied identity header so only forward_auth's value reaches console
+			header_up -X-Auth-Request-Email
+			header_up -X-Auth-Request-User
+			header_up X-Auth-Request-Email {http.request.header.X-Auth-Request-Email}
+			header_up Host {host}
+			header_up Origin {http.request.header.Origin}
+		}
+	}
+}
