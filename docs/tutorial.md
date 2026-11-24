@@ -213,9 +213,9 @@ fixtures judged by the eight gates.
 **Go deeper:** [the plane half](use-on-your-repo.md#2-the-plane-half),
 [attach it and prove the plane on it](use-on-your-repo.md#attach-it-and-prove-the-plane-on-it).
 
-When your repository has a root `Containerfile` or `Dockerfile`, `init`
-also drafts the plane half (`compose.yaml`, `flags/flags.json`,
-`smoke.sh`, and `load.sh`) beside the gates half ([ADR 0100](adr/0100-init-drafts-the-plane-half.md)).
+When your repository has a root or selected sub-service `Containerfile` or `Dockerfile`, `init`
+also drafts the plane half (`compose.yaml` with commented Postgres/Redis/MySQL dependency hints detected from `.env.example` or compose files, `flags/flags.json`,
+`SMOKE_AUTH_HEADER`-aware `smoke.sh` and `load.sh`, and commented `crew-egress.txt.example`) beside the gates half ([ADR 0100](adr/0100-init-drafts-the-plane-half.md), [ADR 0110](adr/0110-stateful-monorepo-rust-java-and-js-managers.md)). For monorepos, set `INIT_SERVICE=<subdir>` to target one service explicitly, across Python, JS/TS (`npm`, `pnpm`, `yarn`, `bun`), Go, Rust (`Cargo.toml` + `Cargo.lock`), and Java (Maven/Gradle). When running via the standalone wrapper, use `lights-out gates --engine` when your contract selects a `compose:` or custom image toolchain ([ADR 0108](adr/0108-start-plan-wiring-wrapper-engine-gates-and-promote-clarity.md)).
 Inspect and tailor the drafted probes/scripts before rollout, or copy
 from `workloads/plain/` or `workloads/minimal/`:
 
@@ -286,7 +286,15 @@ Rollouts) or your own CI (GitLab CI, Jenkins, CircleCI).
 **You will see:** the same gates and the same human gate where you
 already ship. With Flagger, Flagger's own analysis rolls a failing canary
 back, and its promotion waits at lights-out's gate for a person. On your
-CI, the gates' line posted as a commit status.
+CI, the gates' line posted as a commit status. For cloud accounts, stage a
+cloud Delivery plugin (`./go cloud-setup CLOUD=gcp-cloud-deploy --slo-mode proxy`),
+pair it with remote OCI distribution (`REGISTRY=oci-registry`,
+`./go registry-conformance`) and daemonless/HTTP flags (`FLAGS=flags-file` /
+`flags-http`, `./go flags-conformance`) ([ADR 0107](adr/0107-cloud-registry-flags-and-proxy-slos.md)),
+explore the animated `#hive` onboarding tour and wizard in `./go console`, and
+adapt OIDC reverse-proxy templates under `deploy/proxy/` ([ADR 0111](adr/0111-hive-guided-onboarding-ui-and-proxy-recipes.md))
+— noting that remote cloud/registry conformance and hosted OIDC proxies remain
+for your own account and environment.
 
 **Go deeper:** [toward production in the README](../README.md#toward-production),
 [your CI as a surface](use-on-your-repo.md#your-ci-as-a-surface),
@@ -1508,6 +1516,14 @@ The plane's own judge goes through the same `promql` adapter (ADR 0044),
 so the `slo:` lines and the `NO-GO: launchpad — 5%: error_rate …` verdict
 in the demo are this code's output on the plane's Prometheus. No GitHub
 Actions job runs `./go verify` against another endpoint, so none is shown.
+
+### Continuous ops loop: `./go watch`, `./go alert-webhook`, and `./go auto-incident`
+
+Three operational automation targets extend the offline ops path ([ADR 0109](adr/0109-continuous-orchestration-auto-incident-and-alert-webhook.md)):
+
+- `./go watch` (`core/runner.py`): drains `EVENT_BUS` continuously (`POLL_S=5`) or in one shot (`ONCE=1`), guarded by an exclusive lockfile and exiting cleanly on `SIGTERM`. Trigger-ready orchestrator recipes live at `surfaces/github-actions/tower-orchestrator.yml` and `surfaces/gitlab-ci/tower-orchestrator.yml`.
+- `./go alert-webhook` (`core/webhook.py`): normalizes Alertmanager/flat JSON alerts via `ALERT_FILE=<json>` or serves a fail-closed webhook endpoint on port 8097 requiring `ALERT_WEBHOOK_TOKEN` off loopback (`surfaces/alerts/README.md`).
+- `./go auto-incident` and `AUTO_INCIDENT_ON_ROLLBACK=on` (`core/ops_loop.py`, `core/releases.py`): generates deterministic rollback incident documents directly from `.crew/release.json` (with opt-in `AUTO_POSTMORTEM_ON_ROLLBACK=on` chaining into postmortem generation).
 
 ## Where next
 

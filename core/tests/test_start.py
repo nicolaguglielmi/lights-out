@@ -644,6 +644,67 @@ class StartWizardTest(unittest.TestCase):
                 self.assertRegex(res_start.stdout.strip(), r"^NO-GO: start — ")
                 self.assertNotIn(secret_val, res_start.stdout + res_start.stderr)
 
+    def test_start_discovers_registry_flags_slo_ingress_and_auto_incident_for_cloud_delivery(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            ws = _make_workspace(Path(td))
+            root = ws["root"]
+            _write(root / ".env", "SYNTH_ALPHA_TOKEN=alpha-tok-ok\n")
+            _write(root / "adapters" / "oci-registry" / "publish.sh", "#!/bin/sh\nexit 0\n", executable=True)
+            _write(root / "adapters" / "oci-registry" / "verify.sh", "#!/bin/sh\nexit 0\n", executable=True)
+            _write(root / "adapters" / "flags-file" / "evaluate.sh", "#!/bin/sh\nexit 0\n", executable=True)
+            _write(root / "adapters" / "flags-file" / "set.sh", "#!/bin/sh\nexit 0\n", executable=True)
+            _write(root / "adapters" / "flags-http" / "evaluate.sh", "#!/bin/sh\nexit 0\n", executable=True)
+            _write(root / "adapters" / "flags-http" / "set.sh", "#!/bin/sh\nexit 0\n", executable=True)
+            _write(root / "plugins" / "cloud" / "cloud-ship" / "slo-ingress.promql", "# name: traffic\nup\n")
+
+            res_json = _run_cli(
+                ws,
+                "start",
+                "--non-interactive",
+                "--preset",
+                "strict",
+                "--provider",
+                "alpha",
+                "--harness",
+                "alpha-cli",
+                "--delivery",
+                "cloud-ship",
+                "--json",
+            )
+            self.assertEqual(res_json.returncode, 0, res_json.stdout + res_json.stderr)
+            payload = json.loads(res_json.stdout)
+            self.assertIn("discovered", payload)
+            self.assertIn("oci-registry", payload["discovered"]["registries"])
+            self.assertIn("flags-file", payload["discovered"]["flags"])
+            self.assertIn("flags-http", payload["discovered"]["flags"])
+            self.assertIn("cloud-ship", payload["discovered"]["cloud_slo_ingress"])
+            self.assertEqual(payload["plan"]["AUTO_INCIDENT_ON_ROLLBACK"], "on")
+
+            res = _run_cli(
+                ws,
+                "start",
+                "--non-interactive",
+                "--preset",
+                "strict",
+                "--provider",
+                "alpha",
+                "--harness",
+                "alpha-cli",
+                "--delivery",
+                "cloud-ship",
+                env_extra={"AUTO_INCIDENT_ON_ROLLBACK": "off"},
+            )
+            self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
+            plan = (root / ".crew" / "start-plan.env").read_text(encoding="utf-8")
+            self.assertIn("AUTO_INCIDENT_ON_ROLLBACK=off", plan)
+            self.assertIn("./go cloud-setup CLOUD=cloud-ship --slo-mode proxy", res.stderr)
+            self.assertIn("./go registry-conformance REGISTRY=oci-registry", res.stderr)
+            self.assertIn("./go flags-conformance FLAGS=flags-file", res.stderr)
+            self.assertIn("FLAGS=flags-http", res.stderr)
+            self.assertIn("REGISTRY=oci-registry", res.stderr)
+            self.assertIn("SLO_PROMQL=plugins/cloud/cloud-ship/slo-ingress.promql", res.stderr)
+            self.assertIn("AUTO_INCIDENT_ON_ROLLBACK=off", res.stderr)
+
 
 if __name__ == "__main__":
     unittest.main()
