@@ -44,10 +44,11 @@ endif
 ifneq ($(origin WORKLOAD_PORT),command line)
 WORKLOAD_PORT :=
 endif
-# `init` and `try` are the goals that may start without a contract: they
-# draft one (docs/adr/0042 §6, docs/adr/0093 §5). Every other goal stops
-# here, naming the file.
-ifneq ($(filter $(MAKECMDGOALS),init try cloud-setup),)
+# `init`, `try`, `cloud-setup`, `start`, and `next` may start without a contract:
+# `init`/`try` draft one (docs/adr/0042 §6, 0093 §5), `cloud-setup` stages
+# cloud infrastructure templates (docs/adr/0104), and `start`/`next` guide a
+# repo from Stage 1 before a contract exists (docs/adr/0103).
+ifneq ($(filter $(MAKECMDGOALS),init try cloud-setup start next),)
 -include $(WORKLOAD_CONTRACT)/workload.env
 else
 include $(WORKLOAD_CONTRACT)/workload.env
@@ -260,6 +261,14 @@ help: ## List the targets
 		attach "clone a repository and make it the workload; with a .lights-out/ contract it is checked: ./go attach <path> (docs/adr/0037, 0042)" \
 		detach "drop the attached clone; the workload is app/ again" \
 		shell "interactive shell inside workbench" clean "remove the workbench image"
+
+.PHONY: start
+start: ## Guided interactive setup wizard (or --non-interactive): writes non-secret .crew/start-plan.env, validates doctor, prints E2E commands (docs/adr/0103)
+	@sh core/start.sh start $(START_ARGS)
+
+.PHONY: next
+next: ## Inspect repo, contract, .env presence, tickets and logbook; print exact next E2E step: [MODE=junior|expert] [--json] (docs/adr/0103)
+	@sh core/start.sh next $(NEXT_ARGS)
 
 # Self-checks run by `ci`, in order. engine-compat runs on the host (ADR 0004, ADR 0012 §5), never here.
 CI_CHECKS := secrets secrets-history lint shell help docs-drift map profiles workloads attach first-run zero-to-hero toolchain sast-diff init core-tests vendor-free app-free model-free codehost hooks harness harness-shape network tower mainline dev-phase intake decide screen assign perimeter review prompts evals promote board logbook roles postmortem metrics readiness package shell-boundary store-bus gates-light plugin agents plan range release wiki authors evidence outside contract

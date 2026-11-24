@@ -1,0 +1,67 @@
+{
+  "about": "Model provider metadata for guided setup and navigation (ADR 0103). Kept outside core/ so core/ remains model-free and vendor-free (ci/model-free.sh, ci/vendor-free.sh).",
+  "providers": {
+    "replay": {
+      "label": "Local replay (L0, zero API key)",
+      "harnesses": [
+        "replay"
+      ],
+      "default_harness": "replay",
+      "env_var": "",
+      "default_model": "",
+      "default_profile": "l0",
+      "decide": "replay",
+      "budget_guidance": "Free: replays recorded L0 responses with zero token or USD spend."
+    },
+    "gemini": {
+      "label": "Google Gemini",
+      "harnesses": [
+        "gemini-cli",
+        "antigravity-cli",
+        "adk"
+      ],
+      "default_harness": "gemini-cli",
+      "env_var": "GEMINI_API_KEY",
+      "default_model": "gemini-3.8-flash",
+      "default_profile": "l1",
+      "decide": "gemini-decisions",
+      "budget_guidance": "Free tier in AI Studio (250 req/day cap) or paid $0.75/M input, $0.075/M cached, $3.75/M output (profiles/prices.json); set SPEND_BUDGET_TICKET_USD and SPEND_BUDGET_DAY_USD in policy/rework.env."
+    },
+    "anthropic": {
+      "label": "Anthropic Claude",
+      "harnesses": [
+        "claude-code"
+      ],
+      "default_harness": "claude-code",
+      "env_var": "ANTHROPIC_API_KEY",
+      "default_model": "claude-sonnet-5-5",
+      "default_profile": "l1",
+      "decide": "structured",
+      "budget_guidance": "Paid per run: $2.00/M input, $0.10/M cached, $10.00/M output (profiles/prices.json); set SPEND_BUDGET_TICKET_USD and SPEND_BUDGET_DAY_USD in policy/rework.env."
+    },
+    "openai": {
+      "label": "OpenAI",
+      "harnesses": [
+        "codex"
+      ],
+      "default_harness": "codex",
+      "env_var": "OPENAI_API_KEY",
+      "default_model": "gpt-6.1-sol",
+      "default_profile": "l1",
+      "decide": "structured",
+      "budget_guidance": "Paid per run: $2.00/M input, $0.10/M cached, $10.00/M output (profiles/prices.json); set SPEND_BUDGET_TICKET_USD and SPEND_BUDGET_DAY_USD in policy/rework.env."
+    },
+    "zai": {
+      "label": "Z.ai (GLM)",
+      "harnesses": [
+        "claude-code"
+      ],
+      "default_harness": "claude-code",
+      "env_var": "ZAI_API_KEY",
+      "default_model": "glm-5.3",
+      "default_profile": "l1",
+      "decide": "structured",
+      "budget_guidance": "Paid per run (Standard API key): $1.40/M input, $0.26/M cached, $4.40/M output (profiles/prices.json); set SPEND_BUDGET_TICKET_USD and SPEND_BUDGET_DAY_USD in policy/rework.env."
+    }
+  }
+}
