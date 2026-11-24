@@ -367,14 +367,26 @@ def _infer_single_dir(repo, runners_dir, workspace_root=None):
         or os.path.isfile(os.path.join(repo, "build.gradle"))
         or os.path.isfile(os.path.join(repo, "build.gradle.kts"))
     ):
+        if stacks.is_kotlin_project(repo):
+            return stacks.infer_kotlin(repo, runners_dir=runners_dir, workspace_root=workspace_root)
         return stacks.infer_java(repo, runners_dir=runners_dir, workspace_root=workspace_root)
+    if stacks.has_dotnet_manifest(repo):
+        return stacks.infer_dotnet(repo, runners_dir=runners_dir, workspace_root=workspace_root)
+    if os.path.isfile(os.path.join(repo, "Package.swift")):
+        return stacks.infer_swift(repo, runners_dir=runners_dir, workspace_root=workspace_root)
+    if os.path.isfile(os.path.join(repo, "composer.json")):
+        return stacks.infer_php(repo, runners_dir=runners_dir, workspace_root=workspace_root)
+    if os.path.isfile(os.path.join(repo, "Gemfile")):
+        return stacks.infer_ruby(repo, runners_dir=runners_dir, workspace_root=workspace_root)
     if os.path.isfile(os.path.join(repo, "package.json")):
         if os.path.isfile(os.path.join(repo, "tsconfig.json")):
             return stacks.infer_typescript(repo, runners_dir=runners_dir, workspace_root=workspace_root)
         return stacks.infer_javascript(repo, runners_dir=runners_dir, workspace_root=workspace_root)
     raise Undraftable(
         "no stack found: looked for pyproject.toml / requirements.txt (python), "
-        "go.mod (go), Cargo.toml (rust), pom.xml / build.gradle (java), and package.json (typescript/javascript) at the root"
+        "go.mod (go), Cargo.toml (rust), pom.xml / build.gradle (java/kotlin), "
+        "*.csproj / *.sln (dotnet), Package.swift (swift), composer.json (php), "
+        "Gemfile (ruby), and package.json (typescript/javascript) at the root"
     )
 
 

@@ -518,8 +518,8 @@ def default_shapes() -> list[Shape]:
             expected_error_tokens=("no stack found", "pyproject.toml", "go.mod", "package.json"),
             files={
                 "README.md": "# Unknown stack sample\n",
-                "Gemfile": 'source "https://rubygems.invalid"\n',
-                "lib/sample.rb": "def ok; true; end\n",
+                "build.zig": 'const std = @import("std");\n',
+                "src/main.zig": "pub fn main() void {}\n",
             },
         ),
         Shape(
@@ -861,6 +861,479 @@ def default_shapes() -> list[Shape]:
                 "apps/api/src/index.js": "export const a = 1;\n",
                 "apps/web/package.json": json.dumps({"name": "web"}),
                 "apps/web/src/index.js": "export const b = 2;\n",
+            },
+        ),
+        Shape(
+            name="dotnet-sdk-http",
+            kind="positive",
+            expected_stack="dotnet",
+            expected_has_plane=True,
+            expected_port=8080,
+            expected_probe="http:/healthz",
+            expected_lockfiles="packages.lock.json",
+            expected_test_cmd_substr="dotnet test",
+            expected_toolchain="mcr.microsoft.com/dotnet/sdk:8.0",
+            host_sast=True,
+            files={
+                "CalcSvc.csproj": (
+                    '<Project Sdk="Microsoft.NET.Sdk.Web">\n'
+                    "  <PropertyGroup>\n"
+                    "    <TargetFramework>net8.0</TargetFramework>\n"
+                    "    <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>\n"
+                    "  </PropertyGroup>\n"
+                    "</Project>\n"
+                ),
+                "packages.lock.json": json.dumps(
+                    {"version": 1, "dependencies": {"net8.0": {}}}, indent=2
+                )
+                + "\n",
+                "src/Calc.cs": (
+                    "namespace CalcSvc;\n"
+                    "public static class Calc {\n"
+                    "    public static int Add(int a, int b) => a + b;\n"
+                    "}\n"
+                ),
+                "tests/CalcTests.cs": (
+                    "namespace CalcSvc.Tests;\n"
+                    "public class CalcTests {\n"
+                    "    public void TestAdd() { if (Calc.Add(1, 2) != 3) throw new System.Exception(); }\n"
+                    "}\n"
+                ),
+                "Containerfile": (
+                    "FROM mcr.microsoft.com/dotnet/aspnet:8.0\n"
+                    "EXPOSE 8080\n"
+                    "HEALTHCHECK CMD curl -f http://localhost:8080/healthz || exit 1\n"
+                    'CMD ["dotnet", "CalcSvc.dll"]\n'
+                ),
+            },
+            change_files={
+                "src/Calc.cs": (
+                    "namespace CalcSvc;\n"
+                    "public static class Calc {\n"
+                    "    public static int Add(int a, int b) => a + b;\n"
+                    "    public static int Mul(int a, int b) => a * b;\n"
+                    "}\n"
+                ),
+                "tests/CalcTests.cs": (
+                    "namespace CalcSvc.Tests;\n"
+                    "public class CalcTests {\n"
+                    "    public void TestAdd() { if (Calc.Add(1, 2) != 3) throw new System.Exception(); }\n"
+                    "    public void TestMul() { if (Calc.Mul(2, 3) != 6) throw new System.Exception(); }\n"
+                    "}\n"
+                ),
+            },
+        ),
+        Shape(
+            name="dotnet-cpm-sln-lib",
+            kind="positive",
+            expected_stack="dotnet",
+            expected_has_plane=False,
+            expected_lockfiles="Directory.Packages.props",
+            expected_test_cmd_substr="dotnet test",
+            expected_toolchain="mcr.microsoft.com/dotnet/sdk:9.0",
+            host_sast=True,
+            files={
+                "MathSuite.sln": (
+                    "Microsoft Visual Studio Solution File, Format Version 12.00\n"
+                    "# Visual Studio Version 17\n"
+                ),
+                "Directory.Packages.props": (
+                    "<Project>\n"
+                    "  <PropertyGroup>\n"
+                    "    <ManagePackageVersionsCentrally>true</ManagePackageVersionsCentrally>\n"
+                    "  </PropertyGroup>\n"
+                    "  <ItemGroup />\n"
+                    "</Project>\n"
+                ),
+                "src/MathLib/MathLib.csproj": (
+                    '<Project Sdk="Microsoft.NET.Sdk">\n'
+                    "  <PropertyGroup>\n"
+                    "    <TargetFramework>net9.0</TargetFramework>\n"
+                    "  </PropertyGroup>\n"
+                    "</Project>\n"
+                ),
+                "src/MathLib/Ops.cs": (
+                    "namespace MathLib;\n"
+                    "public static class Ops {\n"
+                    "    public static int Inc(int x) => x + 1;\n"
+                    "}\n"
+                ),
+                "tests/MathLib.Tests/OpsTests.cs": (
+                    "namespace MathLib.Tests;\n"
+                    "public class OpsTests {\n"
+                    "    public void TestInc() { if (Ops.Inc(2) != 3) throw new System.Exception(); }\n"
+                    "}\n"
+                ),
+            },
+            change_files={
+                "src/MathLib/Ops.cs": (
+                    "namespace MathLib;\n"
+                    "public static class Ops {\n"
+                    "    public static int Inc(int x) => x + 1;\n"
+                    "    public static int Dec(int x) => x - 1;\n"
+                    "}\n"
+                ),
+                "tests/MathLib.Tests/OpsTests.cs": (
+                    "namespace MathLib.Tests;\n"
+                    "public class OpsTests {\n"
+                    "    public void TestInc() { if (Ops.Inc(2) != 3) throw new System.Exception(); }\n"
+                    "    public void TestDec() { if (Ops.Dec(4) != 3) throw new System.Exception(); }\n"
+                    "}\n"
+                ),
+            },
+        ),
+        Shape(
+            name="kotlin-gradle-lib",
+            kind="positive",
+            expected_stack="kotlin",
+            expected_has_plane=False,
+            expected_lockfiles="gradle.lockfile",
+            expected_test_cmd_substr="./gradlew test",
+            expected_toolchain="docker.io/library/gradle:8-jdk21",
+            host_sast=True,
+            files={
+                "build.gradle.kts": 'plugins {\n    kotlin("jvm") version "2.0.21"\n}\n',
+                "gradlew": "#!/bin/sh\n",
+                "gradle.lockfile": "# Gradle lockfile\nempty=\n",
+                "src/main/kotlin/com/example/Calc.kt": (
+                    "package com.example\n"
+                    "object Calc {\n"
+                    "    fun add(a: Int, b: Int): Int = a + b\n"
+                    "}\n"
+                ),
+                "src/test/kotlin/com/example/CalcTest.kt": (
+                    "package com.example\n"
+                    "class CalcTest {\n"
+                    "    fun testAdd() { check(Calc.add(1, 2) == 3) }\n"
+                    "}\n"
+                ),
+            },
+            change_files={
+                "src/main/kotlin/com/example/Calc.kt": (
+                    "package com.example\n"
+                    "object Calc {\n"
+                    "    fun add(a: Int, b: Int): Int = a + b\n"
+                    "    fun mul(a: Int, b: Int): Int = a * b\n"
+                    "}\n"
+                ),
+                "src/test/kotlin/com/example/CalcTest.kt": (
+                    "package com.example\n"
+                    "class CalcTest {\n"
+                    "    fun testAdd() { check(Calc.add(1, 2) == 3) }\n"
+                    "    fun testMul() { check(Calc.mul(2, 3) == 6) }\n"
+                    "}\n"
+                ),
+            },
+        ),
+        Shape(
+            name="kotlin-maven-http",
+            kind="positive",
+            expected_stack="kotlin",
+            expected_has_plane=True,
+            expected_port=8080,
+            expected_probe="tcp:8080",
+            expected_lockfiles="pom.xml",
+            expected_test_cmd_substr="mvn test",
+            expected_toolchain="docker.io/library/maven:3.9-eclipse-temurin-21",
+            host_sast=True,
+            files={
+                "pom.xml": (
+                    '<project xmlns="http://maven.apache.org/POM/4.0.0">\n'
+                    "  <modelVersion>4.0.0</modelVersion>\n"
+                    "  <groupId>com.example</groupId>\n"
+                    "  <artifactId>kt-http</artifactId>\n"
+                    "  <version>0.1.0</version>\n"
+                    "  <build><plugins><plugin>\n"
+                    "    <groupId>org.jetbrains.kotlin</groupId>\n"
+                    "    <artifactId>kotlin-maven-plugin</artifactId>\n"
+                    "    <version>2.0.21</version>\n"
+                    "  </plugin></plugins></build>\n"
+                    "</project>\n"
+                ),
+                "src/main/kotlin/com/example/Server.kt": (
+                    "package com.example\n"
+                    "object Server {\n"
+                    '    fun status(code: Int): String = if (code < 400) "ok" else "err"\n'
+                    "}\n"
+                ),
+                "src/test/kotlin/com/example/ServerTest.kt": (
+                    "package com.example\n"
+                    "class ServerTest {\n"
+                    '    fun testOk() { check(Server.status(200) == "ok") }\n'
+                    "}\n"
+                ),
+                "Containerfile": (
+                    "FROM docker.io/library/eclipse-temurin:21-jre\n"
+                    "EXPOSE 8080\n"
+                    'CMD ["java", "-jar", "/server.jar"]\n'
+                ),
+            },
+            change_files={
+                "src/main/kotlin/com/example/Server.kt": (
+                    "package com.example\n"
+                    "object Server {\n"
+                    '    fun status(code: Int): String = if (code < 400) "ok" else "err"\n'
+                    "    fun healthy(code: Int): Boolean = code in 200..299\n"
+                    "}\n"
+                ),
+                "src/test/kotlin/com/example/ServerTest.kt": (
+                    "package com.example\n"
+                    "class ServerTest {\n"
+                    '    fun testOk() { check(Server.status(200) == "ok") }\n'
+                    "    fun testHealthy() { check(Server.healthy(204)) }\n"
+                    "}\n"
+                ),
+            },
+        ),
+        Shape(
+            name="swift-spm-lib",
+            kind="positive",
+            expected_stack="swift",
+            expected_has_plane=False,
+            expected_lockfiles="Package.resolved",
+            expected_test_cmd_substr="swift test",
+            expected_toolchain="docker.io/library/swift:6.0",
+            host_sast=True,
+            files={
+                "Package.swift": (
+                    "// swift-tools-version: 6.0\n"
+                    "import PackageDescription\n"
+                    "let package = Package(\n"
+                    '    name: "Calc",\n'
+                    '    targets: [.target(name: "Calc"), .testTarget(name: "CalcTests", dependencies: ["Calc"])]\n'
+                    ")\n"
+                ),
+                "Package.resolved": json.dumps({"pins": [], "version": 2}, indent=2) + "\n",
+                "Sources/Calc/Calc.swift": (
+                    "public enum Calc {\n"
+                    "    public static func add(_ a: Int, _ b: Int) -> Int { a + b }\n"
+                    "}\n"
+                ),
+                "Tests/CalcTests/CalcTests.swift": (
+                    "import Calc\n"
+                    "func testAdd() { precondition(Calc.add(2, 3) == 5) }\n"
+                ),
+            },
+            change_files={
+                "Sources/Calc/Calc.swift": (
+                    "public enum Calc {\n"
+                    "    public static func add(_ a: Int, _ b: Int) -> Int { a + b }\n"
+                    "    public static func double(_ x: Int) -> Int { x * 2 }\n"
+                    "}\n"
+                ),
+                "Tests/CalcTests/CalcTests.swift": (
+                    "import Calc\n"
+                    "func testAdd() { precondition(Calc.add(2, 3) == 5) }\n"
+                    "func testDouble() { precondition(Calc.double(4) == 8) }\n"
+                ),
+            },
+        ),
+        Shape(
+            name="php-composer-lib",
+            kind="positive",
+            expected_stack="php",
+            expected_has_plane=False,
+            expected_lockfiles="composer.lock",
+            expected_test_cmd_substr="vendor/bin/phpunit",
+            expected_toolchain="docker.io/library/php:8.3-cli",
+            host_sast=True,
+            files={
+                "composer.json": json.dumps(
+                    {
+                        "name": "acme/calc",
+                        "require": {"php": "^8.3"},
+                        "autoload": {"psr-4": {"Acme\\Calc\\": "src/"}},
+                    },
+                    indent=2,
+                )
+                + "\n",
+                "composer.lock": json.dumps(
+                    {
+                        "_readme": ["Locked Composer dependencies"],
+                        "content-hash": "d41d8cd98f00b204e9800998ecf8427e",
+                        "packages": [],
+                        "packages-dev": [],
+                    },
+                    indent=2,
+                )
+                + "\n",
+                "src/Calc.php": (
+                    "<?php\n"
+                    "declare(strict_types=1);\n"
+                    "namespace Acme\\Calc;\n"
+                    "final class Calc {\n"
+                    "    public static function add(int $a, int $b): int { return $a + $b; }\n"
+                    "}\n"
+                ),
+                "tests/CalcTest.php": (
+                    "<?php\n"
+                    "declare(strict_types=1);\n"
+                    "final class CalcTest {\n"
+                    "    public function testAdd(): void { assert(\\Acme\\Calc\\Calc::add(1, 2) === 3); }\n"
+                    "}\n"
+                ),
+            },
+            change_files={
+                "src/Calc.php": (
+                    "<?php\n"
+                    "declare(strict_types=1);\n"
+                    "namespace Acme\\Calc;\n"
+                    "final class Calc {\n"
+                    "    public static function add(int $a, int $b): int { return $a + $b; }\n"
+                    "    public static function mul(int $a, int $b): int { return $a * $b; }\n"
+                    "}\n"
+                ),
+                "tests/CalcTest.php": (
+                    "<?php\n"
+                    "declare(strict_types=1);\n"
+                    "final class CalcTest {\n"
+                    "    public function testAdd(): void { assert(\\Acme\\Calc\\Calc::add(1, 2) === 3); }\n"
+                    "    public function testMul(): void { assert(\\Acme\\Calc\\Calc::mul(2, 3) === 6); }\n"
+                    "}\n"
+                ),
+            },
+        ),
+        Shape(
+            name="ruby-bundler-rspec",
+            kind="positive",
+            expected_stack="ruby",
+            expected_has_plane=False,
+            expected_lockfiles="Gemfile.lock",
+            expected_test_cmd_substr="bundle exec rspec",
+            expected_toolchain="docker.io/library/ruby:3.3",
+            host_sast=True,
+            files={
+                "Gemfile": 'source "https://rubygems.org"\n',
+                "Gemfile.lock": (
+                    "GEM\n  remote: https://rubygems.org/\n  specs:\n\n"
+                    "PLATFORMS\n  ruby\n\nDEPENDENCIES\n\nBUNDLED WITH\n   2.5.0\n"
+                ),
+                ".ruby-version": "3.3.5\n",
+                "lib/calc.rb": (
+                    "module Calc\n"
+                    "  def self.add(a, b)\n"
+                    "    a + b\n"
+                    "  end\n"
+                    "end\n"
+                ),
+                "spec/calc_spec.rb": (
+                    'require_relative "../lib/calc"\n'
+                    'raise "bad" unless Calc.add(1, 2) == 3\n'
+                ),
+            },
+            change_files={
+                "lib/calc.rb": (
+                    "module Calc\n"
+                    "  def self.add(a, b)\n"
+                    "    a + b\n"
+                    "  end\n\n"
+                    "  def self.double(x)\n"
+                    "    x * 2\n"
+                    "  end\n"
+                    "end\n"
+                ),
+                "spec/calc_spec.rb": (
+                    'require_relative "../lib/calc"\n'
+                    'raise "bad" unless Calc.add(1, 2) == 3\n'
+                    'raise "bad" unless Calc.double(4) == 8\n'
+                ),
+            },
+        ),
+        Shape(
+            name="monorepo-dotnet-ruby-service",
+            kind="positive",
+            init_service="services/notifier",
+            expected_stack="ruby",
+            expected_has_plane=False,
+            expected_test_root="services/notifier/",
+            expected_lockfiles="services/notifier/Gemfile.lock",
+            expected_test_cmd_substr="bundle exec rake test",
+            expected_toolchain="docker.io/library/ruby:3.3",
+            host_sast=True,
+            files={
+                "services/billing/Billing.csproj": (
+                    '<Project Sdk="Microsoft.NET.Sdk">\n'
+                    "  <PropertyGroup><TargetFramework>net8.0</TargetFramework></PropertyGroup>\n"
+                    "</Project>\n"
+                ),
+                "services/billing/packages.lock.json": json.dumps(
+                    {"version": 1, "dependencies": {"net8.0": {}}}
+                )
+                + "\n",
+                "services/billing/src/Billing.cs": "namespace Billing;\npublic class Ledger {}\n",
+                "services/notifier/Gemfile": 'source "https://rubygems.org"\n',
+                "services/notifier/Gemfile.lock": (
+                    "GEM\n  remote: https://rubygems.org/\n  specs:\n\n"
+                    "PLATFORMS\n  ruby\n\nDEPENDENCIES\n\nBUNDLED WITH\n   2.5.0\n"
+                ),
+                "services/notifier/lib/notifier.rb": (
+                    "module Notifier\n"
+                    "  def self.format(code)\n"
+                    "    code == 200\n"
+                    "  end\n"
+                    "end\n"
+                ),
+                "services/notifier/test/test_notifier.rb": (
+                    'require_relative "../lib/notifier"\n'
+                    'raise "bad" unless Notifier.format(200)\n'
+                ),
+            },
+            change_files={
+                "services/notifier/lib/notifier.rb": (
+                    "module Notifier\n"
+                    "  def self.format(code)\n"
+                    "    code == 200\n"
+                    "  end\n\n"
+                    "  def self.retryable?(code)\n"
+                    "    code >= 500\n"
+                    "  end\n"
+                    "end\n"
+                ),
+                "services/notifier/test/test_notifier.rb": (
+                    'require_relative "../lib/notifier"\n'
+                    'raise "bad" unless Notifier.format(200)\n'
+                    'raise "bad" unless Notifier.retryable?(503)\n'
+                ),
+            },
+        ),
+        Shape(
+            name="neg-dotnet-no-lock",
+            kind="negative",
+            expected_error_tokens=("packages.lock.json", "Directory.Packages.props"),
+            files={
+                "Demo.csproj": (
+                    '<Project Sdk="Microsoft.NET.Sdk">\n'
+                    "  <PropertyGroup><TargetFramework>net8.0</TargetFramework></PropertyGroup>\n"
+                    "</Project>\n"
+                ),
+                "src/Calc.cs": "public class Calc {}\n",
+            },
+        ),
+        Shape(
+            name="neg-swift-no-resolved",
+            kind="negative",
+            expected_error_tokens=("Package.swift", "Package.resolved"),
+            files={
+                "Package.swift": '// swift-tools-version: 6.0\nimport PackageDescription\nlet package = Package(name: "Demo")\n',
+                "Sources/Demo/Demo.swift": "public struct Demo {}\n",
+            },
+        ),
+        Shape(
+            name="neg-php-no-lock",
+            kind="negative",
+            expected_error_tokens=("composer.json", "composer.lock"),
+            files={
+                "composer.json": json.dumps({"name": "acme/no-lock", "require": {"php": "^8.3"}}) + "\n",
+                "src/Demo.php": "<?php\nfinal class Demo {}\n",
+            },
+        ),
+        Shape(
+            name="neg-ruby-no-lock",
+            kind="negative",
+            expected_error_tokens=("Gemfile", "Gemfile.lock"),
+            files={
+                "Gemfile": 'source "https://rubygems.invalid"\n',
+                "lib/demo.rb": "module Demo; end\n",
             },
         ),
     ]

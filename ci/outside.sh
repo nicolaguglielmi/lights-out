@@ -485,6 +485,73 @@ ln -s /etc/hostname "$ext/file-tracker-linked/extra.sh"
 m help TRACKER=outside/file-tracker-linked
 refused "tracker symlink in tree" "TRACKER=outside/file-tracker-linked is refused" "symlink"
 
+# --- a5: EVENT_BUS=outside/file-eventbus (ADR 0129) ---
+cp -R fixtures/outside-adapters/file-eventbus "$ext/file-eventbus"
+export FILE_EVENTBUS_DIR="$tmp/file-eventbus-state"
+eb_var="EVENT_BUS=outside/file-eventbus"
+
+m help "$eb_var"
+refused "eventbus no proof" "$eb_var is refused" "eventbus-conformance GO" "./go eventbus-conformance $eb_var"
+[ ! -e "$root/adapters/outside/file-eventbus" ] || nogo "a5: no proof linked file-eventbus anyway"
+
+cp -R fixtures/outside-adapters/file-eventbus "$ext/file-eventbus-tamper"
+before_reg=$(cat "$reg")
+(cd "$root" && EVENT_BUS=outside/file-eventbus-tamper ADAPTERS_PATH="$ext" ADAPTERS_REGISTER="$reg" python3 core/adapters.py trial EVENT_BUS) \
+  || nogo "a5: trial file-eventbus-tamper failed"
+printf '\n' >> "$ext/file-eventbus-tamper/publish.sh"
+tamper_rc=0
+(cd "$root" && EVENT_BUS=outside/file-eventbus-tamper ADAPTERS_PATH="$ext" ADAPTERS_REGISTER="$reg" python3 core/adapters.py register EVENT_BUS eventbus-conformance >/dev/null 2>&1) || tamper_rc=$?
+[ "$tamper_rc" -ne 0 ] || nogo "a5: register accepted eventbus tree mutated during trial"
+(cd "$root" && ADAPTERS_REGISTER="$reg" python3 core/adapters.py untrial EVENT_BUS) >/dev/null 2>&1 || true
+[ "$(cat "$reg")" = "$before_reg" ] || nogo "a5: mutated eventbus trial wrote to register"
+[ ! -e "$tmp/trial-EVENT_BUS" ] || nogo "a5: untrial left trial-EVENT_BUS behind"
+
+cp -R fixtures/outside-adapters/file-eventbus "$ext/file-eventbus-broken"
+cat > "$ext/file-eventbus-broken/pull.sh" <<'EOF'
+#!/bin/sh
+exit 0
+EOF
+chmod +x "$ext/file-eventbus-broken/pull.sh"
+m eventbus-conformance EVENT_BUS=outside/file-eventbus-broken FILE_EVENTBUS_DIR="$tmp/file-eventbus-broken-state"
+[ "$rc" -ne 0 ] || nogo "a5: broken eventbus passed eventbus-conformance: [$out]"
+case "$out" in "NO-GO: eventbus-conformance — "*) ;; *) nogo "a5: broken eventbus printed [$out]" ;; esac
+[ "$(cat "$reg")" = "$before_reg" ] || nogo "a5: broken eventbus wrote to register"
+m help EVENT_BUS=outside/file-eventbus-broken
+refused "broken eventbus" "EVENT_BUS=outside/file-eventbus-broken is refused"
+
+(cd "$root" && EVENT_BUS=outside/file-eventbus ADAPTERS_PATH="$ext" ADAPTERS_REGISTER="$reg" python3 core/adapters.py trial EVENT_BUS) \
+  || nogo "a5: trial EVENT_BUS failed"
+m help "$eb_var"
+refused "eventbus on trial without ADAPTERS_TRIAL" "$eb_var is refused"
+m help "$eb_var" ADAPTERS_TRIAL=EVENT_BUS
+admitted "file-eventbus during trial with ADAPTERS_TRIAL=EVENT_BUS"
+sh "$root/adapters/outside/file-eventbus/ready.sh" || nogo "a5: file-eventbus ready.sh failed"
+eb_out=$(cd "$root" && EVENT_BUS=outside/file-eventbus ADAPTERS_PATH="$ext" ADAPTERS_REGISTER="$reg" ADAPTERS_TRIAL=EVENT_BUS CONFORMANCE=1 CONFORMANCE_ACK_DEADLINE=1 sh gates/eventbus-conformance.sh 2>/dev/null) \
+  || nogo "a5: eventbus-conformance failed on outside/file-eventbus: [$eb_out]"
+case "$eb_out" in "GO: eventbus-conformance — outside/file-eventbus, 6 cases") ;; *) nogo "a5: eventbus-conformance printed [$eb_out]" ;; esac
+
+eb_digest=$(python3 core/adapters.py hash "$ext/file-eventbus")
+(cd "$root" && EVENT_BUS=outside/file-eventbus ADAPTERS_PATH="$ext" ADAPTERS_REGISTER="$reg" python3 core/adapters.py register EVENT_BUS eventbus-conformance) \
+  || nogo "a5: register EVENT_BUS failed"
+[ ! -e "$tmp/trial-EVENT_BUS" ] || nogo "a5: register EVENT_BUS left trial-EVENT_BUS behind"
+awk -F'\t' -v d="$eb_digest" '$1 == "EVENT_BUS" && $2 == "file-eventbus" && $3 == d && index($4, "eventbus-conformance@") == 1 { f = 1 } END { exit !f }' "$reg" 2>/dev/null \
+  || nogo "a5: register EVENT_BUS wrote no line for sha256 $eb_digest"
+
+rm -f "$root/adapters/outside/file-eventbus"
+m help "$eb_var"
+admitted "file-eventbus after register"
+[ -L "$root/adapters/outside/file-eventbus" ] || nogo "a5: admitted EVENT_BUS not linked"
+[ "$(readlink "$root/adapters/outside/file-eventbus")" = "$ext/file-eventbus" ] || nogo "a5: EVENT_BUS link mismatch"
+
+printf '\n' >> "$ext/file-eventbus/ack.sh"
+m help "$eb_var"
+refused "eventbus one changed byte" "$eb_var is refused"
+
+cp -R fixtures/outside-adapters/file-eventbus "$ext/file-eventbus-linked"
+ln -s /etc/hostname "$ext/file-eventbus-linked/extra.sh"
+m help EVENT_BUS=outside/file-eventbus-linked
+refused "eventbus symlink in tree" "EVENT_BUS=outside/file-eventbus-linked is refused" "symlink"
+
 # --- b: a surface is never a judge (ADR 0058 §6, ADR 0095 §10) -------------------
 # The contexts the tower posts: the third argument of every status.sh call in core/.
 tower=$(awk '!/^[[:space:]]*#/ && /adapters\/\$CODE_HOST\/status\.sh"/ {
@@ -521,4 +588,4 @@ surfaces/gitlab-ci/.gitlab-ci.yml lights-out/gitlab-ci failed
 surfaces/circleci/config.yml lights-out/circleci failure
 EOF
 
-go_with "outside StateStore, Delivery, CodeHost, Registry, Flags and Tracker refused, proven, admitted, refused again on one byte; the surfaces post under${contexts}, the tower under $(printf '%s' "$tower" | tr '\n' ' ' | sed 's/ $//')"
+go_with "outside StateStore, Delivery, CodeHost, Registry, Flags, Tracker and EventBus refused, proven, admitted, refused again on one byte; the surfaces post under${contexts}, the tower under $(printf '%s' "$tower" | tr '\n' ' ' | sed 's/ $//')"
