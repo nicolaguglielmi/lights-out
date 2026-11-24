@@ -164,7 +164,7 @@ class EntrypointWorkloadE2ETests(unittest.TestCase):
         shutil.copytree(
             ROOT,
             self.img_root,
-            ignore=shutil.ignore_patterns(".git", ".crew", ".attached", ".gates-out", "__pycache__"),
+            ignore=shutil.ignore_patterns(".git", ".crew", ".attached", ".gates-out", ".claude", "__pycache__"),
         )
         (self.img_root / ".crew").mkdir(exist_ok=True)
 
@@ -334,7 +334,7 @@ class CiPackageBehavioralTests(unittest.TestCase):
         copy_root = tmp / "repo"
         shutil.copytree(
             ROOT, copy_root,
-            ignore=shutil.ignore_patterns(".git", ".crew", ".attached", ".gates-out", "__pycache__"),
+            ignore=shutil.ignore_patterns(".git", ".crew", ".attached", ".gates-out", ".claude", "__pycache__"),
         )
         lo = copy_root / "lights-out"
         text = lo.read_text(encoding="utf-8")

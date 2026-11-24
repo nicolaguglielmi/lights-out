@@ -6,7 +6,7 @@
 SHELL := /bin/sh
 .DEFAULT_GOAL := help
 
-ifneq ($(filter demo demo-% ci ci-% e2e corpus init try gates test-proof test-integrity mutation-baseline attached,$(MAKECMDGOALS)),)
+ifneq ($(filter demo demo-% ci ci-% e2e corpus init try gates test-proof test-integrity adr-check migration-safety mutation-baseline attached,$(MAKECMDGOALS)),)
 LIGHTS_OUT_NO_START_PLAN := 1
 export LIGHTS_OUT_NO_START_PLAN
 endif
@@ -75,7 +75,7 @@ CORPUS_FULL ?= 0
 # `init`/`try` draft one (docs/adr/0042 §6, 0093 §5), `cloud-setup` stages
 # cloud infrastructure templates (docs/adr/0104), and `start`/`next` guide a
 # repo from Stage 1 before a contract exists (docs/adr/0103).
-ifneq ($(filter $(MAKECMDGOALS),init try cloud-setup start next alert-webhook auto-incident),)
+ifneq ($(filter $(MAKECMDGOALS),init try cloud-setup start next cli top alert-webhook auto-incident),)
 -include $(WORKLOAD_CONTRACT)/workload.env
 else
 include $(WORKLOAD_CONTRACT)/workload.env
@@ -89,7 +89,7 @@ export
 # goals only tries the adapter instead: its recipe goes through `conform`.
 OUTSIDE_PORTS := AGENT_HARNESS CODE_HOST DELIVERY STATE_STORE EVENT_BUS TRACKER ORCHESTRATOR METRICS FLAGS REGISTRY
 ifneq ($(filter outside/%,$(foreach p,$(OUTSIDE_PORTS),$($(p)))),)
-ifneq ($(filter-out %-conformance start next cloud-setup alert-webhook auto-incident,$(or $(MAKECMDGOALS),help)),)
+ifneq ($(filter-out %-conformance start next cli top cloud-setup alert-webhook auto-incident,$(or $(MAKECMDGOALS),help)),)
 ADMIT := $(shell python3 core/adapters.py admit 2>&1)
 ifneq ($(ADMIT),)
 $(error $(ADMIT))
@@ -296,6 +296,24 @@ start: ## Guided interactive setup wizard (or --non-interactive): writes non-sec
 .PHONY: next
 next: ## Inspect repo, contract, .env presence, tickets and logbook; print exact next E2E step: [MODE=junior|expert] [--json] (docs/adr/0103)
 	@sh core/start.sh next $(NEXT_ARGS)
+
+.PHONY: cli
+cli: ## Unified noun-verb CLI over flat commands and JSON envelopes: [CLI_ARGS="..."] (docs/adr/0112)
+	@sh core/cli.sh $(CLI_ARGS)
+
+.PHONY: top
+top: ## Interactive terminal cockpit over the logbook: [LOGBOOK_FILE=.crew/logbook.json] [URL=] [ONCE=1] [JSON=1] (docs/adr/0114)
+	@sh core/tui.sh \
+		$(if $(or $(LOGBOOK_FILE),$(LOGBOOK)),--logbook "$(or $(LOGBOOK_FILE),$(LOGBOOK))") \
+		$(if $(URL),--url "$(URL)") \
+		$(if $(POLL_S),--poll-s "$(POLL_S)") \
+		$(if $(VIEW),--view "$(VIEW)") \
+		$(if $(filter command line environment,$(origin TICKET)),--ticket "$(TICKET)") \
+		$(if $(WIDTH),--width "$(WIDTH)") \
+		$(if $(HEIGHT),--height "$(HEIGHT)") \
+		$(if $(filter 1 true yes,$(ONCE)),--once) \
+		$(if $(filter 1 true yes,$(JSON)),--json) \
+		$(TOP_ARGS)
 
 # Self-checks run by `ci`, in order. engine-compat runs on the host (ADR 0004, ADR 0012 §5), never here.
 CI_CHECKS := secrets secrets-history lint shell help docs-drift map profiles workloads attach first-run zero-to-hero toolchain sast-diff init core-tests vendor-free app-free model-free codehost hooks harness harness-shape network tower mainline dev-phase intake decide screen assign perimeter review prompts evals promote board logbook roles postmortem metrics readiness package shell-boundary store-bus gates-light plugin agents plan range release wiki authors evidence outside corpus contract
@@ -657,6 +675,28 @@ gates: ## Judge a PR: BASE=<ref> HEAD=<ref> (default: the last commit) — risk,
 	} > "$(GATES_OUT)/verdict.env"; \
 	where=""; [ ! -f "$(GATES_OUT)/toolchain.where" ] || where=", in $$(cat "$(GATES_OUT)/toolchain.where")"; \
 	printf 'GO: gates — risk %s, %s%s\n' "$$level" "$$decision" "$$where"
+
+.PHONY: adr-check
+adr-check: ## Check ADR lifecycle compliance on a range: [BASE=<ref>] [HEAD=<ref>] (docs/adr/0115)
+	@rm -rf "$(GATES_OUT)" && mkdir -p "$(GATES_OUT)"
+	@base="$(BASE)"; head="$(HEAD)"; \
+	[ -n "$$head" ] || head=$$(git -C "$(WORKLOAD)" rev-parse HEAD); \
+	if [ -z "$$base" ]; then \
+		base=$$(git -C "$(WORKLOAD)" rev-parse --verify -q "$$head~1" 2>/dev/null) \
+			|| base=$$(git -C "$(WORKLOAD)" hash-object -t tree /dev/null); \
+	fi; \
+	BASE="$$base" HEAD="$$head" NOGO_DETAILS="$(GATES_OUT)/adr-check.details" sh gates/adr-check.sh
+
+.PHONY: migration-safety
+migration-safety: ## Check expand/contract database migration safety: [BASE=<ref>] [HEAD=<ref>] [TICKET_FILE=<path>] (docs/adr/0123)
+	@rm -rf "$(GATES_OUT)" && mkdir -p "$(GATES_OUT)"
+	@base="$(BASE)"; head="$(HEAD)"; \
+	[ -n "$$head" ] || head=$$(git -C "$(WORKLOAD)" rev-parse HEAD); \
+	if [ -z "$$base" ]; then \
+		base=$$(git -C "$(WORKLOAD)" rev-parse --verify -q "$$head~1" 2>/dev/null) \
+			|| base=$$(git -C "$(WORKLOAD)" hash-object -t tree /dev/null); \
+	fi; \
+	BASE="$$base" HEAD="$$head" NOGO_DETAILS="$(GATES_OUT)/migration-safety.details" sh gates/migration-safety.sh
 
 # Proves every gate can both GO and NO-GO, on committed fixtures, not just
 # once in a build log (docs/adr/0015 §6; the demo-hold lesson, docs/adr/0014:

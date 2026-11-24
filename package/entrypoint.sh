@@ -13,6 +13,8 @@
 #   gates ... JUDGED=<shas>  ... mutation skips the lines unchanged from those judged trees (docs/adr/0074)
 #   test-proof [--engine] [BASE= HEAD=]     the gates test and test-proof only: the tests a change adds fail on its base
 #   test-integrity [--engine] [BASE= HEAD=] the gates test-weakening and mutation only: no test weakened, the changed lines' mutants killed
+#   adr-check [--engine] [BASE= HEAD=]      judge ADR lifecycle compliance against policy
+#   migration-safety [--engine] [BASE= HEAD=] judge database migration expand/contract safety
 #   triage ALERT=<file>      a path under /repo (the full image only)
 #   postmortem INCIDENT=<file>   a path under /repo; tickets go to /out/tickets (the full image only)
 #   next [MODE=junior|expert] [--json]       inspect repo, contract and state; print next E2E command
@@ -37,6 +39,7 @@
 #   auto-incident [RELEASE_RECORD=]          incident document from a rolled-back release record
 #   incident NAME= FROM= TO= [LOGS=]         incident document from the release record (TICKET= needs the plane)
 #   alert-webhook ALERT_FILE=<path>          normalize an alert JSON file under /repo
+#   top [LOGBOOK_FILE= URL= ONCE=1 --json]   interactive terminal cockpit over the logbook
 #   try                                      draft the contract and judge the last commit, keep the draft
 #   watch [ONCE=1] [POLL_S=<sec>]            continuous tower orchestrator draining the event bus
 #   request TICKET=<id> [REQUEST_BY=]        start a ticket at requested
@@ -75,10 +78,10 @@ member() {
 
 verbs_of() {
   case "$1" in
-    repo) echo "init try gates test-proof test-integrity doctor map corpus" ;;
+    repo) echo "init try gates test-proof test-integrity adr-check migration-safety doctor map corpus" ;;
     ticket) echo "intake request answer intake-confirm assign resume network audit" ;;
     release) echo "up down smoke deploy promote evidence production-readiness" ;;
-    ops) echo "watch alert-webhook triage auto-incident incident postmortem dora spend" ;;
+    ops) echo "watch alert-webhook triage auto-incident incident postmortem dora spend top" ;;
     config) echo "start next cloud-setup scoreboard agents" ;;
   esac
 }
@@ -86,6 +89,7 @@ verbs_of() {
 # The keys beyond the 29 a command takes (docs/adr/0112 §2), same as the wrapper's.
 extra_keys_for() {
   case "$1" in
+    migration-safety) echo "TICKET_FILE" ;;
     request) echo "REQUEST_BY REQUEST_VIA" ;;
     network) echo "ATTEMPT" ;;
     watch) echo "ONCE POLL_S" ;;
@@ -94,6 +98,7 @@ extra_keys_for() {
     incident) echo "NAME FROM TO LOGS" ;;
     map) echo "MAP_FILE" ;;
     cloud-setup) echo "SLO_MODE" ;;
+    top) echo "LOGBOOK_FILE LOGBOOK URL ONCE JSON POLL_S VIEW WIDTH HEIGHT" ;;
   esac
 }
 
@@ -154,8 +159,8 @@ if [ -n "$json_mode" ]; then
 fi
 
 case "$sub" in
-  init|gates|test-proof|test-integrity) ;;
-  triage|postmortem|next|dora|spend|cloud-setup|map|network|scoreboard|auto-incident|incident|alert-webhook|start|intake|answer|intake-confirm|assign|up|down|smoke|release|promote|console|evidence|try|watch|request|resume|audit|production-readiness)
+  init|gates|test-proof|test-integrity|adr-check|migration-safety) ;;
+  triage|postmortem|next|dora|spend|cloud-setup|map|network|scoreboard|auto-incident|incident|alert-webhook|top|start|intake|answer|intake-confirm|assign|up|down|smoke|release|promote|console|evidence|try|watch|request|resume|audit|production-readiness)
     # The gates image has no ADK, compose, cosign, or full platform runtime (docs/adr/0057 §3, 0105).
     [ "${LIGHTS_OUT_FLAVOUR:-full}" != gates ] \
       || nogo "this is the gates image; $sub runs in ghcr.io/nicolaguglielmi/lights-out:${LIGHTS_OUT_VERSION:-<version>} (LIGHTS_OUT_IMAGE)" ;;
@@ -166,7 +171,7 @@ case "$sub" in
     sed -n 's/^#   //p' "$0" >&2
     # shellcheck disable=SC2034 # consumed by nogo in sourced ci/lib.sh
     name=lights-out
-    nogo "unknown command '$sub'; one of: init gates test-proof test-integrity triage postmortem version next dora spend cloud-setup map network scoreboard auto-incident incident alert-webhook start intake answer intake-confirm assign up down smoke release promote console evidence try watch request resume audit production-readiness; or a domain (repo ticket release ops config) and a verb" ;;
+    nogo "unknown command '$sub'; one of: init gates test-proof test-integrity adr-check migration-safety triage postmortem version next dora spend cloud-setup map network scoreboard auto-incident incident alert-webhook top start intake answer intake-confirm assign up down smoke release promote console evidence try watch request resume audit production-readiness; or a domain (repo ticket release ops config) and a verb" ;;
 esac
 
 host_out=${LIGHTS_OUT_HOST_OUT:-/out}
@@ -232,6 +237,18 @@ while [ "$i" -lt "$nargs" ]; do
     INCIDENT=*) a="INCIDENT=$repo_dir/${a#INCIDENT=}" ;;
     "ALERT_FILE="/*) ;;
     "ALERT_FILE="*) a="ALERT_FILE=$repo_dir/${a#ALERT_FILE=}" ;;
+    "LOGBOOK_FILE="/*) ;;
+    "LOGBOOK_FILE="*)
+      lpath=${a#LOGBOOK_FILE=}
+      [ ! -e "$repo_dir/$lpath" ] || a="LOGBOOK_FILE=$repo_dir/$lpath" ;;
+    "LOGBOOK="/*) ;;
+    "LOGBOOK="*)
+      lpath=${a#LOGBOOK=}
+      [ ! -e "$repo_dir/$lpath" ] || a="LOGBOOK=$repo_dir/$lpath" ;;
+    "TICKET_FILE="/*) ;;
+    "TICKET_FILE="*)
+      tpath=${a#TICKET_FILE=}
+      [ ! -e "$repo_dir/$tpath" ] || a="TICKET_FILE=$repo_dir/$tpath" ;;
     DECISIONS=@/*) ;;
     DECISIONS=@*)
       dpath=${a#DECISIONS=@}
@@ -277,10 +294,10 @@ while [ "$i" -lt "$nargs" ]; do
     REASON=*) reason_val=${a#REASON=} ;;
     BASE=*|HEAD=*|JUDGED=*|MODEL=*|TICKET=*|TEXT=*|ANSWER=*|DECISIONS=*|VERSION=*|CANARY_VERSION=*|CANARY_TAG=*|GO_FOR_LAUNCH=*|CLOUD=*|CODE_HOST=*|ADAPTERS_PATH=*|WINDOW_DAYS=*) ;;
     --json)
-      case "$sub" in start|next) cli_args="$cli_args${cli_args:+$cli_sep}$a"; continue ;; esac
-      nogo "'$a' is not offered for $sub: a gate keeps its one-line GO/NO-GO contract, and start and next keep their native --json (docs/adr/0112 §5)" ;;
+      case "$sub" in start|next|top) cli_args="$cli_args${cli_args:+$cli_sep}$a"; continue ;; esac
+      nogo "'$a' is not offered for $sub: a gate keeps its one-line GO/NO-GO contract, and start, next, and top keep their native --json (docs/adr/0112 §5)" ;;
     --jsonl)
-      nogo "'$a' is not offered for $sub: a gate keeps its one-line GO/NO-GO contract, and start and next keep their native --json (docs/adr/0112 §5)" ;;
+      nogo "'$a' is not offered for $sub: a gate keeps its one-line GO/NO-GO contract, and start, next, and top keep their native --json (docs/adr/0112 §5)" ;;
     --mode=*)
       case "$sub" in start|next) cli_args="$cli_args${cli_args:+$cli_sep}$a"; continue ;; esac
       nogo "'$a' is only valid with start or next" ;;
@@ -307,11 +324,11 @@ while [ "$i" -lt "$nargs" ]; do
       continue ;;
     --engine)
       case "$sub" in
-        init|gates|test-proof|test-integrity)
+        init|gates|test-proof|test-integrity|adr-check|migration-safety)
           LIGHTS_OUT_ENGINE_GATES=1
           export LIGHTS_OUT_ENGINE_GATES
           continue ;;
-        *) nogo "'$a' is only valid with init, gates, test-proof, or test-integrity" ;;
+        *) nogo "'$a' is only valid with init, gates, test-proof, test-integrity, adr-check, or migration-safety" ;;
       esac ;;
     [A-Z]*=*)
       member "${a%%=*}" "$(extra_keys_for "$sub")" \
@@ -392,7 +409,7 @@ if [ -n "${LIGHTS_OUT_PLATFORM_DIR:-}" ]; then
   cd "$plat"
 
   case "$sub" in
-    init|gates|test-proof|test-integrity)
+    init|gates|test-proof|test-integrity|adr-check|migration-safety)
       gate_attached="$plat/.gates-attached"
       REMOTE_ENV_OUT=/tmp/lights-out/gates-remote.env
       LIGHTS_OUT_NO_START_PLAN=1
@@ -462,7 +479,7 @@ fi
 # mounted from $out/crew. cloud-setup skips attach; next/dora/spend attach
 # $repo_dir when available.
 case "$sub" in
-  cloud-setup|scoreboard|auto-incident|incident|alert-webhook)
+  cloud-setup|scoreboard|auto-incident|incident|alert-webhook|top)
     run_make "$sub" "$@" ;;
   next|dora|spend|map|network)
     attached=/tmp/lights-out/attached
@@ -620,10 +637,13 @@ else
   printf '[lights-out] no contract at the base: the head'"'"'s own .lights-out/ judges it\n' >&2
 fi
 
-toolchain=$(sed -n 's/^TOOLCHAIN_IMAGE=//p' "$attached/.lights-out/workload.env" | tail -1)
-if [ "$toolchain" != workbench ] && [ "${LIGHTS_OUT_ENGINE_GATES:-0}" != 1 ]; then
-  nogo "TOOLCHAIN_IMAGE=$toolchain needs the engine socket, which lights-out omits by default (docs/adr/0045 §3, 0108); run lights-out gates --engine, ./go gates from a clone, or set TOOLCHAIN_IMAGE=workbench"
-fi
+case "$sub" in
+  gates|test-proof|test-integrity)
+    toolchain=$(sed -n 's/^TOOLCHAIN_IMAGE=//p' "$attached/.lights-out/workload.env" | tail -1)
+    if [ "$toolchain" != workbench ] && [ "${LIGHTS_OUT_ENGINE_GATES:-0}" != 1 ]; then
+      nogo "TOOLCHAIN_IMAGE=$toolchain needs the engine socket, which lights-out omits by default (docs/adr/0045 §3, 0108); run lights-out gates --engine, ./go gates from a clone, or set TOOLCHAIN_IMAGE=workbench"
+    fi ;;
+esac
 
 # gates runs the eight; test-proof and test-integrity (docs/adr/0057 §5) the
 # same target on a subset, its one line renamed for the subcommand: GO joins
@@ -634,6 +654,8 @@ case "$sub" in
   gates) subset=$(sed -n 's/^GATES := //p' Makefile) ;;
   test-proof) subset="test test-proof" ;;
   test-integrity) subset="test-weakening mutation" ;;
+  adr-check) subset="adr-check" ;;
+  migration-safety) subset="migration-safety" ;;
 esac
 out=$(make --no-print-directory gates WORKLOAD="$attached" ATTACHED="$attached" GATES_OUT="$out_root/gates" GATES="$subset" "$@") && rc=0 || rc=$?
 case "$out" in

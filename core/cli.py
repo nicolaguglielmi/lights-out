@@ -44,6 +44,7 @@ GLOBAL_KEYS = (
 EXTRA_KEYS = (
     "REQUEST_BY", "REQUEST_VIA", "ATTEMPT", "ONCE", "POLL_S", "ALERT_FILE", "RELEASE_RECORD",
     "NAME", "FROM", "TO", "LOGS", "MAP_FILE", "SLO_MODE", "CORPUS_FULL",
+    "LOGBOOK_FILE", "LOGBOOK", "URL", "JSON", "VIEW", "WIDTH", "HEIGHT", "TICKET_FILE",
 )
 
 START_NATIVE = (
@@ -57,10 +58,11 @@ NATIVE_FLAGS = (
     "--staged", "--once",
 )
 BOOL_FLAGS = {"--staged": "STAGED", "--once": "ONCE"}
-ENGINE_FLAT = ("init", "gates", "test-proof", "test-integrity")
+ENGINE_FLAT = ("init", "gates", "test-proof", "test-integrity", "adr-check", "migration-safety")
 GLOBAL_OPTS = ("--json", "--jsonl", "--dry-run")
-GATE_SHAPED = ("init", "try", "gates", "test-proof", "test-integrity", "doctor", "map", "corpus",
-               "production-readiness")
+GATE_SHAPED = ("init", "try", "gates", "test-proof", "test-integrity", "adr-check", "migration-safety",
+               "doctor", "map", "corpus", "production-readiness")
+NATIVE_JSON = ("start", "next", "top")
 TAIL_FLAT = ("console", "version")
 
 SECRET_KEY_RE = re.compile(r"_(KEY|TOKEN|SECRET|PASSWORD|HEADER)$")
@@ -91,6 +93,8 @@ COMMANDS = (
     _c("repo", "gates"),
     _c("repo", "test-proof"),
     _c("repo", "test-integrity"),
+    _c("repo", "adr-check"),
+    _c("repo", "migration-safety", keys=("TICKET_FILE",)),
     _c("repo", "doctor", native=(("--level", True),)),
     _c("repo", "map", keys=("MAP_FILE",)),
     _c("repo", "corpus", keys=("CORPUS_FULL",), surface="clone"),
@@ -117,6 +121,7 @@ COMMANDS = (
     _c("ops", "postmortem"),
     _c("ops", "dora"),
     _c("ops", "spend"),
+    _c("ops", "top", keys=("LOGBOOK_FILE", "LOGBOOK", "URL", "ONCE", "JSON", "POLL_S", "VIEW", "WIDTH", "HEIGHT")),
     _c("config", "start", native=START_NATIVE),
     _c("config", "next", native=(("--mode", True),)),
     _c("config", "cloud-setup", keys=("SLO_MODE",)),
@@ -220,7 +225,7 @@ def parse(argv):
     if not args:
         raise UsageError("a command is needed", state["json"])
     command, rest = _resolve(args, state)
-    native_json = command.flat in ("start", "next")
+    native_json = command.flat in NATIVE_JSON
 
     tail, positional, pairs = [], [], {}
     if state["json"] and native_json and state["json"] == "json":

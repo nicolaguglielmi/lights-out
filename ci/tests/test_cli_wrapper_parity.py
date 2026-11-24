@@ -29,14 +29,15 @@ from core.tests.test_wrapper_plane import (
 ROOT = Path(__file__).resolve().parents[2]
 IMAGE_PREFIX = "ghcr.io/nicolaguglielmi/lights-out"
 
-READONLY = ("init", "gates", "test-proof", "test-integrity", "triage", "postmortem")
+READONLY = ("init", "gates", "test-proof", "test-integrity", "adr-check", "migration-safety",
+            "triage", "postmortem")
 STATE = ("next", "dora", "spend", "cloud-setup", "map", "network", "scoreboard",
-         "auto-incident", "incident", "alert-webhook")
+         "auto-incident", "incident", "alert-webhook", "top")
 PLANE = ("start", "intake", "answer", "intake-confirm", "assign", "up", "down", "smoke", "release",
          "promote", "console", "evidence", "try", "watch", "request", "resume", "audit",
          "production-readiness")
-GATE_SHAPED = ("init", "try", "gates", "test-proof", "test-integrity", "doctor", "map",
-               "production-readiness")
+GATE_SHAPED = ("init", "try", "gates", "test-proof", "test-integrity", "adr-check", "migration-safety",
+               "doctor", "map", "production-readiness")
 NEEDS = {"alert-webhook": ["--alert-file", "a.json"]}
 
 
@@ -110,6 +111,10 @@ class WrapperGrammarParityTests(WrapperParityBase):
             ["release", "promote", "--go-for-launch", "GO", "--reason", "ok"],
             ["release", "deploy", "--canary-version", "2", "--canary-tag", "t"],
             ["ticket", "assign", "TICKET=3", "--json"],
+            ["repo", "adr-check", "--base", "a", "--head", "b"],
+            ["repo", "migration-safety", "--base", "a", "--head", "b", "--ticket-file", "t.md"],
+            ["ops", "top", "--once", "--logbook-file", "l.json", "--view", "canary", "--width", "100", "--height", "30"],
+            ["ops", "top", "--json"],
         )
         for argv in cases:
             plan = cli.parse(argv)
@@ -221,7 +226,7 @@ class WrapperUsageTests(WrapperParityBase):
             self.assertIn(flag, image_args(self.last_run()))
 
     def test_start_and_next_keep_native_json(self):
-        for flat in ("start", "next"):
+        for flat in ("start", "next", "top"):
             self.fresh()
             res = self.run_w([flat, "--json"])
             self.assertEqual(res.returncode, 0, res.stderr)
@@ -252,6 +257,20 @@ class WrapperTierTests(WrapperParityBase):
                 self.assertIn(f"{crew}:/opt/lights-out/.crew", mounts, flat)
             if flat in READONLY:
                 self.assertIn(f"{self.out}:/out", mounts, flat)
+
+    def test_new_gates_opt_into_engine_socket_like_gates(self):
+        for flat in ("adr-check", "migration-safety"):
+            self.fresh()
+            res = self.run_w([flat, "--engine"])
+            self.assertEqual(res.returncode, 0, f"{flat}: {res.stderr}")
+            argv = self.last_run()
+            self.assertIn(f"ghcr.io/nicolaguglielmi/lights-out:{self.version}", argv)
+            self.assertTrue(any(m.endswith(":/var/run/docker.sock") for m in _extract_mount_pairs(argv)), flat)
+            self.assertIn("LIGHTS_OUT_ENGINE_GATES=1", _extract_env_flags(argv))
+        self.fresh()
+        bad = self.run_w(["ops", "top", "--engine"])
+        self.assertEqual((bad.returncode, bad.stdout), (2, ""))
+        self.assertFalse(self.log.exists())
 
     def test_incident_with_a_ticket_needs_the_plane(self):
         self.fresh()
@@ -457,9 +476,14 @@ class EntrypointParityTests(unittest.TestCase):
         self.assertEqual(events[0]["event"], "stdout")
 
     def test_start_and_next_json_stay_native(self):
-        res = self.run_e(["config", "next", "--json"], plane=False)
-        self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
-        self.assertTrue(res.stdout.startswith("GO: next"), res.stdout)
+        for argv, prefix in ((["config", "next", "--json"], "GO: next"), (["ops", "top", "--json"], "GO: top")):
+            res = self.run_e(argv, plane=False)
+            self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
+            self.assertTrue(res.stdout.startswith(prefix), res.stdout)
+        for gate in ("adr-check", "migration-safety"):
+            res = self.run_e(["repo", gate, "--json"], plane=False)
+            self.assertEqual(res.returncode, 1, res.stdout + res.stderr)
+            self.assertTrue(res.stdout.startswith("NO-GO: "), res.stdout)
 
 
 if __name__ == "__main__":

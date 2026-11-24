@@ -68,7 +68,7 @@ class WaveBMakefileAndGoWiringTest(unittest.TestCase):
         shutil.copytree(
             ROOT,
             self.ws,
-            ignore=shutil.ignore_patterns(".git", ".crew", ".attached", ".gates-out", "__pycache__"),
+            ignore=shutil.ignore_patterns(".git", ".crew", ".attached", ".gates-out", ".claude", "__pycache__"),
         )
         subprocess.run(["git", "-C", str(self.ws), "init", "-q"], check=True)
         subprocess.run(["git", "-C", str(self.ws), "-c", "user.name=t", "-c", "user.email=t@invalid", "add", "-A"], check=True)
@@ -132,7 +132,10 @@ exit 0
         )
         self.assertEqual(help_res.returncode, 0, help_res.stderr)
         go_text = (self.ws / "go").read_text(encoding="utf-8")
-        for target in ("registry-conformance", "flags-conformance", "watch", "alert-webhook", "auto-incident"):
+        for target in (
+            "registry-conformance", "flags-conformance", "watch", "alert-webhook", "auto-incident",
+            "cli", "top", "adr-check", "migration-safety",
+        ):
             self.assertRegex(help_res.stdout, rf"(?m)^\s*{target}\s+", f"make help missing {target}")
             self.assertIn(f"./go {target}", go_text, f"./go header missing {target}")
 
@@ -318,6 +321,146 @@ exit 0
         self.assertEqual(res_cs.returncode, 0, res_cs.stderr)
         argv_cs = next(c for c in _read_calls(go_log) if c and c[0] == "run")
         self.assertIn("SLO_MODE=proxy", argv_cs[-4:])
+
+    def test_cli_top_adr_check_and_migration_safety_wiring(self) -> None:
+        base_env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "HOME": str(self.tmp)}
+        crew = self.ws / ".crew"
+        crew.mkdir(parents=True, exist_ok=True)
+        (crew / "start-plan.env").write_text(
+            "START_PROFILE=l0\nDELIVERY=outside/gcp-cloud-deploy\nADAPTERS_PATH="
+            + str((self.ws / "plugins" / "cloud").resolve())
+            + "\n",
+            encoding="utf-8",
+        )
+        missing_wl = self.tmp / "empty-contract"
+        missing_wl.mkdir(exist_ok=True)
+
+        # Standalone cli & top work even without workload.env or admitted outside adapter
+        res_cli = subprocess.run(
+            [
+                "make", "--no-print-directory", "cli",
+                f"WORKLOAD_CONTRACT={missing_wl}",
+                "CLI_ARGS=--dry-run ticket assign --ticket 0001",
+            ],
+            cwd=self.ws,
+            env=base_env,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(res_cli.returncode, 0, res_cli.stdout + res_cli.stderr)
+        cli_plan = json.loads(res_cli.stdout)
+        self.assertEqual(cli_plan["flat"], "assign")
+        self.assertTrue(cli_plan["argv"][1:] == ["assign", "TICKET=0001"])
+
+        res_top_once = subprocess.run(
+            [
+                "make", "--no-print-directory", "top",
+                f"WORKLOAD_CONTRACT={missing_wl}",
+                "LOGBOOK_FILE=fixtures/logbook/golden-1.8.json",
+                "ONCE=1",
+            ],
+            cwd=self.ws,
+            env=dict(base_env, NO_COLOR="1"),
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(res_top_once.returncode, 0, res_top_once.stdout + res_top_once.stderr)
+        self.assertEqual(len(res_top_once.stdout.splitlines()), 24)
+
+        res_top_json = subprocess.run(
+            [
+                "make", "--no-print-directory", "top",
+                f"WORKLOAD_CONTRACT={missing_wl}",
+                "LOGBOOK_FILE=fixtures/logbook/golden-1.8.json",
+                "JSON=1",
+            ],
+            cwd=self.ws,
+            env=base_env,
+            capture_output=True,
+            text=True,
+            check=False,
+        )
+        self.assertEqual(res_top_json.returncode, 0, res_top_json.stdout + res_top_json.stderr)
+        self.assertEqual(json.loads(res_top_json.stdout)["schema"], "lights-out/tui-summary/1.0")
+
+        # adr-check and migration-safety default to last commit when BASE/HEAD omitted
+        mig_dir = self.ws / "app" / "backend" / "migrations"
+        mig_dir.mkdir(parents=True, exist_ok=True)
+        (mig_dir / "900_expand.sql").write_text("ALTER TABLE items ADD COLUMN note TEXT;\n", encoding="utf-8")
+        subprocess.run(["git", "-C", str(self.ws), "add", "app/backend/migrations/900_expand.sql"], check=True)
+        subprocess.run(
+            ["git", "-C", str(self.ws), "-c", "user.name=t", "-c", "user.email=t@invalid",
+             "-c", "commit.gpgsign=false", "commit", "-q", "-m", "safe expand"],
+            check=True,
+        )
+        res_adr = subprocess.run(
+            ["make", "--no-print-directory", "adr-check"],
+            cwd=self.ws, env=base_env, capture_output=True, text=True, check=False,
+        )
+        self.assertEqual(res_adr.returncode, 0, res_adr.stdout + res_adr.stderr)
+        self.assertTrue(res_adr.stdout.startswith("GO: adr-check"), res_adr.stdout)
+
+        res_mig_ok = subprocess.run(
+            ["make", "--no-print-directory", "migration-safety"],
+            cwd=self.ws, env=base_env, capture_output=True, text=True, check=False,
+        )
+        self.assertEqual(res_mig_ok.returncode, 0, res_mig_ok.stdout + res_mig_ok.stderr)
+        self.assertTrue(res_mig_ok.stdout.startswith("GO: migration-safety"), res_mig_ok.stdout)
+
+        (mig_dir / "901_drop.sql").write_text("ALTER TABLE items DROP COLUMN note;\n", encoding="utf-8")
+        subprocess.run(["git", "-C", str(self.ws), "add", "app/backend/migrations/901_drop.sql"], check=True)
+        subprocess.run(
+            ["git", "-C", str(self.ws), "-c", "user.name=t", "-c", "user.email=t@invalid",
+             "-c", "commit.gpgsign=false", "commit", "-q", "-m", "unsafe drop"],
+            check=True,
+        )
+        res_mig_bad = subprocess.run(
+            ["make", "--no-print-directory", "migration-safety"],
+            cwd=self.ws, env=base_env, capture_output=True, text=True, check=False,
+        )
+        self.assertEqual(res_mig_bad.returncode, 2, res_mig_bad.stdout + res_mig_bad.stderr)
+        self.assertTrue(res_mig_bad.stdout.startswith("NO-GO: migration-safety — "), res_mig_bad.stdout)
+
+        # ./go cli & ./go top flag forwarding, plus socket-free gates
+        bindir, tools, go_log = self._setup_fake_podman()
+        go_env = {"PATH": f"{bindir}:{tools}", "HOME": str(self.tmp), "NO_COLOR": "1"}
+
+        res_go_cli = subprocess.run(
+            ["sh", "./go", "cli", "ticket", "assign", "TICKET=0001", "--json"],
+            cwd=self.ws, env=go_env, capture_output=True, text=True, check=False,
+        )
+        self.assertEqual(res_go_cli.returncode, 0, res_go_cli.stderr)
+        argv_cli = next(c for c in _read_calls(go_log) if c and c[0] == "run")
+        envs_cli = _extract_env_flags(argv_cli)
+        self.assertIn("LIGHTS_OUT_CLI_ARGS", envs_cli)
+        self.assertEqual(argv_cli[-2:], ["make", "cli"])
+
+        go_log.unlink(missing_ok=True)
+        res_go_top = subprocess.run(
+            ["sh", "./go", "top", "--once", "--view", "canary", "LOGBOOK_FILE=fixtures/logbook/golden-1.8.json"],
+            cwd=self.ws, env=go_env, capture_output=True, text=True, check=False,
+        )
+        self.assertEqual(res_go_top.returncode, 0, res_go_top.stderr)
+        argv_top = next(c for c in _read_calls(go_log) if c and c[0] == "run")
+        envs_top = _extract_env_flags(argv_top)
+        self.assertIn("LIGHTS_OUT_CLI_ARGS", envs_top)
+        self.assertIn("NO_COLOR", envs_top)
+        self.assertFalse(any("DOCKER_HOST" in e for e in envs_top))
+        self.assertEqual(argv_top[-3:], ["make", "top", "LOGBOOK_FILE=fixtures/logbook/golden-1.8.json"])
+
+        for gate in ("adr-check", "migration-safety"):
+            go_log.unlink(missing_ok=True)
+            res_g = subprocess.run(
+                ["sh", "./go", gate],
+                cwd=self.ws, env=go_env, capture_output=True, text=True, check=False,
+            )
+            self.assertEqual(res_g.returncode, 0, res_g.stderr)
+            argv_g = next(c for c in _read_calls(go_log) if c and c[0] == "run")
+            envs_g = _extract_env_flags(argv_g)
+            self.assertFalse(any("DOCKER_HOST" in e for e in envs_g), gate)
+            self.assertEqual(argv_g[-2:], ["make", gate])
 
 
 if __name__ == "__main__":

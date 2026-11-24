@@ -8,6 +8,8 @@
 #   ./go help           list the make targets
 #   ./go start          guided setup wizard (interactive or --non-interactive); writes non-secret plan, checks doctor, prints E2E commands (ADR 0103)
 #   ./go next           inspect repo, contract and state; print next E2E command (MODE=junior|expert, --json) (ADR 0103)
+#   ./go cli <args>     unified noun-verb CLI over flat commands and JSON envelopes (ADR 0112)
+#   ./go top            interactive terminal cockpit over the logbook: [LOGBOOK_FILE=] [URL=] [ONCE=1] [JSON=1] (ADR 0114)
 #   ./go ci             repo self-checks, no engine socket inside
 #   ./go up             start the L0 plane in compose and wait for it
 #   ./go smoke          run the workload's happy path through Envoy
@@ -22,6 +24,8 @@
 #   ./go try <path>     your repository in one command: its contract drafted, the eight gates on its last commit, how to keep the draft (ADR 0093)
 #   ./go init [<path>]  draft the attached repository's .lights-out/ in the clone, baseline measured (ADR 0042)
 #   ./go gates          judge a range of the workload: BASE=<ref> HEAD=<ref>, default the last commit; no plane needed
+#   ./go adr-check      check ADR lifecycle compliance on a range: [BASE=<ref> HEAD=<ref>] (ADR 0115)
+#   ./go migration-safety  check database expand/contract migration safety: [BASE=<ref> HEAD=<ref>] [TICKET_FILE=] (ADR 0123)
 #   ./go agents         what the contract gives the agents: role files for the reviewers, MCP servers for the dev-worker (ADR 0073)
 #   ./go demo-init      prove attach, init and gates on the two example repositories, without the plane
 #   ./go corpus         verify the unknown-repository corpus (init, light gates, contracts): [CORPUS_FULL=1] (ADR 0106)
@@ -362,9 +366,9 @@ fi
 # a NO-GO naming it inside, never a silent in-process run.
 socket_flags=""
 socket_optional=""
-case "$cmd" in gates|init|try|mutation-baseline|demo-init|console|logbook|network|dora|watch|registry-conformance) socket_optional=1 ;; esac
+case "$cmd" in gates|init|try|mutation-baseline|demo-init|console|logbook|network|dora|watch|cli|registry-conformance) socket_optional=1 ;; esac
 case "$cmd" in
-  up|down|test|demo|release|demo-rollback|demo-hold|demo-dast|demo-seam|demo-seam-plain|demo-network|e2e|resume|shell|gates|demo-gates|mutation-baseline|assign|demo-crew|record|demo-launch|review|demo-review|record-review|delivery-conformance|argo-conformance|flagger-conformance|flagger-proof|harness-conformance|codehost-conformance|gitlab-conformance|registry-conformance|unsigned-refused|board|demo-rework|demo-mainline|init|try|demo-init|console|logbook|network|dora|demo-console|request|answer|watch)
+  up|down|test|demo|release|demo-rollback|demo-hold|demo-dast|demo-seam|demo-seam-plain|demo-network|e2e|resume|shell|gates|demo-gates|mutation-baseline|assign|demo-crew|record|demo-launch|review|demo-review|record-review|delivery-conformance|argo-conformance|flagger-conformance|flagger-proof|harness-conformance|codehost-conformance|gitlab-conformance|registry-conformance|unsigned-refused|board|demo-rework|demo-mainline|init|try|demo-init|console|logbook|network|dora|demo-console|request|answer|watch|cli)
     sock=""
     if [ "$engine" = podman ]; then
       sock=$(podman info --format '{{.Host.RemoteSocket.Path}}'); sock=${sock#unix://}
@@ -442,9 +446,13 @@ done
 for v in POLL_S ONCE ALERT_FILE ALERT_WEBHOOK_TOKEN ALERT_WEBHOOK_OUT WEBHOOK_ARGS \
          AUTO_INCIDENT_ON_ROLLBACK AUTO_POSTMORTEM_ON_ROLLBACK \
          SLO_PROMQL SLO_MODE INIT_SERVICE SMOKE_AUTH_HEADER \
-         FLAGS_AUTH_HEADER OCI_REGISTRY_TOKEN OCI_REGISTRY_PASSWORD; do
+         FLAGS_AUTH_HEADER OCI_REGISTRY_TOKEN OCI_REGISTRY_PASSWORD \
+         LOGBOOK_FILE LOGBOOK_URL URL JSON VIEW WIDTH HEIGHT NO_COLOR TICKET_FILE; do
   if env | grep -q "^$v="; then port_flags="$port_flags -e $v"; fi
 done
+if [ "$cmd" = top ] && env | grep -q "^TERM="; then
+  port_flags="$port_flags -e TERM"
+fi
 if env | grep -q "^CORPUS_FULL="; then port_flags="$port_flags -e CORPUS_FULL"; fi
 
 # Adapters outside the repository (docs/adr/0058 §1): ADAPTERS_PATH, from
@@ -453,7 +461,7 @@ if env | grep -q "^CORPUS_FULL="; then port_flags="$port_flags -e CORPUS_FULL"; 
 # its own path, where make finds it and core/adapters.py links from it.
 skip_plan=""
 case "$cmd" in
-  demo|demo-*|ci|ci-*|e2e|corpus|init|try|gates|test-proof|test-integrity|mutation-baseline|attached) skip_plan=1 ;;
+  demo|demo-*|ci|ci-*|e2e|corpus|init|try|gates|test-proof|test-integrity|adr-check|migration-safety|mutation-baseline|attached) skip_plan=1 ;;
 esac
 effective_profile=${PROFILE:-}
 if [ -z "$effective_profile" ] && [ -z "$skip_plan" ] && [ -f "$here/.crew/start-plan.env" ]; then
@@ -501,12 +509,28 @@ if [ "$cmd" = try ]; then
   port_flags="$port_flags -e TRY_SOURCE"
 fi
 
-# For `start` and `next`, forward CLI flags (--non-interactive, --json, etc.)
-# via LIGHTS_OUT_CLI_ARGS so `make` never tries to parse them, while keeping
-# KEY=VALUE overrides as make arguments. For `start`, pre-run host-side
-# core/doctor.sh so workbench receives real host engine and port status.
+# For `start`, `next`, `top`, and `cli`, forward CLI flags (--non-interactive,
+# --json, --once, etc.) via LIGHTS_OUT_CLI_ARGS so `make` never tries to parse
+# them, while keeping KEY=VALUE overrides as make arguments (for `cli`, only
+# CLI_ARGS/WORKLOAD/ATTACHED are make arguments; command KEY=VALUE pairs go to
+# core/cli.py). For `start`, pre-run host-side core/doctor.sh so workbench
+# receives real host engine and port status.
 make_args=""
-if [ "$cmd" = start ] || [ "$cmd" = next ]; then
+if [ "$cmd" = cli ]; then
+  cli_sep=$(printf '\037')
+  cli_args=""
+  for a in "$@"; do
+    case "$a" in
+      CLI_ARGS=*|WORKLOAD=*|ATTACHED=*) make_args="$make_args${make_args:+$cli_sep}$a" ;;
+      *) cli_args="$cli_args${cli_args:+$cli_sep}$a" ;;
+    esac
+  done
+  if [ -n "$cli_args" ]; then
+    LIGHTS_OUT_CLI_ARGS=$cli_args
+    export LIGHTS_OUT_CLI_ARGS
+    port_flags="$port_flags -e LIGHTS_OUT_CLI_ARGS"
+  fi
+elif [ "$cmd" = start ] || [ "$cmd" = next ] || [ "$cmd" = top ]; then
   cli_sep=$(printf '\037')
   cli_args=""
   for a in "$@"; do
@@ -559,7 +583,7 @@ fi
 
 if [ "$cmd" = shell ]; then
   run sh
-elif [ "$cmd" = start ] || [ "$cmd" = next ]; then
+elif [ "$cmd" = start ] || [ "$cmd" = next ] || [ "$cmd" = top ] || [ "$cmd" = cli ]; then
   if [ -n "$make_args" ]; then
     old_ifs=$IFS
     IFS=$(printf '\037')

@@ -26,15 +26,16 @@ from core import cli
 ROOT = Path(__file__).resolve().parents[2]
 
 SPEC = {
-    "repo": ["init", "try", "gates", "test-proof", "test-integrity", "doctor", "map", "corpus"],
+    "repo": ["init", "try", "gates", "test-proof", "test-integrity", "adr-check", "migration-safety",
+             "doctor", "map", "corpus"],
     "ticket": ["intake", "request", "answer", "intake-confirm", "assign", "resume", "network", "audit"],
     "release": ["up", "down", "smoke", "deploy", "promote", "evidence", "production-readiness"],
-    "ops": ["watch", "alert-webhook", "triage", "auto-incident", "incident", "postmortem", "dora", "spend"],
+    "ops": ["watch", "alert-webhook", "triage", "auto-incident", "incident", "postmortem", "dora", "spend", "top"],
     "config": ["start", "next", "cloud-setup", "scoreboard", "agents"],
 }
 SHELLS = ["bash", "zsh", "fish"]
-GATE_SHAPED = {"init", "try", "gates", "test-proof", "test-integrity", "doctor", "map", "corpus",
-               "production-readiness"}
+GATE_SHAPED = {"init", "try", "gates", "test-proof", "test-integrity", "adr-check", "migration-safety",
+               "doctor", "map", "corpus", "production-readiness"}
 SECRET = "canary-secret-value-90210"
 
 
@@ -152,9 +153,12 @@ class FlagTranslationTests(unittest.TestCase):
         self.assertEqual(cli.parse(["ops", "triage", "--profile", "l1"]).tail, ["PROFILE=l1"])
 
     def test_engine_is_kept_for_the_gate_tier(self):
-        self.assertEqual(cli.parse(["repo", "gates", "--engine"]).tail, ["--engine"])
+        for flat in ("gates", "adr-check", "migration-safety"):
+            self.assertEqual(cli.parse(["repo", flat, "--engine"]).tail, ["--engine"], flat)
         with self.assertRaises(cli.UsageError):
             cli.parse(["release", "up", "--engine"])
+        with self.assertRaises(cli.UsageError):
+            cli.parse(["ops", "top", "--engine"])
 
     def test_unknown_flag_is_usage_naming_allowed_keys(self):
         with self.assertRaises(cli.UsageError) as cm:
@@ -177,6 +181,15 @@ class FlagTranslationTests(unittest.TestCase):
                          ["CLOUD=x", "SLO_MODE=otel"])
         plan = cli.parse(["ops", "incident", "--name", "n", "--from", "a", "--to", "b", "--logs", "l"])
         self.assertEqual(plan.tail, ["NAME=n", "FROM=a", "TO=b", "LOGS=l"])
+        self.assertEqual(
+            cli.parse(["repo", "migration-safety", "--ticket-file", "tickets/0001.md"]).tail,
+            ["TICKET_FILE=tickets/0001.md"],
+        )
+        top_plan = cli.parse(["ops", "top", "--logbook-file", "l.json", "--url", "http://127.0.0.1:8098",
+                              "--view", "canary", "--width", "100", "--height", "30", "--once"])
+        self.assertEqual(top_plan.tail, [
+            "LOGBOOK_FILE=l.json", "URL=http://127.0.0.1:8098", "VIEW=canary", "WIDTH=100", "HEIGHT=30", "ONCE=1",
+        ])
         with self.assertRaises(cli.UsageError):
             cli.parse(["ticket", "assign", "--request-by", "ann"])
 
@@ -234,7 +247,7 @@ class JsonModeTests(unittest.TestCase):
 
     def test_non_gate_commands_accept_either_json_flag_anywhere(self):
         for command in cli.COMMANDS:
-            if command.flat in GATE_SHAPED or command.flat in ("start", "next"):
+            if command.flat in GATE_SHAPED or command.flat in ("start", "next", "top"):
                 continue
             self.assertEqual(cli.parse([command.domain, command.verb, "--json"]).json_mode, "json", command.flat)
             self.assertEqual(cli.parse(["--jsonl", command.domain, command.verb]).json_mode, "jsonl", command.flat)
@@ -248,12 +261,12 @@ class JsonModeTests(unittest.TestCase):
             cli.parse(["ticket", "assign", "--json", "--jsonl"])
 
     def test_start_and_next_keep_their_native_json(self):
-        for flat in ("start", "next"):
-            plan = cli.parse(["config", flat, "--json"])
+        for domain, flat in (("config", "start"), ("config", "next"), ("ops", "top")):
+            plan = cli.parse([domain, flat, "--json"])
             self.assertEqual(plan.json_mode, "")
             self.assertEqual(plan.tail, ["--json"])
             with self.assertRaises(cli.UsageError):
-                cli.parse(["config", flat, "--jsonl"])
+                cli.parse([domain, flat, "--jsonl"])
 
 
 class ExitCodeTests(unittest.TestCase):
