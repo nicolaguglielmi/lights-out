@@ -25,12 +25,14 @@ import posixpath
 import re
 import shutil
 import sys
+import tempfile
 import tomllib
 from datetime import date
 
 try:
-    from . import init_plane
+    from . import init_apply, init_plane
 except ImportError:  # run as a script: core/ is sys.path[0]
+    import init_apply
     import init_plane
 
 WORKBENCH_PYTHON = (3, 13)
@@ -403,7 +405,7 @@ def infer(repo, service=None):
     return _infer_single_dir(repo, ".lights-out/runners")
 
 
-def render_workload_env(d, committed, today, commit, plane=None):
+def render_workload_env(d, committed, today, commit, plane=None, incremental_baseline=None):
     kept = {k: committed.get(k, "") for k in PLANE_KEYS}
     has_committed = (
         any(kept.values())
@@ -453,7 +455,16 @@ def render_workload_env(d, committed, today, commit, plane=None):
                 committed["WORKLOAD_PORT"],
                 "kept: from the committed .lights-out/workload.env; optional workload port (ADR 0100)",
             )
-    key("MUTATION_BASELINE", "", "measurement: not yet measured; ./go init measures it (docs/adr/0042 §6)")
+    if incremental_baseline is not None:
+        ml_spec, inc_prov = incremental_baseline
+        baseline_prov = (
+            f"measurement: incremental baseline scope (not yet measured); {inc_prov}; MUTATION_LINES={ml_spec}"
+            if ml_spec
+            else f"measurement: incremental baseline scope (not yet measured); {inc_prov}"
+        )
+    else:
+        baseline_prov = "measurement: not yet measured; ./go init measures it (docs/adr/0042 §6)"
+    key("MUTATION_BASELINE", "", baseline_prov)
     key("WORKLOAD_LOCKFILES", d["lockfiles"], f"inferred: {d['lockfiles_evidence']}")
     key("WORKLOAD_MUTATION_SCOPE", d["scope"], f"inferred: {d['scope_evidence']}")
     key("WORKLOAD_TEST_ROOT", d["test_root"], f"inferred: {d['test_root_evidence']}")
@@ -497,12 +508,21 @@ def render_policy_env(today):
     )
 
 
-def write_draft(repo, out, stacks, today, commit, service=None):
+def write_draft(repo, out, stacks, today, commit, service=None, baseline_mode="full", baseline_max_files=10):
     repo = os.path.abspath(repo)
     out = os.path.abspath(out)
+    if baseline_mode not in ("full", "incremental"):
+        raise Undraftable(f"unknown baseline mode {baseline_mode!r}; expected 'full' or 'incremental'")
+    if isinstance(baseline_max_files, bool) or not isinstance(baseline_max_files, int) or baseline_max_files < 1:
+        raise Undraftable("--baseline-max-files must be an integer >= 1")
     if not os.path.isdir(repo):
         raise Undraftable(f"{repo} is not a directory")
     d = infer(repo, service=service)
+    incremental_baseline = (
+        init_apply.select_incremental_scope(repo, d["scope"], max_files=baseline_max_files)
+        if baseline_mode == "incremental"
+        else None
+    )
     committed = _read_committed(repo)
     runners_src = os.path.join(stacks, d["stack"], "runners")
     if not os.path.isdir(runners_src):
@@ -521,13 +541,21 @@ def write_draft(repo, out, stacks, today, commit, service=None):
         else None
     )
     with open(os.path.join(out, "workload.env"), "w") as fh:
-        fh.write(render_workload_env(d, committed, today, commit, plane=plane))
+        fh.write(
+            render_workload_env(
+                d, committed, today, commit, plane=plane, incremental_baseline=incremental_baseline
+            )
+        )
     with open(os.path.join(out, "worker.md"), "w") as fh:
         fh.write(render_worker_md(d, os.path.basename(repo.rstrip("/")), today))
     with open(os.path.join(out, "policy.env"), "w") as fh:
         fh.write(render_policy_env(today))
     for note in d["notes"]:
         print(f"init: {note}", file=sys.stderr)
+    if incremental_baseline is not None:
+        print(f"init: {incremental_baseline.provenance}", file=sys.stderr)
+        if incremental_baseline.mutation_lines:
+            print(f"init: MUTATION_LINES={incremental_baseline.mutation_lines}", file=sys.stderr)
     if container is not None and plane is not None:
         print(
             f"init: plane: {container['dockerfile']} port {container['port']}, probe {plane['WORKLOAD_HEALTH_PROBE'][0]}",
@@ -585,19 +613,76 @@ def main(argv):
     parser.add_argument("--repo")
     parser.add_argument("--out")
     parser.add_argument("--stacks", default="stacks")
-    parser.add_argument("--commit", default="HEAD")
+    parser.add_argument("--commit", nargs="?", const=True, default=None)
     parser.add_argument("--today", default=date.today().isoformat())
     parser.add_argument("--service", default=None)
     parser.add_argument("--set-baseline", nargs=3, metavar=("WORKLOAD_ENV", "SCORE", "PROVENANCE"))
+    parser.add_argument("--apply-to", default=None)
+    parser.add_argument("--branch", default=None)
+    parser.add_argument("--force", action="store_true")
+    parser.add_argument("--baseline-mode", choices=("full", "incremental"), default="full")
+    parser.add_argument("--baseline-max-files", type=int, default=10)
     args = parser.parse_args(argv)
+    apply_commit = args.commit is True
+    header_commit = args.commit if isinstance(args.commit, str) else "HEAD"
     try:
         if args.set_baseline:
             set_baseline(*args.set_baseline)
             return 0
-        if not args.repo or not args.out:
-            parser.error("--repo and --out are required")
-        stack = write_draft(args.repo, args.out, args.stacks, args.today, args.commit, service=args.service)
-    except Undraftable as exc:
+        if (args.branch is not None or apply_commit or args.force) and not args.apply_to:
+            parser.error("--branch, --commit (without SHA), and --force require --apply-to")
+        repo = args.repo or args.apply_to
+        if not repo:
+            parser.error("--repo (or --apply-to) is required")
+        if not args.out and not args.apply_to:
+            parser.error("--out (or --apply-to) is required")
+
+        def run_draft(out_dir):
+            return write_draft(
+                repo,
+                out_dir,
+                args.stacks,
+                args.today,
+                header_commit,
+                service=args.service,
+                baseline_mode=args.baseline_mode,
+                baseline_max_files=args.baseline_max_files,
+            )
+
+        if args.apply_to:
+            target_repo = os.path.abspath(args.apply_to)
+            dest_contract = os.path.realpath(os.path.join(target_repo, ".lights-out"))
+            use_out = bool(args.out and os.path.realpath(args.out) != dest_contract)
+            if use_out:
+                stack = run_draft(args.out)
+                summary = init_apply.apply_draft(
+                    args.out,
+                    target_repo,
+                    ".lights-out",
+                    branch=args.branch,
+                    commit=apply_commit,
+                    force=args.force,
+                )
+            else:
+                with tempfile.TemporaryDirectory() as tmp_draft:
+                    stack = run_draft(tmp_draft)
+                    summary = init_apply.apply_draft(
+                        tmp_draft,
+                        target_repo,
+                        ".lights-out",
+                        branch=args.branch,
+                        commit=apply_commit,
+                        force=args.force,
+                    )
+            detail = [f"{len(summary['applied_files'])} file(s)"]
+            if summary["branch"]:
+                detail.append(f"branch={summary['branch']}")
+            if summary["commit_sha"]:
+                detail.append(f"commit={summary['commit_sha'][:7]}")
+            print(f"init: applied to {target_repo}/.lights-out ({', '.join(detail)})", file=sys.stderr)
+        else:
+            stack = run_draft(args.out)
+    except (Undraftable, init_apply.ApplyError, ValueError) as exc:
         print(str(exc))
         return 1
     print(f"STACK={stack}")

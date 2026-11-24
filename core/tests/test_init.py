@@ -18,14 +18,19 @@ Not asserted: a range that names a minor of the workbench's Node (`~24.1`,
 (24.21.0) decides those; the ADR does not say which the matcher answers.
 """
 
+import io
 import os
+import subprocess
+import sys
 import tempfile
 import unittest
+from contextlib import redirect_stderr, redirect_stdout
 
 import fnmatch
 
-from core.init import (JAVASCRIPT_TEST_PATHS, PYTHON_TEST_PATHS, infer_python, node_admits, python_admits,
-                       render_workload_env)
+from core.init import (JAVASCRIPT_TEST_PATHS, PYTHON_TEST_PATHS, infer_python, main as init_main, node_admits,
+                       python_admits, render_workload_env)
+from core.tests.gitrepo import Repo
 
 WORKBENCH_PYTHON = (3, 13)
 WORKBENCH_NODE = 24
@@ -329,6 +334,114 @@ class InferPythonTestRunnerTest(unittest.TestCase):
         d = infer_python(repo)
         self.assertEqual(d["test_cmd"], "uv run --locked python3 -m unittest discover -s tests -q")
         self.assertIn("python3 -m unittest discover -s tests -q -f", d["mutation_cmd"])
+
+
+class InitApplyAndIncrementalCliTest(unittest.TestCase):
+    def _make_git_python_repo(self):
+        repo = Repo(self)
+        repo.commit(
+            {
+                "pyproject.toml": (
+                    '[project]\nname = "demo"\nversion = "0.1.0"\n'
+                    'requires-python = ">=3.13"\ndependencies = []\n'
+                ),
+                "uv.lock": 'version = 1\n\n[[package]]\nname = "demo"\n\n[[package]]\nname = "pytest"\n',
+                "demo/__init__.py": "def one():\n    return 1\n",
+                "demo/a.py": "def a():\n    return 2\n",
+                "demo/b.py": "def b():\n    return 3\n",
+                "tests/test_demo.py": "def test_ok():\n    assert True\n",
+            },
+            "initial",
+        )
+        repo.commit({"demo/b.py": "def b():\n    return 30\n    # extra\n"}, "touch b")
+        return repo
+
+    def _run_main(self, argv):
+        out = io.StringIO()
+        err = io.StringIO()
+        with redirect_stdout(out), redirect_stderr(err):
+            rc = init_main(argv)
+        return rc, out.getvalue(), err.getvalue()
+
+    def test_apply_to_without_out_or_repo_defaults_and_commits_on_branch(self):
+        repo = self._make_git_python_repo()
+        stacks = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "stacks")
+        rc, out, err = self._run_main(
+            [
+                "--apply-to",
+                repo.dir,
+                "--stacks",
+                stacks,
+                "--branch",
+                "init/contract",
+                "--commit",
+                "--baseline-mode",
+                "incremental",
+                "--baseline-max-files",
+                "2",
+            ]
+        )
+        self.assertEqual(rc, 0, out + err)
+        self.assertEqual(out.strip(), "STACK=python")
+        self.assertIn("incremental:", err)
+        self.assertEqual(repo.git("rev-parse", "--abbrev-ref", "HEAD"), "init/contract")
+
+        env_path = os.path.join(repo.dir, ".lights-out", "workload.env")
+        with open(env_path, encoding="utf-8") as fh:
+            env_text = fh.read()
+        values, blocks = parse(env_text)
+        self.assertEqual(set(values), KEYS)
+        self.assertEqual(values["MUTATION_BASELINE"], "")
+        block_text = "\n".join(blocks["MUTATION_BASELINE"])
+        self.assertIn("# Provenance, measurement:", block_text)
+        self.assertIn("incremental: top 2 recently changed files in demo/", block_text)
+        self.assertIn("MUTATION_LINES=demo/b.py=1-3", block_text)
+
+    def test_apply_to_refuses_overwrite_without_force_and_allows_with_force(self):
+        repo = self._make_git_python_repo()
+        stacks = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "stacks")
+        rc1, out1, err1 = self._run_main(["--apply-to", repo.dir, "--stacks", stacks])
+        self.assertEqual(rc1, 0, out1 + err1)
+
+        rc2, out2, _ = self._run_main(["--apply-to", repo.dir, "--stacks", stacks])
+        self.assertEqual(rc2, 1)
+        self.assertIn("workload.env", out2)
+
+        rc3, out3, err3 = self._run_main(["--apply-to", repo.dir, "--stacks", stacks, "--force", "--commit"])
+        self.assertEqual(rc3, 0, out3 + err3)
+        self.assertEqual(out3.strip(), "STACK=python")
+
+    def test_baseline_max_files_validation_and_apply_flag_guards(self):
+        repo = self._make_git_python_repo()
+        stacks = os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(__file__))), "stacks")
+        with tempfile.TemporaryDirectory() as out_dir:
+            rc, out, _ = self._run_main(
+                [
+                    "--repo",
+                    repo.dir,
+                    "--out",
+                    out_dir,
+                    "--stacks",
+                    stacks,
+                    "--baseline-mode",
+                    "incremental",
+                    "--baseline-max-files",
+                    "0",
+                ]
+            )
+            self.assertEqual(rc, 1)
+            self.assertTrue(out.strip())
+
+        for flag in (["--branch", "x"], ["--commit"], ["--force"]):
+            with self.subTest(flag=flag):
+                proc = subprocess.run(
+                    ["python3", "core/init.py", "--repo", repo.dir, "--out", repo.dir + "/.tmp", *flag],
+                    cwd=os.path.dirname(os.path.dirname(os.path.dirname(__file__))),
+                    capture_output=True,
+                    text=True,
+                    check=False,
+                )
+                self.assertEqual(proc.returncode, 2)
 
 
 if __name__ == "__main__":
