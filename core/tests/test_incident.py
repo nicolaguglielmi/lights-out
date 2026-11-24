@@ -206,5 +206,90 @@ class Refusals(IncidentCase):
                 self.assertRefused("has no PR or merge to anchor to", TICKET="0001", STATE_STORE="stub-state")
 
 
+class TraceExemplarsAndAnchors(IncidentCase):
+    def test_traces_extracted_from_logs_and_alerts_only_when_present(self):
+        t_log = "4bf92f3577b34da6a3ce929d0e0e4736"
+        s_log = "00f067aa0ba902b7"
+        t_alert = "aaaa1111bbbb2222cccc3333dddd4444"
+        rec = copy.deepcopy(RECORD)
+        rec["stages"][1]["numbers"].append(f"trace_id={t_alert}")
+        self.record(rec)
+        Path("logs.txt").write_text(f"2026-11-04T10:01:00Z traceparent=00-{t_log}-{s_log}-01 err=500\n")
+
+        code, out, _ = self.run_incident(LOGS="logs.txt")
+        self.assertEqual(code, 0, out)
+        doc = json.loads(Path(out).read_text())
+        self.assertEqual(
+            doc["traces"],
+            [
+                {"trace_id": t_alert, "span_id": None},
+                {"trace_id": t_log, "span_id": s_log},
+            ],
+        )
+
+    def test_postmortem_accepts_real_trace_anchors_and_refuses_fabricated_ones(self):
+        from core import postmortem
+
+        t1 = "4bf92f3577b34da6a3ce929d0e0e4736"
+        s1 = "00f067aa0ba902b7"
+        t2 = "abcdef0123456789abcdef0123456789"
+        Path("logs.txt").write_text(f"err traceparent=00-{t1}-{s1}-01\nwarn trace_id={t2}\n")
+        code, out, _ = self.run_incident(LOGS="logs.txt")
+        self.assertEqual(code, 0)
+        doc = postmortem.validate(out)
+
+        ev_idx = postmortem.anchor_evidence("trace:1", doc)
+        self.assertIn(t1, "\n".join(ev_idx))
+        self.assertIn(s1, "\n".join(ev_idx))
+        ev_hex = postmortem.anchor_evidence(f"trace:{t2}", doc)
+        self.assertIn(t2, "\n".join(ev_hex))
+
+        for bad in (
+            "trace:0",
+            "trace:3",
+            "trace:ffffffffffffffffffffffffffffffff",
+            "trace:not-a-trace",
+        ):
+            with self.subTest(bad=bad):
+                with self.assertRaises(postmortem.Fail):
+                    postmortem.anchor_evidence(bad, doc)
+
+        # Document without traces refuses any trace anchor cleanly.
+        Path("logs.txt").write_text("plain log line\n")
+        code2, out2, _ = self.run_incident(LOGS="logs.txt")
+        self.assertEqual(code2, 0)
+        doc_no_traces = postmortem.validate(out2)
+        self.assertNotIn("traces", doc_no_traces)
+        with self.assertRaises(postmortem.Fail):
+            postmortem.anchor_evidence("trace:1", doc_no_traces)
+
+    def test_postmortem_check_validates_trace_timeline_anchor(self):
+        from core import postmortem
+
+        t1 = "4bf92f3577b34da6a3ce929d0e0e4736"
+        s1 = "00f067aa0ba902b7"
+        Path("logs.txt").write_text(f"err traceparent=00-{t1}-{s1}-01\n")
+        code, out, _ = self.run_incident(LOGS="logs.txt")
+        self.assertEqual(code, 0)
+        calls = [
+            {
+                "name": "file_postmortem",
+                "args": {
+                    "title": "Traced regression",
+                    "timeline": [
+                        {"event": "Canary rolled back", "anchor": "release:0.2.0-canary"},
+                        {"event": "Failing span traced", "anchor": f"trace:{t1}"},
+                    ],
+                    "causes": [{"cause": "5xx burst", "evidence": f"trace:{t1}"}],
+                    "actions": [{"title": "Fix bug", "problem": "5xx", "acceptance": "Given X When Y Then Z"}],
+                },
+            }
+        ]
+        Path("calls.json").write_text(json.dumps(calls))
+        checked = postmortem.check(out, "calls.json")
+        self.assertEqual(checked["timeline"][1]["anchor"], f"trace:{t1}")
+        self.assertIn(t1, checked["timeline"][1]["evidence"][0])
+
+
 if __name__ == "__main__":
     unittest.main()
