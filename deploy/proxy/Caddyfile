@@ -1,9 +1,18 @@
-# Caddy reverse-proxy + forward_auth template for lights-out console (ADR 0111)
+# Caddy reverse-proxy + forward_auth template for lights-out console (ADR 0111, ADR 0127)
 #
 # Run Caddy in front of oauth2-proxy (127.0.0.1:4180) and console/serve.py (127.0.0.1:8098).
-# Console environment:
+# Console environment (cryptographic JWT verification + 4-tier RBAC):
 #   CONSOLE_AUTH=proxy
 #   CONSOLE_IDENTITY_HEADER=X-Auth-Request-Email
+#   CONSOLE_VERIFY_JWT=on
+#   CONSOLE_JWT_HEADER=Authorization
+#   CONSOLE_JWKS_URL=https://idp.example.com/realms/lights-out/protocol/openid-connect/certs
+#   CONSOLE_JWT_ISSUER=https://idp.example.com/realms/lights-out
+#   CONSOLE_JWT_AUDIENCE=lights-out-console
+#   CONSOLE_RBAC=strict
+#   CONSOLE_VIEWERS=auditor@example.com
+#   CONSOLE_DEVELOPERS=dev@example.com
+#   CONSOLE_OPERATORS=sre@example.com
 #   CONSOLE_LAUNCHERS=alice@example.com,bob@example.com
 #   CONSOLE_HOSTS=console.example.com
 #   CONSOLE_PUBLISH=127.0.0.1
@@ -21,10 +30,10 @@ console.example.com {
 	}
 
 	handle {
-		# Authenticate first via oauth2-proxy /oauth2/auth
+		# Authenticate first via oauth2-proxy /oauth2/auth and copy verified OIDC ID token
 		forward_auth 127.0.0.1:4180 {
 			uri /oauth2/auth
-			copy_headers X-Auth-Request-Email X-Auth-Request-User
+			copy_headers X-Auth-Request-Email X-Auth-Request-User Authorization
 
 			@error status 401
 			handle_response @error {
@@ -33,10 +42,12 @@ console.example.com {
 		}
 
 		reverse_proxy 127.0.0.1:8098 {
-			# Strip any client-supplied identity header so only forward_auth's value reaches console
+			# Strip any client-supplied identity/token headers so only forward_auth's verified values reach console
 			header_up -X-Auth-Request-Email
 			header_up -X-Auth-Request-User
+			header_up -Authorization
 			header_up X-Auth-Request-Email {http.request.header.X-Auth-Request-Email}
+			header_up Authorization {http.request.header.Authorization}
 			header_up Host {host}
 			header_up Origin {http.request.header.Origin}
 		}

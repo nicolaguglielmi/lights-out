@@ -184,6 +184,113 @@ class ReadinessTest(unittest.TestCase):
         os.rename("records", ".crew/conformance")
         self.assertIn(".env holds Z_TOKEN", self.assert_fails(["secrets"], env))
 
+    def test_oidc_jwt_readiness_valid_https_and_loopback_jwks(self):
+        for jwks_url in (
+            "https://idp.example.com/.well-known/jwks.json",
+            "http://127.0.0.1:9443/jwks.json",
+            "http://localhost:9443/jwks.json",
+            "http://[::1]:9443/jwks.json",
+        ):
+            with self.subTest(jwks_url=jwks_url):
+                env = dict(
+                    GOOD_ENV,
+                    CONSOLE_VERIFY_JWT="on",
+                    CONSOLE_JWT_ISSUER="https://idp.example.com",
+                    CONSOLE_JWT_AUDIENCE="lights-out-console",
+                    CONSOLE_JWKS_URL=jwks_url,
+                    CONSOLE_RBAC="strict",
+                )
+                verdict, text, _ = self.run_gate(env)
+                self.assertEqual(verdict, "GO", text)
+                self.assertIn("oidc issuer https://idp.example.com", text)
+
+    def test_oidc_jwt_readiness_with_jwks_file_or_jwt_secret(self):
+        env_file = dict(
+            GOOD_ENV,
+            CONSOLE_VERIFY_JWT="on",
+            CONSOLE_JWT_ISSUER="https://idp.example.com",
+            CONSOLE_JWT_AUDIENCE="lights-out-console",
+            CONSOLE_JWKS_FILE="/etc/lights-out/jwks.json",
+        )
+        self.assertEqual(self.run_gate(env_file)[0], "GO")
+
+        env_secret = dict(
+            GOOD_ENV,
+            CONSOLE_VERIFY_JWT="on",
+            CONSOLE_JWT_ISSUER="https://idp.example.com",
+            CONSOLE_JWT_AUDIENCE="lights-out-console",
+            CONSOLE_JWT_SECRET="runtime-injected-hmac-secret",
+        )
+        verdict, text, err = self.run_gate(env_secret)
+        self.assertEqual(verdict, "GO", text)
+        self.assertNotIn("runtime-injected-hmac-secret", text + err)
+
+    def test_oidc_jwt_readiness_rejects_missing_issuer_audience_or_keys(self):
+        base = dict(
+            GOOD_ENV,
+            CONSOLE_VERIFY_JWT="on",
+            CONSOLE_JWT_ISSUER="https://idp.example.com",
+            CONSOLE_JWT_AUDIENCE="lights-out-console",
+            CONSOLE_JWKS_URL="https://idp.example.com/jwks.json",
+        )
+        self.assertIn(
+            "CONSOLE_JWT_ISSUER is not set",
+            self.assert_fails(["human gate"], dict(base, CONSOLE_JWT_ISSUER="")),
+        )
+        self.assertIn(
+            "CONSOLE_JWT_AUDIENCE is not set",
+            self.assert_fails(["human gate"], dict(base, CONSOLE_JWT_AUDIENCE="")),
+        )
+        self.assertIn(
+            "no JWT key source",
+            self.assert_fails(["human gate"], dict(base, CONSOLE_JWKS_URL="", CONSOLE_JWT_SECRET="replace-me")),
+        )
+
+    def test_oidc_jwt_readiness_triggers_on_jwks_file_jwks_url_or_strict_rbac(self):
+        self.assertIn(
+            "CONSOLE_JWT_ISSUER is not set",
+            self.assert_fails(["human gate"], dict(GOOD_ENV, CONSOLE_JWKS_URL="https://idp.example.com/jwks.json")),
+        )
+        self.assertIn(
+            "CONSOLE_JWT_ISSUER is not set",
+            self.assert_fails(["human gate"], dict(GOOD_ENV, CONSOLE_JWKS_FILE="/etc/jwks.json")),
+        )
+        self.assertIn(
+            "CONSOLE_JWT_ISSUER is not set",
+            self.assert_fails(["human gate"], dict(GOOD_ENV, CONSOLE_RBAC="strict")),
+        )
+
+    def test_oidc_jwt_readiness_rejects_unsafe_jwks_urls_and_bad_modes(self):
+        base = dict(
+            GOOD_ENV,
+            CONSOLE_VERIFY_JWT="on",
+            CONSOLE_JWT_ISSUER="https://idp.example.com",
+            CONSOLE_JWT_AUDIENCE="lights-out-console",
+        )
+        for bad_url in (
+            "http://idp.example.com/jwks.json",
+            "http://169.254.169.254/latest/meta-data/",
+            "https://169.254.169.254/jwks.json",
+            "file:///etc/passwd",
+        ):
+            with self.subTest(bad_url=bad_url):
+                self.assertIn(
+                    "unsafe CONSOLE_JWKS_URL",
+                    self.assert_fails(["human gate"], dict(base, CONSOLE_JWKS_URL=bad_url)),
+                )
+        self.assertIn(
+            "CONSOLE_VERIFY_JWT=maybe",
+            self.assert_fails(["human gate"], dict(base, CONSOLE_VERIFY_JWT="maybe", CONSOLE_JWKS_URL="https://idp.example.com/jwks")),
+        )
+        self.assertIn(
+            "CONSOLE_RBAC=bogus",
+            self.assert_fails(["human gate"], dict(base, CONSOLE_RBAC="bogus", CONSOLE_JWKS_URL="https://idp.example.com/jwks")),
+        )
+        self.assertIn(
+            "CONSOLE_VERIFY_JWT is off",
+            self.assert_fails(["human gate"], dict(base, CONSOLE_VERIFY_JWT="off", CONSOLE_RBAC="strict", CONSOLE_JWKS_URL="https://idp.example.com/jwks")),
+        )
+
 
 class HashTest(unittest.TestCase):
     """The digest is ci/lib.sh's adapter_hash, so a record either writes is
