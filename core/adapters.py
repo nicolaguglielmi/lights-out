@@ -42,11 +42,12 @@ SUITES = {
     "DELIVERY": "delivery-conformance",
     "STATE_STORE": "statestore-conformance",
     "EVENT_BUS": "eventbus-conformance",
+    "TRACKER": "tracker-conformance",
     "REGISTRY": "registry-conformance",
     "FLAGS": "flags-conformance",
 }
 # The profile's other port variables: an outside adapter there has no suite.
-NO_SUITE = ("TRACKER", "ORCHESTRATOR", "METRICS")
+NO_SUITE = ("ORCHESTRATOR", "METRICS")
 PREFIX = "outside/"
 NAME = re.compile(r"[a-z0-9][a-z0-9-]*")
 LINKS = Path("adapters/outside")

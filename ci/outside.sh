@@ -8,7 +8,7 @@
 #       port's suite / trial+register admits it; linked at adapters/outside/*;
 #       one changed byte (even mid-trial) is refused again; a broken copy fails
 #       the suite, is not registered and stays refused; a symlink inside the tree
-#       is refused; outside/ on a port with no suite (TRACKER) is refused;
+#       is refused; outside/ on a port with no suite (ORCHESTRATOR) is refused;
 #       AGENT_HARNESS, wired to no trial, is refused naming its suite; a suite
 #       beside another goal on one command line tries nothing; no trial record
 #       outlives a suite.
@@ -116,8 +116,8 @@ ln -s /etc/hostname "$ext/json-linked/extra.sh"
 m help STATE_STORE=outside/json-linked
 refused "a symlink in the tree" "STATE_STORE=outside/json-linked is refused" "symlink"
 
-m help TRACKER=outside/json-files
-refused "a port with no suite" "TRACKER=outside/json-files is refused" "no conformance suite"
+m help ORCHESTRATOR=outside/json-files
+refused "a port with no suite" "ORCHESTRATOR=outside/json-files is refused" "no conformance suite"
 
 m help AGENT_HARNESS=outside/json-files
 refused "an outside harness, left (§1)" "AGENT_HARNESS=outside/json-files is refused" "harness-conformance"
@@ -417,6 +417,74 @@ ln -s /etc/hostname "$ext/file-flags-linked/extra.sh"
 m help FLAGS=outside/file-flags-linked
 refused "flags symlink in tree" "FLAGS=outside/file-flags-linked is refused" "symlink"
 
+# --- a4: TRACKER=outside/file-tracker (ADR 0116) ---
+cp -R fixtures/outside-adapters/file-tracker "$ext/file-tracker"
+export FILE_TRACKER_DIR="$tmp/file-tracker-state"
+tr_var="TRACKER=outside/file-tracker"
+
+m help "$tr_var"
+refused "tracker no proof" "$tr_var is refused" "tracker-conformance GO" "./go tracker-conformance $tr_var"
+[ ! -e "$root/adapters/outside/file-tracker" ] || nogo "a4: no proof linked file-tracker anyway"
+
+cp -R fixtures/outside-adapters/file-tracker "$ext/file-tracker-tamper"
+before_reg=$(cat "$reg")
+(cd "$root" && TRACKER=outside/file-tracker-tamper ADAPTERS_PATH="$ext" ADAPTERS_REGISTER="$reg" python3 core/adapters.py trial TRACKER) \
+  || nogo "a4: trial file-tracker-tamper failed"
+printf '\n' >> "$ext/file-tracker-tamper/sync.sh"
+tamper_rc=0
+(cd "$root" && TRACKER=outside/file-tracker-tamper ADAPTERS_PATH="$ext" ADAPTERS_REGISTER="$reg" python3 core/adapters.py register TRACKER tracker-conformance >/dev/null 2>&1) || tamper_rc=$?
+[ "$tamper_rc" -ne 0 ] || nogo "a4: register accepted tracker tree mutated during trial"
+(cd "$root" && ADAPTERS_REGISTER="$reg" python3 core/adapters.py untrial TRACKER) >/dev/null 2>&1 || true
+[ "$(cat "$reg")" = "$before_reg" ] || nogo "a4: mutated tracker trial wrote to register"
+[ ! -e "$tmp/trial-TRACKER" ] || nogo "a4: untrial left trial-TRACKER behind"
+
+cp -R fixtures/outside-adapters/file-tracker "$ext/file-tracker-broken"
+cat > "$ext/file-tracker-broken/put.sh" <<'EOF'
+#!/bin/sh
+printf 'dup-id\n'
+EOF
+chmod +x "$ext/file-tracker-broken/put.sh"
+(cd "$root" && TRACKER=outside/file-tracker-broken ADAPTERS_PATH="$ext" ADAPTERS_REGISTER="$reg" python3 core/adapters.py trial TRACKER) \
+  || nogo "a4: trial file-tracker-broken failed"
+broken_rc=0
+broken_out=$(cd "$root" && TRACKER=outside/file-tracker-broken ADAPTERS_PATH="$ext" ADAPTERS_REGISTER="$reg" ADAPTERS_TRIAL=TRACKER CONFORMANCE=1 sh gates/tracker-conformance.sh 2>/dev/null) || broken_rc=$?
+[ "$broken_rc" -ne 0 ] || nogo "a4: broken tracker passed tracker-conformance: [$broken_out]"
+case "$broken_out" in "NO-GO: tracker-conformance — "*) ;; *) nogo "a4: broken tracker printed [$broken_out]" ;; esac
+(cd "$root" && ADAPTERS_REGISTER="$reg" python3 core/adapters.py untrial TRACKER) >/dev/null 2>&1 || true
+[ "$(cat "$reg")" = "$before_reg" ] || nogo "a4: broken tracker wrote to register"
+
+(cd "$root" && TRACKER=outside/file-tracker ADAPTERS_PATH="$ext" ADAPTERS_REGISTER="$reg" python3 core/adapters.py trial TRACKER) \
+  || nogo "a4: trial TRACKER failed"
+m help "$tr_var"
+refused "tracker on trial without ADAPTERS_TRIAL" "$tr_var is refused"
+m help "$tr_var" ADAPTERS_TRIAL=TRACKER
+admitted "file-tracker during trial with ADAPTERS_TRIAL=TRACKER"
+tr_out=$(cd "$root" && TRACKER=outside/file-tracker ADAPTERS_PATH="$ext" ADAPTERS_REGISTER="$reg" ADAPTERS_TRIAL=TRACKER CONFORMANCE=1 sh gates/tracker-conformance.sh 2>/dev/null) \
+  || nogo "a4: tracker-conformance failed on outside/file-tracker: [$tr_out]"
+case "$tr_out" in "GO: tracker-conformance — "*) ;; *) nogo "a4: tracker-conformance printed [$tr_out]" ;; esac
+
+tr_digest=$(python3 core/adapters.py hash "$ext/file-tracker")
+(cd "$root" && TRACKER=outside/file-tracker ADAPTERS_PATH="$ext" ADAPTERS_REGISTER="$reg" python3 core/adapters.py register TRACKER tracker-conformance) \
+  || nogo "a4: register TRACKER failed"
+[ ! -e "$tmp/trial-TRACKER" ] || nogo "a4: register TRACKER left trial-TRACKER behind"
+awk -F'\t' -v d="$tr_digest" '$1 == "TRACKER" && $2 == "file-tracker" && $3 == d && index($4, "tracker-conformance@") == 1 { f = 1 } END { exit !f }' "$reg" 2>/dev/null \
+  || nogo "a4: register TRACKER wrote no line for sha256 $tr_digest"
+
+rm -f "$root/adapters/outside/file-tracker"
+m help "$tr_var"
+admitted "file-tracker after register"
+[ -L "$root/adapters/outside/file-tracker" ] || nogo "a4: admitted TRACKER not linked"
+[ "$(readlink "$root/adapters/outside/file-tracker")" = "$ext/file-tracker" ] || nogo "a4: TRACKER link mismatch"
+
+printf '\n' >> "$ext/file-tracker/sync.sh"
+m help "$tr_var"
+refused "tracker one changed byte" "$tr_var is refused"
+
+cp -R fixtures/outside-adapters/file-tracker "$ext/file-tracker-linked"
+ln -s /etc/hostname "$ext/file-tracker-linked/extra.sh"
+m help TRACKER=outside/file-tracker-linked
+refused "tracker symlink in tree" "TRACKER=outside/file-tracker-linked is refused" "symlink"
+
 # --- b: a surface is never a judge (ADR 0058 §6, ADR 0095 §10) -------------------
 # The contexts the tower posts: the third argument of every status.sh call in core/.
 tower=$(awk '!/^[[:space:]]*#/ && /adapters\/\$CODE_HOST\/status\.sh"/ {
@@ -453,4 +521,4 @@ surfaces/gitlab-ci/.gitlab-ci.yml lights-out/gitlab-ci failed
 surfaces/circleci/config.yml lights-out/circleci failure
 EOF
 
-go_with "outside StateStore, Delivery, CodeHost, Registry and Flags refused, proven, admitted, refused again on one byte; the surfaces post under${contexts}, the tower under $(printf '%s' "$tower" | tr '\n' ' ' | sed 's/ $//')"
+go_with "outside StateStore, Delivery, CodeHost, Registry, Flags and Tracker refused, proven, admitted, refused again on one byte; the surfaces post under${contexts}, the tower under $(printf '%s' "$tower" | tr '\n' ' ' | sed 's/ $//')"
