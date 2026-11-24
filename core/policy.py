@@ -19,13 +19,14 @@ import re
 import sys
 
 try:
-    from .risk import parse_policy
+    from .risk import ADR_MODES, parse_policy
 except ImportError:  # run as a script: core/ is sys.path[0]
-    from risk import parse_policy
+    from risk import ADR_MODES, parse_policy
 
 # key -> (kind, loosening direction). "high": a larger value is looser;
 # "low": a smaller one; "set": a member the default lacks; "drop": a
-# member of the default the override leaves out.
+# member of the default the override leaves out; "rank": a value earlier
+# in its kind's order (ADR_MODES, least strict first).
 OVERRIDABLE = {
     "MUTATION_MARGIN": ("fraction", "high"),
     "RISK_SIZE_MEDIUM_LINES": ("count", "high"),
@@ -36,7 +37,13 @@ OVERRIDABLE = {
     "ERROR_RATE_MAX_DELTA": ("fraction", "high"),
     "LATENCY_P95_MAX_DELTA": ("seconds", "high"),
     "MUTATION_BASELINE": ("fraction", "low"),
+    "RISK_REQUIRE_ADR": ("adr-mode", "rank"),
 }
+
+# Keys the platform defaults may leave out: the baseline is the
+# workload's, and a policy written before docs/adr/0115 has no
+# RISK_REQUIRE_ADR, which is then off (core/risk.py).
+_NO_DEFAULT_NEEDED = ("MUTATION_BASELINE", "RISK_REQUIRE_ADR")
 
 # High-risk changes (migrations, auth, payments, the platform and an
 # attached repository's contract) always go to a human.
@@ -71,6 +78,9 @@ def check_value(key, value):
     elif kind == "count":
         if not _COUNT.match(value):
             raise PolicyError(f"{key}={value!r} is not a whole number of lines, 1 or more")
+    elif kind == "adr-mode":
+        if value not in ADR_MODES:
+            raise PolicyError(f"{key}={value!r} is not one of {', '.join(ADR_MODES)}")
     elif kind == "levels":
         for level in _items(value):
             if level not in AUTO_MERGE_LEVELS:
@@ -130,6 +140,8 @@ def looser(key, value, default):
         return value if float(value) > float(default) else None
     if direction == "low":
         return value if float(value) < float(default) else None
+    if direction == "rank":
+        return value if ADR_MODES.index(value) < ADR_MODES.index(default) else None
     if direction == "set":
         added = [i for i in _items(value) if i not in _items(default)]
         return "adds " + ":".join(added) if added else None
@@ -141,8 +153,13 @@ def effective(platform_text, workload_env_text, overrides_text):
     """Return (policy dict, [looser report]) or raise PolicyError."""
     policy = parse_policy(platform_text)
     for key in OVERRIDABLE:
-        if key != "MUTATION_BASELINE" and key not in policy:
+        if key not in _NO_DEFAULT_NEEDED and key not in policy:
             raise PolicyError(f"no default for {key}", "platform")
+    if "RISK_REQUIRE_ADR" in policy:
+        try:
+            check_value("RISK_REQUIRE_ADR", policy["RISK_REQUIRE_ADR"])
+        except PolicyError as exc:
+            raise PolicyError(str(exc), "platform") from None
     baseline = parse_policy(workload_env_text).get("MUTATION_BASELINE", "")
     if baseline:
         try:

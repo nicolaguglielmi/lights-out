@@ -23,6 +23,33 @@ _HIGH_SIGNAL_KEYS = (
     ("platform", "RISK_HIGH_PLATFORM"),
 )
 
+# RISK_REQUIRE_ADR's values, least strict first (docs/adr/0115 §3).
+ADR_MODES = ("off", "high", "structural")
+
+# docs/adr/0115 §3: an added file with one of these basenames is a new
+# package manifest, lockfile, container or compose manifest -- structural
+# under RISK_REQUIRE_ADR=structural. Provenance, external: the file names
+# each ecosystem's own tooling documents.
+_MANIFEST_GLOBS = (
+    "package.json", "package-lock.json", "npm-shrinkwrap.json", "yarn.lock", "pnpm-lock.yaml",
+    "pnpm-workspace.yaml", "bun.lock", "bun.lockb",
+    "pyproject.toml", "requirements*.txt", "setup.py", "setup.cfg", "poetry.lock", "uv.lock",
+    "Pipfile", "Pipfile.lock",
+    "go.mod", "go.sum", "go.work",
+    "Cargo.toml", "Cargo.lock",
+    "pom.xml", "build.gradle", "build.gradle.kts", "settings.gradle", "settings.gradle.kts", "gradle.lockfile",
+    "Gemfile", "Gemfile.lock", "composer.json", "composer.lock",
+    "Containerfile", "Dockerfile", "compose.yaml", "compose.yml",
+)
+
+
+def new_manifests(added_paths):
+    """The added paths that are a manifest or lockfile (docs/adr/0115 §3)."""
+    return _unique_in_order(
+        path for path in added_paths
+        if any(fnmatch.fnmatchcase(path.rsplit("/", 1)[-1], glob) for glob in _MANIFEST_GLOBS)
+    )
+
 
 def parse_policy(text):
     """Six-line KEY=VALUE parser: policy/merge.env's own shape (docs/adr/0016 §6).
@@ -70,7 +97,7 @@ def _parse_numstat_line(line):
     return added, deleted, path
 
 
-def classify(numstat_lines, policy):
+def classify(numstat_lines, policy, added_paths=()):
     """Classify a git range from its `--numstat` lines and the merge policy.
 
     Rules, not points (docs/adr/0016 §2): level is the single
@@ -78,7 +105,16 @@ def classify(numstat_lines, policy):
     migrations/auth/payments/platform (all "high"), then size ("medium"),
     else "low". Raises ValueError on a numstat line that does not parse as
     `added<TAB>deleted<TAB>path`.
+
+    `adr_required` (docs/adr/0115 §4) is true when the policy's
+    RISK_REQUIRE_ADR asks for a decision record: `high` on level high,
+    `structural` on level high or a new manifest among `added_paths` (the
+    range's added files); absent or `off`, never. Raises ValueError on any
+    other RISK_REQUIRE_ADR value.
     """
+    adr_mode = policy.get("RISK_REQUIRE_ADR") or "off"
+    if adr_mode not in ADR_MODES:
+        raise ValueError(f"RISK_REQUIRE_ADR={adr_mode!r} is not one of {', '.join(ADR_MODES)}")
     entries = [_parse_numstat_line(line) for line in numstat_lines]
 
     high_signals = []
@@ -121,6 +157,13 @@ def classify(numstat_lines, policy):
     auto_merge_levels = set(_split_globs(policy.get("RISK_AUTO_MERGE_LEVELS", "")))
     decision = "auto-merge" if level in auto_merge_levels else "review"
 
+    if adr_mode == "high":
+        adr_required = level == "high"
+    elif adr_mode == "structural":
+        adr_required = level == "high" or bool(new_manifests(added_paths))
+    else:
+        adr_required = False
+
     return {
         "level": level,
         "decision": decision,
@@ -130,6 +173,7 @@ def classify(numstat_lines, policy):
             "threshold": threshold,
             "excluded": excluded,
         },
+        "adr_required": adr_required,
     }
 
 
