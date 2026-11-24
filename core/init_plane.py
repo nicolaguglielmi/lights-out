@@ -1,15 +1,19 @@
-"""Draft a repository's plane half from its container build file (docs/adr/0100): stdlib only.
+"""Draft a repository's plane half from its container build file (ADR 0100, ADR 0110): stdlib only.
 
-Inspects a Containerfile or Dockerfile at the repository root to extract the
-exposed port, an explicit HTTP healthcheck path (falling back honestly to
-tcp:<port>), and runtime/test multi-stage targets, then writes compose.yaml,
-flags/flags.json, smoke.sh, and load.sh into the given contract directory.
+Inspects a Containerfile or Dockerfile at the repository root (or under the
+selected INIT_SERVICE subdirectory in monorepo mode) to extract the exposed
+port, an explicit HTTP healthcheck path (falling back honestly to tcp:<port>),
+runtime/test multi-stage targets, and stateful dependency hints from
+.env.example / compose.yaml / docker-compose.yml, then writes compose.yaml,
+flags/flags.json, auth-aware smoke.sh and load.sh, and crew-egress.txt.example
+into the given contract directory.
 """
 
 from __future__ import annotations
 
 import json
 import os
+import posixpath
 import re
 
 DEFAULT_PORT = 8000
@@ -17,6 +21,73 @@ DEFAULT_CANARY_VERSION = "0.2.0-canary"
 DEFAULT_SAMPLE_PATH = "/"
 PLANE_KEYS = ("CANARY_VERSION", "WORKLOAD_KILL_SWITCH", "WORKLOAD_SAMPLE_PATH")
 _FORBIDDEN_PATH_CHARS = frozenset("$#{}<>\\'\"")
+
+_ENV_DEP_RULES = (
+    (
+        "postgres",
+        re.compile(
+            r"(?:^\s*(?:export\s+)?(?:DATABASE_URL|POSTGRES_(?:URL|HOST|DB))\s*=|postgres(?:ql)?://)",
+            re.IGNORECASE,
+        ),
+    ),
+    (
+        "redis",
+        re.compile(
+            r"(?:^\s*(?:export\s+)?REDIS_(?:URL|HOST)\s*=|rediss?://)",
+            re.IGNORECASE,
+        ),
+    ),
+    (
+        "mysql",
+        re.compile(
+            r"(?:^\s*(?:export\s+)?MYSQL_(?:URL|HOST|DATABASE)\s*=|mysql://)",
+            re.IGNORECASE,
+        ),
+    ),
+)
+
+_COMPOSE_DEP_RULES = (
+    (
+        "postgres",
+        re.compile(
+            r"(?:^\s*image\s*:\s*['\"]?(?:[\w./-]+/)?(?:postgres|postgis|timescaledb)(?:[:@\s'\"]|$)"
+            r"|^\s{2}(?:postgres|postgresql)\s*:"
+            r"|\bPOSTGRES_(?:DB|USER|PASSWORD|HOST)\b"
+            r"|postgres(?:ql)?://)",
+            re.IGNORECASE,
+        ),
+    ),
+    (
+        "redis",
+        re.compile(
+            r"(?:^\s*image\s*:\s*['\"]?(?:[\w./-]+/)?(?:redis|valkey)(?:[:@\s'\"]|$)"
+            r"|^\s{2}(?:redis|valkey)\s*:"
+            r"|\bREDIS_(?:URL|HOST)\b"
+            r"|rediss?://)",
+            re.IGNORECASE,
+        ),
+    ),
+    (
+        "mysql",
+        re.compile(
+            r"(?:^\s*image\s*:\s*['\"]?(?:[\w./-]+/)?(?:mysql|mariadb)(?:[:@\s'\"]|$)"
+            r"|^\s{2}(?:mysql|mariadb)\s*:"
+            r"|\bMYSQL_(?:URL|HOST|DATABASE)\b"
+            r"|mysql://)",
+            re.IGNORECASE,
+        ),
+    ),
+)
+
+
+def _normalize_service_rel(service: str | None) -> str:
+    raw = (os.environ.get("INIT_SERVICE", "") if service is None else service).strip()
+    if not raw or raw == "." or os.path.isabs(raw) or raw.startswith("/"):
+        return ""
+    norm = posixpath.normpath(raw.replace(os.sep, "/")).strip("/")
+    if norm in ("", ".") or norm == ".." or norm.startswith("../"):
+        return ""
+    return norm
 
 
 def _logical_lines(text: str) -> list[str]:
@@ -59,14 +130,58 @@ def _extract_http_health_path(cmd_text: str) -> str | None:
     return path
 
 
-def detect_container(repo: str | os.PathLike[str]) -> dict | None:
-    """Inspect Containerfile then Dockerfile at repo root; return metadata or None."""
+def detect_stateful_deps(repo: str | os.PathLike[str], service: str | None = None) -> list[str]:
+    """Detect postgres/redis/mysql hints from non-comment lines in .env.example and compose files."""
     root = os.fspath(repo)
-    dockerfile = None
-    for candidate in ("Containerfile", "Dockerfile"):
-        if os.path.isfile(os.path.join(root, candidate)):
-            dockerfile = candidate
-            break
+    norm_service = _normalize_service_rel(service)
+    search_dirs = [root]
+    if norm_service:
+        sub = os.path.join(root, norm_service)
+        if os.path.isdir(sub):
+            search_dirs.append(sub)
+
+    detected: set[str] = set()
+    for base in search_dirs:
+        for env_name in (".env.example", ".env.sample", ".env.template"):
+            path = os.path.join(base, env_name)
+            if not os.path.isfile(path):
+                continue
+            with open(path, encoding="utf-8", errors="replace") as fh:
+                for raw in fh:
+                    stripped = raw.strip()
+                    if not stripped or stripped.startswith("#"):
+                        continue
+                    code = re.sub(r"\s+#.*$", "", stripped)
+                    for dep, pat in _ENV_DEP_RULES:
+                        if pat.search(code):
+                            detected.add(dep)
+        for comp_name in ("compose.yaml", "compose.yml", "docker-compose.yml", "docker-compose.yaml"):
+            path = os.path.join(base, comp_name)
+            if not os.path.isfile(path):
+                continue
+            with open(path, encoding="utf-8", errors="replace") as fh:
+                for raw in fh:
+                    stripped = raw.strip()
+                    if not stripped or stripped.startswith("#"):
+                        continue
+                    code = re.sub(r"\s+#.*$", "", raw.rstrip())
+                    for dep, pat in _COMPOSE_DEP_RULES:
+                        if pat.search(code):
+                            detected.add(dep)
+
+    return [dep for dep in ("postgres", "redis", "mysql") if dep in detected]
+
+
+def detect_container(repo: str | os.PathLike[str], service: str | None = None) -> dict | None:
+    """Inspect Containerfile/Dockerfile (under service if set, else root); return metadata or None."""
+    root = os.fspath(repo)
+    norm_service = _normalize_service_rel(service)
+    candidates: list[str] = []
+    if norm_service:
+        candidates.extend([f"{norm_service}/Containerfile", f"{norm_service}/Dockerfile"])
+    candidates.extend(["Containerfile", "Dockerfile"])
+
+    dockerfile = next((cand for cand in candidates if os.path.isfile(os.path.join(root, cand))), None)
     if dockerfile is None:
         return None
 
@@ -124,6 +239,7 @@ def detect_container(repo: str | os.PathLike[str]) -> dict | None:
 
     return {
         "dockerfile": dockerfile,
+        "service": norm_service,
         "port": port,
         "port_explicit": port_explicit,
         "port_evidence": port_evidence,
@@ -132,13 +248,97 @@ def detect_container(repo: str | os.PathLike[str]) -> dict | None:
         "health_evidence": health_evidence,
         "has_runtime": has_runtime,
         "has_test": has_test,
+        "stateful_deps": detect_stateful_deps(root, service=norm_service),
     }
+
+
+def _render_stateful_hints(info: dict) -> str:
+    deps = info.get("stateful_deps") or []
+    if not deps:
+        return ""
+    df = info["dockerfile"]
+    lines = [
+        "",
+        f"# Detected stateful dependencies ({', '.join(deps)}) from repo config.",
+        "# Uncomment and pin image digests before enabling stateful plane or crew tests:",
+        "#",
+    ]
+    crew_deps: list[str] = []
+    crew_env: list[str] = []
+    if "postgres" in deps:
+        crew_deps.append("crew-postgres")
+        crew_env.append("    TEST_DATABASE_URL: postgresql://app:app@crew-postgres:5432/app_test")
+        lines.extend(
+            [
+                "#   postgres:",
+                "#     image: docker.io/library/postgres:17-alpine@sha256:18cfe3ef5e6815560c98237d6216d1e5119702fb0f3894c8785dd58b8bbe5d73",
+                "#     environment: { POSTGRES_DB: app, POSTGRES_USER: app, POSTGRES_PASSWORD: app }",
+                "#   crew-postgres:  # isolated crew test DB (ADR 0046 §6-7: network crew only, no published ports)",
+                "#     image: docker.io/library/postgres:17-alpine@sha256:18cfe3ef5e6815560c98237d6216d1e5119702fb0f3894c8785dd58b8bbe5d73",
+                '#     profiles: ["crew"]',
+                "#     networks: [crew]",
+                '#     dns: ["192.0.2.1"]',
+                "#     environment: { POSTGRES_DB: app_test, POSTGRES_USER: app, POSTGRES_PASSWORD: app }",
+            ]
+        )
+    if "redis" in deps:
+        crew_deps.append("crew-redis")
+        crew_env.append("    REDIS_URL: redis://crew-redis:6379/0")
+        lines.extend(
+            [
+                "#   redis:",
+                "#     image: docker.io/library/redis:7-alpine",
+                "#   crew-redis:  # isolated crew cache (ADR 0046 §6-7: network crew only, no published ports)",
+                "#     image: docker.io/library/redis:7-alpine",
+                '#     profiles: ["crew"]',
+                "#     networks: [crew]",
+                '#     dns: ["192.0.2.1"]',
+            ]
+        )
+    if "mysql" in deps:
+        crew_deps.append("crew-mysql")
+        crew_env.append("    MYSQL_URL: mysql://app:app@crew-mysql:3306/app_test")
+        lines.extend(
+            [
+                "#   mysql:",
+                "#     image: docker.io/library/mysql:8.4",
+                "#     environment: { MYSQL_DATABASE: app, MYSQL_USER: app, MYSQL_PASSWORD: app, MYSQL_ROOT_PASSWORD: app }",
+                "#   crew-mysql:  # isolated crew test DB (ADR 0046 §6-7: network crew only, no published ports)",
+                "#     image: docker.io/library/mysql:8.4",
+                '#     profiles: ["crew"]',
+                "#     networks: [crew]",
+                '#     dns: ["192.0.2.1"]',
+                "#     environment: { MYSQL_DATABASE: app_test, MYSQL_USER: app, MYSQL_PASSWORD: app, MYSQL_ROOT_PASSWORD: app }",
+            ]
+        )
+    lines.extend(
+        [
+            "#",
+            "# x-crew-worker isolation snippet (attach every CLI harness service to crew-* dependencies):",
+            "# x-crew-worker: &crew-worker",
+            "#   depends_on:",
+            *[f"#     - {dep}" for dep in crew_deps],
+            "#   environment:",
+            *[f"# {entry}" for entry in crew_env],
+            "#   # <harness-service>: *crew-worker",
+            "#",
+            "# Optional migration hook (uncomment and wire depends_on: migrate condition: service_completed_successfully):",
+            "#   migrate:",
+            "#     build:",
+            "#       context: ${WORKLOAD}",
+            f"#       dockerfile: {df}",
+            '#     command: ["<migration-command>"]',
+            '#     restart: "no"',
+        ]
+    )
+    return "\n".join(lines) + "\n"
 
 
 def _render_compose(info: dict) -> str:
     df = info["dockerfile"]
     backend_target = "      target: runtime\n" if info.get("has_runtime") else ""
     test_target = "      target: test\n" if info.get("has_test") else ""
+    hints = _render_stateful_hints(info)
     return (
         "# SPDX-License-Identifier: Apache-2.0\n"
         "services:\n"
@@ -159,6 +359,7 @@ def _render_compose(info: dict) -> str:
         f"      dockerfile: {df}\n"
         f"{test_target}"
         '    profiles: ["test"]\n'
+        f"{hints}"
     )
 
 
@@ -187,7 +388,12 @@ def _render_smoke(info: dict) -> str:
         "tmp=$(mktemp -d)\n"
         'trap \'rm -rf "$tmp"\' EXIT\n'
         "\n"
-        f'if ! code=$(curl -sS -o "$tmp/out" -w \'%{{http_code}}\' --connect-timeout 1 --max-time 3 "$APP_URL{path}" 2>"$tmp/err"); then\n'
+        '# Optional auth header (e.g. SMOKE_AUTH_HEADER="Authorization: Bearer <token>"), never embedded.\n'
+        'set -- -sS -o "$tmp/out" -w \'%{http_code}\' --connect-timeout 1 --max-time 3\n'
+        'if [ -n "${SMOKE_AUTH_HEADER:-}" ]; then\n'
+        '  set -- "$@" -H "$SMOKE_AUTH_HEADER"\n'
+        "fi\n"
+        f'if ! code=$(curl "$@" "$APP_URL{path}" 2>"$tmp/err"); then\n'
         f'  printf \'smoke: GET {path} failed: %s\\n\' "$(cat "$tmp/err")" >&2\n'
         "  exit 1\n"
         "fi\n"
@@ -209,10 +415,42 @@ def _render_load() -> str:
         ': "${APP_URL:=http://$PLANE_HOST:8080}"\n'
         ': "${WORKLOAD_SAMPLE_PATH:=/}"\n'
         "\n"
+        "set -- -s -o /dev/null --connect-timeout 1 --max-time 3\n"
+        'if [ -n "${SMOKE_AUTH_HEADER:-}" ]; then\n'
+        '  set -- "$@" -H "$SMOKE_AUTH_HEADER"\n'
+        "fi\n"
         "while true; do\n"
-        '  curl -s -o /dev/null --connect-timeout 1 --max-time 3 "$APP_URL$WORKLOAD_SAMPLE_PATH" || true\n'
+        '  curl "$@" "$APP_URL$WORKLOAD_SAMPLE_PATH" || true\n'
         "  sleep 0.2\n"
         "done\n"
+    )
+
+
+def _render_egress_example() -> str:
+    return (
+        "# Opt-in worker egress allowlist example (ADR 0046 §5).\n"
+        "# Every entry in crew-egress.txt opens a direct outbound channel from the\n"
+        "# isolated crew container to that host:port (data can leave to an account on\n"
+        "# that host). Keep crew-egress.txt absent when dependencies are vendored or\n"
+        "# pre-cached; copy to crew-egress.txt and uncomment only required registries.\n"
+        "# Format: lowercase host:port, no wildcards, no IP literals.\n"
+        "#\n"
+        "# Python package index:\n"
+        "# pypi.org:443\n"
+        "# files.pythonhosted.org:443\n"
+        "#\n"
+        "# JavaScript / TypeScript registry:\n"
+        "# registry.npmjs.org:443\n"
+        "#\n"
+        "# Rust crates index:\n"
+        "# crates.io:443\n"
+        "# static.crates.io:443\n"
+        "# index.crates.io:443\n"
+        "#\n"
+        "# Java / Kotlin Maven & Gradle repositories:\n"
+        "# repo.maven.apache.org:443\n"
+        "# services.gradle.org:443\n"
+        "# plugins.gradle.org:443\n"
     )
 
 
@@ -230,9 +468,10 @@ def draft_plane(
     contract_dir: str | os.PathLike[str],
     info: dict,
     committed: dict[str, str] | None = None,
+    service: str | None = None,
 ) -> dict[str, tuple[str, str]]:
     """Write plane files into contract_dir (preserving existing ones) and return plane keys."""
-    del repo  # inspection results already captured in info; signature matches ADR 0100
+    del repo, service  # inspection results already captured in info; signature extends ADR 0100
     out = os.fspath(contract_dir)
     committed = committed or {}
     os.makedirs(os.path.join(out, "flags"), exist_ok=True)
@@ -241,6 +480,7 @@ def draft_plane(
     _write_if_missing(os.path.join(out, "flags", "flags.json"), _render_flags())
     _write_if_missing(os.path.join(out, "smoke.sh"), _render_smoke(info), executable=True)
     _write_if_missing(os.path.join(out, "load.sh"), _render_load(), executable=True)
+    _write_if_missing(os.path.join(out, "crew-egress.txt.example"), _render_egress_example())
 
     df = info["dockerfile"]
     inferred: dict[str, tuple[str, str]] = {

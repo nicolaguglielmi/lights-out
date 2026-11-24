@@ -1,0 +1,12 @@
+{
+  "flags": {
+    "release-freeze": {
+      "state": "ENABLED",
+      "variants": {
+        "on": true,
+        "off": false
+      },
+      "defaultVariant": "off"
+    }
+  }
+}

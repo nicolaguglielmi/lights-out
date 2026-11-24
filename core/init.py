@@ -21,6 +21,7 @@ versions workbench/Containerfile installs, read on 2026-11-03.
 import argparse
 import json
 import os
+import posixpath
 import re
 import shutil
 import sys
@@ -214,7 +215,7 @@ def _uv_has_pytest(repo):
     return any(isinstance(p, dict) and str(p.get("name", "")).lower() == "pytest" for p in pkgs)
 
 
-def infer_python(repo):
+def infer_python(repo, runners_dir=".lights-out/runners"):
     with open(os.path.join(repo, "pyproject.toml"), "rb") as fh:
         pyproject = tomllib.load(fh)
     notes = []
@@ -317,116 +318,89 @@ def infer_python(repo):
         "toolchain_evidence": toolchain_evidence,
         "test_cmd": test_cmd,
         "test_cmd_evidence": test_evidence,
-        "sast_cmd": f"sh .lights-out/runners/sast.sh {package}",
+        "sast_cmd": f"sh {runners_dir}/sast.sh {package}",
         "sast_cmd_evidence": "bandit over the package, the stack's runner (stacks/python/runners/sast.sh)",
-        "mutation_cmd": f'sh .lights-out/runners/mutation.sh {package} "{mutant_test_cmd}"',
+        "mutation_cmd": f'sh {runners_dir}/mutation.sh {package} "{mutant_test_cmd}"',
         "mutation_cmd_evidence": "cosmic-ray over the package, the stack's runner (stacks/python/runners/mutation.sh), the suite stopped at its first failure per mutant",
         "scope_paths": [package + "/"] + ([tests + "/"] if tests else []),
         "tests_sentence": f"From the repository root, `{test_cmd}`. Use exactly this command.",
     }
 
 
-def infer_javascript(repo):
-    with open(os.path.join(repo, "package.json")) as fh:
-        package_json = json.load(fh)
-    if not os.path.isfile(os.path.join(repo, "package-lock.json")):
-        raise Undraftable(
-            "package.json found but no package-lock.json beside it: the deps gate scans a lockfile "
-            "(docs/adr/0015 §5); run `npm install` and commit it"
-        )
-    src = None
-    for candidate in ("src", "lib"):
-        if os.path.isdir(os.path.join(repo, candidate)):
-            src = candidate
-            break
-    if src is None:
-        raise Undraftable("no javascript source directory found: looked for src/ and lib/ at the root")
-
-    scripts = package_json.get("scripts", {}) or {}
-    if "test" in scripts:
-        test_cmd = "npm ci && npm test"
-        suite = "npm test"
-        test_evidence = f"package.json scripts.test = {scripts['test']!r}, after a locked install"
-    else:
-        test_cmd = "npm ci && node --test"
-        suite = "node --test"
-        test_evidence = "package.json has no scripts.test: node's own test runner, after a locked install"
-
-    engines = (package_json.get("engines", {}) or {}).get("node", "")
-    if node_admits(engines, WORKBENCH_NODE):
-        toolchain = "workbench"
-        toolchain_evidence = (
-            f"engines.node = {engines!r} admits the workbench's node {WORKBENCH_NODE}; set an image to run elsewhere"
-            if engines
-            else f"package.json declares no engines.node; the workbench's node {WORKBENCH_NODE} is assumed"
-        )
-    else:
-        chosen = next((v for v in NODE_CANDIDATES if node_admits(engines, v)), None)
-        if chosen is None:
-            raise Undraftable(
-                f"engines.node = {engines!r} admits none of the node majors init knows "
-                f"({', '.join(map(str, NODE_CANDIDATES))})"
-            )
-        toolchain = f"docker.io/library/node:{chosen}"
-        toolchain_evidence = (
-            f"engines.node = {engines!r} does not admit the workbench's node {WORKBENCH_NODE}; "
-            f"the official node {chosen} image, a tag: pin it by digest before committing"
-        )
-
-    tests_dir = next((c for c in ("test", "tests", "__tests__") if os.path.isdir(os.path.join(repo, c))), None)
-    return {
-        "stack": "javascript",
-        "notes": [f"stack javascript: source {src}/, tests {tests_dir or '(discovery)'}, toolchain {toolchain}"],
-        "scope": src + "/",
-        "scope_evidence": f"{src}/ exists at the root",
-        "lockfiles": "package-lock.json",
-        "lockfiles_evidence": "package-lock.json at the root",
-        "test_root": "",
-        "test_root_evidence": "the sources sit at the repository root, nothing to strip",
-        "test_paths": JAVASCRIPT_TEST_PATHS,
-        "test_paths_evidence": "node --test's default patterns (Node 24 docs: test/ directories, *.test.*, *-test.*, *_test.*), any extension (docs/adr/0053 §1)",
-        "toolchain": toolchain,
-        "toolchain_evidence": toolchain_evidence,
-        "test_cmd": test_cmd,
-        "test_cmd_evidence": test_evidence,
-        "sast_cmd": f"sh .lights-out/runners/sast.sh {src}",
-        "sast_cmd_evidence": "eslint with eslint-plugin-security over the sources, the stack's runner (stacks/javascript/runners/sast.sh)",
-        "mutation_cmd": f'npm ci && sh .lights-out/runners/mutation.sh {src} "{suite}"',
-        "mutation_cmd_evidence": "Stryker over the sources, the stack's runner (stacks/javascript/runners/mutation.sh), the suite run whole per mutant",
-        "scope_paths": [src + "/"] + ([tests_dir + "/"] if tests_dir else []),
-        "tests_sentence": f"From the repository root, `{test_cmd}`. Use exactly this command.",
-    }
-
-
-def infer(repo):
+def infer_javascript(repo, runners_dir=".lights-out/runners"):
     try:
         from . import stacks
     except ImportError:  # run as a script: core/ is sys.path[0]
         import stacks
 
-    runners_dir = ".lights-out/runners"
+    return stacks.infer_javascript(repo, runners_dir=runners_dir)
+
+
+def _infer_single_dir(repo, runners_dir, workspace_root=None):
+    try:
+        from . import stacks
+    except ImportError:  # run as a script: core/ is sys.path[0]
+        import stacks
+
     has_pyproject = os.path.isfile(os.path.join(repo, "pyproject.toml"))
     has_uv = os.path.isfile(os.path.join(repo, "uv.lock"))
     has_poetry = os.path.isfile(os.path.join(repo, "poetry.lock"))
     has_reqs = os.path.isfile(os.path.join(repo, "requirements.txt"))
     if has_pyproject:
         if has_uv:
-            return infer_python(repo)
+            return infer_python(repo, runners_dir=runners_dir)
         if has_poetry or has_reqs:
             return stacks.infer_python_fallback(repo, runners_dir=runners_dir)
-        return infer_python(repo)
+        return infer_python(repo, runners_dir=runners_dir)
     if has_reqs:
         return stacks.infer_python_fallback(repo, runners_dir=runners_dir)
     if os.path.isfile(os.path.join(repo, "go.mod")):
         return stacks.infer_go(repo, runners_dir=runners_dir)
+    if os.path.isfile(os.path.join(repo, "Cargo.toml")):
+        return stacks.infer_rust(repo, runners_dir=runners_dir, workspace_root=workspace_root)
+    if (
+        os.path.isfile(os.path.join(repo, "pom.xml"))
+        or os.path.isfile(os.path.join(repo, "build.gradle"))
+        or os.path.isfile(os.path.join(repo, "build.gradle.kts"))
+    ):
+        return stacks.infer_java(repo, runners_dir=runners_dir, workspace_root=workspace_root)
     if os.path.isfile(os.path.join(repo, "package.json")):
         if os.path.isfile(os.path.join(repo, "tsconfig.json")):
-            return stacks.infer_typescript(repo, runners_dir=runners_dir)
-        return infer_javascript(repo)
+            return stacks.infer_typescript(repo, runners_dir=runners_dir, workspace_root=workspace_root)
+        return stacks.infer_javascript(repo, runners_dir=runners_dir, workspace_root=workspace_root)
     raise Undraftable(
         "no stack found: looked for pyproject.toml / requirements.txt (python), "
-        "go.mod (go), and package.json (typescript/javascript) at the root"
+        "go.mod (go), Cargo.toml (rust), pom.xml / build.gradle (java), and package.json (typescript/javascript) at the root"
     )
+
+
+def infer(repo, service=None):
+    try:
+        from . import stacks
+    except ImportError:  # run as a script: core/ is sys.path[0]
+        import stacks
+
+    resolved_service = stacks.normalize_service(repo, service)
+    if not resolved_service:
+        kind, services, is_virtual = stacks.discover_workspace_services(repo)
+        if len(services) > 1:
+            raise Undraftable(
+                f"{kind} detected with multiple services ({', '.join(services)}): "
+                "set INIT_SERVICE=<service> to target one"
+            )
+        if is_virtual and kind:
+            if len(services) == 1:
+                resolved_service = services[0]
+            else:
+                raise Undraftable(
+                    f"{kind} has no discoverable sub-services: set INIT_SERVICE=<service> to target one"
+                )
+
+    if resolved_service:
+        runners_dir = posixpath.relpath(".lights-out/runners", resolved_service)
+        result = _infer_single_dir(os.path.join(repo, resolved_service), runners_dir, workspace_root=repo)
+        return stacks.apply_service_prefix(result, resolved_service)
+    return _infer_single_dir(repo, ".lights-out/runners")
 
 
 def render_workload_env(d, committed, today, commit, plane=None):
@@ -523,12 +497,12 @@ def render_policy_env(today):
     )
 
 
-def write_draft(repo, out, stacks, today, commit):
+def write_draft(repo, out, stacks, today, commit, service=None):
     repo = os.path.abspath(repo)
     out = os.path.abspath(out)
     if not os.path.isdir(repo):
         raise Undraftable(f"{repo} is not a directory")
-    d = infer(repo)
+    d = infer(repo, service=service)
     committed = _read_committed(repo)
     runners_src = os.path.join(stacks, d["stack"], "runners")
     if not os.path.isdir(runners_src):
@@ -539,8 +513,13 @@ def write_draft(repo, out, stacks, today, commit):
     if os.path.isdir(runners_dst):
         shutil.rmtree(runners_dst)
     shutil.copytree(runners_src, runners_dst)
-    container = init_plane.detect_container(repo)
-    plane = init_plane.draft_plane(repo, out, container, committed) if container is not None else None
+    effective_service = d["test_root"].rstrip("/") if d.get("test_root") else ""
+    container = init_plane.detect_container(repo, service=effective_service)
+    plane = (
+        init_plane.draft_plane(repo, out, container, committed, service=effective_service)
+        if container is not None
+        else None
+    )
     with open(os.path.join(out, "workload.env"), "w") as fh:
         fh.write(render_workload_env(d, committed, today, commit, plane=plane))
     with open(os.path.join(out, "worker.md"), "w") as fh:
@@ -554,6 +533,11 @@ def write_draft(repo, out, stacks, today, commit):
             f"init: plane: {container['dockerfile']} port {container['port']}, probe {plane['WORKLOAD_HEALTH_PROBE'][0]}",
             file=sys.stderr,
         )
+        if container.get("stateful_deps"):
+            print(
+                f"init: plane: stateful deps ({', '.join(container['stateful_deps'])}) -> annotated hints in compose.yaml",
+                file=sys.stderr,
+            )
     else:
         print(
             "init: plane: no Containerfile or Dockerfile at root; drafted gates half only",
@@ -603,6 +587,7 @@ def main(argv):
     parser.add_argument("--stacks", default="stacks")
     parser.add_argument("--commit", default="HEAD")
     parser.add_argument("--today", default=date.today().isoformat())
+    parser.add_argument("--service", default=None)
     parser.add_argument("--set-baseline", nargs=3, metavar=("WORKLOAD_ENV", "SCORE", "PROVENANCE"))
     args = parser.parse_args(argv)
     try:
@@ -611,7 +596,7 @@ def main(argv):
             return 0
         if not args.repo or not args.out:
             parser.error("--repo and --out are required")
-        stack = write_draft(args.repo, args.out, args.stacks, args.today, args.commit)
+        stack = write_draft(args.repo, args.out, args.stacks, args.today, args.commit, service=args.service)
     except Undraftable as exc:
         print(str(exc))
         return 1
@@ -620,4 +605,5 @@ def main(argv):
 
 
 if __name__ == "__main__":
+    sys.modules.setdefault(f"{__package__}.init" if __package__ else "init", sys.modules[__name__])
     sys.exit(main(sys.argv[1:]))

@@ -1,0 +1,8 @@
+# SPDX-License-Identifier: Apache-2.0
+FROM docker.io/library/maven:3.9-eclipse-temurin-21 AS runtime
+WORKDIR /app
+COPY pom.xml ./
+COPY src ./src
+EXPOSE 8080
+HEALTHCHECK CMD curl -f http://localhost:8080/healthz || exit 1
+CMD ["java", "-version"]

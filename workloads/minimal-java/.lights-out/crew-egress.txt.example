@@ -1,0 +1,23 @@
+# Opt-in worker egress allowlist example (ADR 0046 §5).
+# Every entry in crew-egress.txt opens a direct outbound channel from the
+# isolated crew container to that host:port (data can leave to an account on
+# that host). Keep crew-egress.txt absent when dependencies are vendored or
+# pre-cached; copy to crew-egress.txt and uncomment only required registries.
+# Format: lowercase host:port, no wildcards, no IP literals.
+#
+# Python package index:
+# pypi.org:443
+# files.pythonhosted.org:443
+#
+# JavaScript / TypeScript registry:
+# registry.npmjs.org:443
+#
+# Rust crates index:
+# crates.io:443
+# static.crates.io:443
+# index.crates.io:443
+#
+# Java / Kotlin Maven & Gradle repositories:
+# repo.maven.apache.org:443
+# services.gradle.org:443
+# plugins.gradle.org:443

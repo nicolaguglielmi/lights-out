@@ -9,6 +9,7 @@ and writes a structured JSON report.
 from __future__ import annotations
 
 import argparse
+from concurrent.futures import ThreadPoolExecutor
 import contextlib
 import dataclasses
 import datetime as dt
@@ -65,7 +66,13 @@ class Shape:
     expected_lockfiles: str | None = None
     expected_test_cmd_substr: str | None = None
     expected_toolchain: str | None = None
+    expected_test_root: str | None = None
     expected_error_tokens: tuple[str, ...] = ()
+    expected_compose_substrings: tuple[str, ...] = ()
+    forbidden_compose_substrings: tuple[str, ...] = ()
+    expected_smoke_substrings: tuple[str, ...] = ()
+    expect_egress_example: bool = False
+    init_service: str | None = None
     change_files: dict[str, str] = dataclasses.field(default_factory=dict)
     uv_lock_refresh: bool = False
     host_testable: bool = False
@@ -524,6 +531,338 @@ def default_shapes() -> list[Shape]:
                 "main.go": "package main\nfunc main() {}\n",
             },
         ),
+        Shape(
+            name="rust-crate-lib",
+            kind="positive",
+            expected_stack="rust",
+            expected_has_plane=False,
+            expected_lockfiles="Cargo.lock",
+            expected_test_cmd_substr="cargo test",
+            expected_toolchain="docker.io/library/rust:1.85",
+            host_sast=True,
+            files={
+                "Cargo.toml": '[package]\nname = "rust-lib"\nversion = "0.1.0"\nedition = "2021"\n',
+                "Cargo.lock": 'version = 3\n\n[[package]]\nname = "rust-lib"\nversion = "0.1.0"\n',
+                "src/lib.rs": "pub fn add(a: i32, b: i32) -> i32 { a + b }\n",
+                "tests/calc_test.rs": "#[test]\nfn adds() { assert_eq!(rust_lib::add(1, 2), 3); }\n",
+            },
+            change_files={
+                "src/lib.rs": (
+                    "pub fn add(a: i32, b: i32) -> i32 { a + b }\n"
+                    "pub fn double(x: i32) -> i32 { x * 2 }\n"
+                ),
+                "tests/calc_test.rs": (
+                    "#[test]\nfn adds() { assert_eq!(rust_lib::add(1, 2), 3); }\n"
+                    "#[test]\nfn doubles() { assert_eq!(rust_lib::double(4), 8); }\n"
+                ),
+            },
+        ),
+        Shape(
+            name="java-maven-lib",
+            kind="positive",
+            expected_stack="java",
+            expected_has_plane=False,
+            expected_lockfiles="pom.xml",
+            expected_test_cmd_substr="mvn test",
+            expected_toolchain="docker.io/library/maven:3.9-eclipse-temurin-21",
+            host_sast=True,
+            files={
+                "pom.xml": (
+                    '<project xmlns="http://maven.apache.org/POM/4.0.0">\n'
+                    "  <modelVersion>4.0.0</modelVersion>\n"
+                    "  <groupId>com.example</groupId>\n"
+                    "  <artifactId>java-lib</artifactId>\n"
+                    "  <version>0.1.0</version>\n"
+                    "</project>\n"
+                ),
+                "src/main/java/com/example/Calc.java": (
+                    "package com.example;\npublic class Calc {\n"
+                    "  public static int add(int a, int b) { return a + b; }\n}\n"
+                ),
+                "src/test/java/com/example/CalcTest.java": (
+                    "package com.example;\npublic class CalcTest {\n"
+                    "  public void testAdd() { assert Calc.add(1, 2) == 3; }\n}\n"
+                ),
+            },
+            change_files={
+                "src/main/java/com/example/Calc.java": (
+                    "package com.example;\npublic class Calc {\n"
+                    "  public static int add(int a, int b) { return a + b; }\n"
+                    "  public static int mul(int a, int b) { return a * b; }\n}\n"
+                ),
+                "src/test/java/com/example/CalcTest.java": (
+                    "package com.example;\npublic class CalcTest {\n"
+                    "  public void testAdd() { assert Calc.add(1, 2) == 3; }\n"
+                    "  public void testMul() { assert Calc.mul(2, 3) == 6; }\n}\n"
+                ),
+            },
+        ),
+        Shape(
+            name="java-gradle-lib",
+            kind="positive",
+            expected_stack="java",
+            expected_has_plane=False,
+            expected_lockfiles="gradle.lockfile",
+            expected_test_cmd_substr="gradle test",
+            expected_toolchain="docker.io/library/gradle:8-jdk21",
+            host_sast=True,
+            files={
+                "build.gradle": "plugins { id 'java' }\n",
+                "gradle.lockfile": "# Gradle lockfile\nempty=\n",
+                "src/main/java/com/example/App.java": (
+                    "package com.example;\npublic class App {\n"
+                    "  public static int inc(int x) { return x + 1; }\n}\n"
+                ),
+                "src/test/java/com/example/AppTest.java": (
+                    "package com.example;\npublic class AppTest {\n"
+                    "  public void testInc() { assert App.inc(1) == 2; }\n}\n"
+                ),
+            },
+            change_files={
+                "src/main/java/com/example/App.java": (
+                    "package com.example;\npublic class App {\n"
+                    "  public static int inc(int x) { return x + 1; }\n"
+                    "  public static int dec(int x) { return x - 1; }\n}\n"
+                ),
+                "src/test/java/com/example/AppTest.java": (
+                    "package com.example;\npublic class AppTest {\n"
+                    "  public void testInc() { assert App.inc(1) == 2; }\n"
+                    "  public void testDec() { assert App.dec(3) == 2; }\n}\n"
+                ),
+            },
+        ),
+        Shape(
+            name="javascript-pnpm-lib",
+            kind="positive",
+            expected_stack="javascript",
+            expected_has_plane=False,
+            expected_lockfiles="pnpm-lock.yaml",
+            expected_test_cmd_substr="pnpm",
+            expected_toolchain="workbench",
+            files={
+                "package.json": json.dumps(
+                    {"name": "js-pnpm", "version": "1.0.0", "scripts": {"test": "node --test"}}, indent=2
+                )
+                + "\n",
+                "pnpm-lock.yaml": "lockfileVersion: '9.0'\nsettings:\n  autoInstallPeers: true\n",
+                "src/math.js": "export function add(a, b) {\n  return a + b;\n}\n",
+                "test/math.test.js": (
+                    'import test from "node:test";\nimport assert from "node:assert/strict";\n'
+                    'import { add } from "../src/math.js";\ntest("add", () => { assert.equal(add(1, 2), 3); });\n'
+                ),
+            },
+            change_files={
+                "src/math.js": "export function add(a, b) {\n  return a + b;\n}\nexport function sub(a, b) {\n  return a - b;\n}\n",
+                "test/math.test.js": (
+                    'import test from "node:test";\nimport assert from "node:assert/strict";\n'
+                    'import { add, sub } from "../src/math.js";\n'
+                    'test("add", () => { assert.equal(add(1, 2), 3); });\n'
+                    'test("sub", () => { assert.equal(sub(5, 2), 3); });\n'
+                ),
+            },
+        ),
+        Shape(
+            name="typescript-yarn-lib",
+            kind="positive",
+            expected_stack="typescript",
+            expected_has_plane=False,
+            expected_lockfiles="yarn.lock",
+            expected_test_cmd_substr="yarn",
+            expected_toolchain="workbench",
+            files={
+                "package.json": json.dumps({"name": "ts-yarn", "version": "1.0.0", "type": "module"}, indent=2) + "\n",
+                "tsconfig.json": json.dumps({"compilerOptions": {"target": "ES2024", "strict": True}}, indent=2) + "\n",
+                "yarn.lock": "# yarn lockfile v1\n\n",
+                "src/calc.ts": "export function add(a: number, b: number): number {\n  return a + b;\n}\n",
+                "test/calc.test.ts": (
+                    'import test from "node:test";\nimport assert from "node:assert/strict";\n'
+                    'import { add } from "../src/calc.ts";\ntest("add", () => { assert.equal(add(1, 2), 3); });\n'
+                ),
+            },
+            change_files={
+                "src/calc.ts": (
+                    "export function add(a: number, b: number): number {\n  return a + b;\n}\n"
+                    "export function mul(a: number, b: number): number {\n  return a * b;\n}\n"
+                ),
+                "test/calc.test.ts": (
+                    'import test from "node:test";\nimport assert from "node:assert/strict";\n'
+                    'import { add, mul } from "../src/calc.ts";\n'
+                    'test("add", () => { assert.equal(add(1, 2), 3); });\n'
+                    'test("mul", () => { assert.equal(mul(2, 3), 6); });\n'
+                ),
+            },
+        ),
+        Shape(
+            name="monorepo-npm-service",
+            kind="positive",
+            init_service="services/api",
+            expected_stack="javascript",
+            expected_has_plane=False,
+            expected_test_root="services/api/",
+            expected_lockfiles="services/api/package-lock.json",
+            expected_test_cmd_substr="--workspaces=false",
+            expected_toolchain="workbench",
+            host_testable=True,
+            files={
+                "package.json": json.dumps({"name": "mono", "private": True, "workspaces": ["services/*"]}, indent=2) + "\n",
+                "services/api/package.json": json.dumps(
+                    {"name": "api", "version": "1.0.0", "type": "module", "scripts": {"test": "node --test"}}, indent=2
+                )
+                + "\n",
+                "services/api/package-lock.json": json.dumps(
+                    {"name": "api", "version": "1.0.0", "lockfileVersion": 3, "requires": True, "packages": {"": {"name": "api", "version": "1.0.0"}}},
+                    indent=2,
+                )
+                + "\n",
+                "services/api/src/calc.js": "export function add(a, b) {\n  return a + b;\n}\n",
+                "services/api/test/calc.test.js": (
+                    'import test from "node:test";\nimport assert from "node:assert/strict";\n'
+                    'import { add } from "../src/calc.js";\ntest("add", () => { assert.equal(add(1, 2), 3); });\n'
+                ),
+                "services/web/package.json": json.dumps({"name": "web", "version": "1.0.0"}, indent=2) + "\n",
+                "services/web/src/index.js": "export const web = 1;\n",
+            },
+            change_files={
+                "services/api/src/calc.js": (
+                    "export function add(a, b) {\n  return a + b;\n}\n"
+                    "export function mul(a, b) {\n  return a * b;\n}\n"
+                ),
+                "services/api/test/calc.test.js": (
+                    'import test from "node:test";\nimport assert from "node:assert/strict";\n'
+                    'import { add, mul } from "../src/calc.js";\n'
+                    'test("add", () => { assert.equal(add(1, 2), 3); });\n'
+                    'test("mul", () => { assert.equal(mul(2, 3), 6); });\n'
+                ),
+            },
+        ),
+        Shape(
+            name="stateful-python-service",
+            kind="positive",
+            expected_stack="python",
+            expected_has_plane=True,
+            expected_port=8000,
+            expected_probe="http:/healthz",
+            expected_lockfiles="uv.lock",
+            expected_test_cmd_substr="pytest",
+            expected_toolchain="workbench",
+            expected_compose_substrings=("crew-postgres", "crew-redis", "x-crew-worker", "migrate"),
+            expected_smoke_substrings=("SMOKE_AUTH_HEADER",),
+            expect_egress_example=True,
+            uv_lock_refresh=True,
+            host_testable=True,
+            host_sast=True,
+            files={
+                "pyproject.toml": (
+                    '[project]\nname = "stateful-svc"\nversion = "0.1.0"\n'
+                    'requires-python = ">=3.13"\ndependencies = []\n\n'
+                    '[dependency-groups]\ndev = ["pytest"]\n\n'
+                    '[tool.pytest.ini_options]\npythonpath = ["."]\n'
+                ),
+                "uv.lock": (
+                    'version = 1\nrevision = 3\nrequires-python = ">=3.13"\n\n'
+                    '[[package]]\nname = "stateful-svc"\nversion = "0.1.0"\n'
+                    'source = { virtual = "." }\n\n'
+                    '[[package]]\nname = "pytest"\nversion = "9.2.0"\n'
+                ),
+                "stateful_svc/__init__.py": 'def ok() -> bool:\n    return True\n',
+                "tests/test_ok.py": "from stateful_svc import ok\n\n\ndef test_ok() -> None:\n    assert ok()\n",
+                "Containerfile": (
+                    "FROM python:3.13-slim\n"
+                    "EXPOSE 8000\n"
+                    "HEALTHCHECK CMD curl -f http://localhost:8000/healthz || exit 1\n"
+                ),
+                ".env.example": (
+                    "DATABASE_URL=postgresql://app:pass@postgres:5432/app\n"
+                    "REDIS_URL=redis://redis:6379/0\n"
+                ),
+                "docker-compose.yml": "services:\n  db:\n    image: postgres:17-alpine\n",
+            },
+            change_files={
+                "stateful_svc/__init__.py": "def ok() -> bool:\n    return True\n\n\ndef double(x: int) -> int:\n    return x * 2\n",
+                "tests/test_ok.py": (
+                    "from stateful_svc import double, ok\n\n\ndef test_ok() -> None:\n    assert ok()\n\n\n"
+                    "def test_double() -> None:\n    assert double(3) == 6\n"
+                ),
+            },
+        ),
+        Shape(
+            name="stateless-comment-only-service",
+            kind="positive",
+            expected_stack="python",
+            expected_has_plane=True,
+            expected_port=8000,
+            expected_probe="tcp:8000",
+            expected_lockfiles="uv.lock",
+            expected_test_cmd_substr="unittest discover",
+            expected_toolchain="workbench",
+            forbidden_compose_substrings=("crew-postgres", "crew-redis", "crew-mysql", "x-crew-worker"),
+            expected_smoke_substrings=("SMOKE_AUTH_HEADER",),
+            expect_egress_example=True,
+            host_testable=True,
+            host_sast=True,
+            files={
+                "pyproject.toml": '[project]\nname = "stateless-svc"\nversion = "0.1.0"\nrequires-python = ">=3.13"\n',
+                "uv.lock": (
+                    'version = 1\nrevision = 3\nrequires-python = ">=3.13"\n\n'
+                    '[[package]]\nname = "stateless-svc"\nversion = "0.1.0"\nsource = { virtual = "." }\n'
+                ),
+                "stateless_svc/__init__.py": "def ping() -> str:\n    return 'pong'\n",
+                "tests/test_ping.py": (
+                    "import unittest\nfrom stateless_svc import ping\n\n"
+                    "class T(unittest.TestCase):\n    def test_ping(self) -> None:\n        self.assertEqual(ping(), 'pong')\n"
+                ),
+                "Containerfile": "FROM python:3.13-slim\nEXPOSE 8000\n",
+                ".env.example": "# Optional DATABASE_URL=postgresql://localhost/unused\n# REDIS_URL=redis://localhost\nAPP_PORT=8000\n",
+            },
+            change_files={
+                "stateless_svc/__init__.py": "def ping() -> str:\n    return 'pong'\n\ndef add(a: int, b: int) -> int:\n    return a + b\n",
+                "tests/test_ping.py": (
+                    "import unittest\nfrom stateless_svc import add, ping\n\n"
+                    "class T(unittest.TestCase):\n    def test_ping(self) -> None:\n        self.assertEqual(ping(), 'pong')\n"
+                    "    def test_add(self) -> None:\n        self.assertEqual(add(1, 2), 3)\n"
+                ),
+            },
+        ),
+        Shape(
+            name="neg-rust-no-lock",
+            kind="negative",
+            expected_error_tokens=("Cargo.lock", "cargo generate-lockfile"),
+            files={
+                "Cargo.toml": '[package]\nname = "no-lock"\nversion = "0.1.0"\n',
+                "src/lib.rs": "pub fn ok() -> bool { true }\n",
+            },
+        ),
+        Shape(
+            name="neg-gradle-no-lock",
+            kind="negative",
+            expected_error_tokens=("gradle.lockfile", "--write-locks"),
+            files={
+                "build.gradle": "plugins { id 'java' }\n",
+                "src/main/java/App.java": "class App {}\n",
+            },
+        ),
+        Shape(
+            name="neg-bun-binary-lockb",
+            kind="negative",
+            expected_error_tokens=("bun.lockb", "bun.lock"),
+            files={
+                "package.json": json.dumps({"name": "bun-bin"}),
+                "bun.lockb": "binary-lockb",
+                "src/index.js": "export const x = 1;\n",
+            },
+        ),
+        Shape(
+            name="neg-monorepo-ambiguous",
+            kind="negative",
+            expected_error_tokens=("INIT_SERVICE", "apps/api", "apps/web"),
+            files={
+                "package.json": json.dumps({"name": "mono", "private": True, "workspaces": ["apps/*"]}),
+                "apps/api/package.json": json.dumps({"name": "api"}),
+                "apps/api/src/index.js": "export const a = 1;\n",
+                "apps/web/package.json": json.dumps({"name": "web"}),
+                "apps/web/src/index.js": "export const b = 2;\n",
+            },
+        ),
     ]
 
 
@@ -679,13 +1018,14 @@ def _run_osv_check(repo: Path, lockfiles: str) -> str | None:
     return f"osv-scanner exited {proc.returncode}: {(proc.stderr or proc.stdout).strip()[:240]}"
 
 
-def _run_sast_check(repo: Path, sast_cmd: str) -> str | None:
+def _run_sast_check(repo: Path, sast_cmd: str, test_root: str = "") -> str | None:
     argv = shlex.split(sast_cmd)
     if not argv:
         return "empty SAST_CMD"
+    run_cwd = repo / test_root if test_root else repo
     proc = subprocess.run(  # nosec B603 - parsed SAST_CMD argv list from drafted contract
         argv,
-        cwd=repo,
+        cwd=run_cwd,
         stdin=subprocess.DEVNULL,
         capture_output=True,
         text=True,
@@ -702,24 +1042,28 @@ def _run_sast_check(repo: Path, sast_cmd: str) -> str | None:
     return None
 
 
-def _verify_positive(
+def _draft_positive(
     shape: Shape,
     repo: Path,
     contract_dir: Path,
     stacks_dir: Path,
     c1: str,
     today: str,
-    verify_light: bool,
-    on_draft: Callback | None,
-    full: bool,
-) -> dict[str, Any]:
+) -> tuple[dict[str, Any], dict[str, Any]]:
     errors: list[str] = []
     before_hashes = _file_hashes(repo, list(shape.files))
     err_buf = io.StringIO()
     stack: str | None = None
     try:
         with contextlib.redirect_stderr(err_buf):
-            stack = init.write_draft(str(repo), str(contract_dir), str(stacks_dir), today, c1[:7])
+            stack = init.write_draft(
+                str(repo),
+                str(contract_dir),
+                str(stacks_dir),
+                today,
+                c1[:7],
+                service=shape.init_service,
+            )
     except init.Undraftable as exc:
         errors.append(f"write_draft raised Undraftable: {exc}")
 
@@ -732,8 +1076,9 @@ def _verify_positive(
     toolchain = ""
     test_cmd = ""
     sast_cmd = ""
-    light_verdict = ""
+    test_root = ""
     callbacks_out: dict[str, str] = {}
+    draft_info: dict[str, Any] = {}
 
     if stack is not None:
         if shape.expected_stack and stack != shape.expected_stack:
@@ -755,7 +1100,10 @@ def _verify_positive(
             toolchain = env_vals.get("TOOLCHAIN_IMAGE", "")
             test_cmd = env_vals.get("TEST_CMD", "")
             sast_cmd = env_vals.get("SAST_CMD", "")
+            test_root = env_vals.get("WORKLOAD_TEST_ROOT", "")
 
+            if shape.expected_test_root is not None and test_root != shape.expected_test_root:
+                errors.append(f"expected WORKLOAD_TEST_ROOT={shape.expected_test_root!r}, got {test_root!r}")
             if shape.expected_lockfiles and lockfiles != shape.expected_lockfiles:
                 errors.append(f"expected WORKLOAD_LOCKFILES={shape.expected_lockfiles!r}, got {lockfiles!r}")
             if shape.expected_toolchain and toolchain != shape.expected_toolchain:
@@ -770,6 +1118,38 @@ def _verify_positive(
                         errors.append(f"missing drafted plane file {pfile}")
                     elif pfile.endswith(".sh") and not os.access(p, os.X_OK):
                         errors.append(f"drafted plane script {pfile} is not executable")
+                compose_text = (
+                    (contract_dir / "compose.yaml").read_text(encoding="utf-8")
+                    if (contract_dir / "compose.yaml").is_file()
+                    else ""
+                )
+                for needle in shape.expected_compose_substrings:
+                    if needle not in compose_text:
+                        errors.append(f"compose.yaml missing expected hint {needle!r}")
+                for forbidden in shape.forbidden_compose_substrings:
+                    if forbidden in compose_text:
+                        errors.append(f"compose.yaml unexpectedly contained {forbidden!r}")
+                smoke_text = (
+                    (contract_dir / "smoke.sh").read_text(encoding="utf-8")
+                    if (contract_dir / "smoke.sh").is_file()
+                    else ""
+                )
+                for needle in shape.expected_smoke_substrings:
+                    if needle not in smoke_text:
+                        errors.append(f"smoke.sh missing expected token {needle!r}")
+                if shape.expect_egress_example:
+                    egress_ex = contract_dir / "crew-egress.txt.example"
+                    if not egress_ex.is_file():
+                        errors.append("missing drafted crew-egress.txt.example")
+                    else:
+                        active = [
+                            ln for ln in egress_ex.read_text(encoding="utf-8").splitlines()
+                            if ln.strip() and not ln.lstrip().startswith("#")
+                        ]
+                        if active:
+                            errors.append(f"crew-egress.txt.example must stay commented out: {active!r}")
+                    if (contract_dir / "crew-egress.txt").exists():
+                        errors.append("draft unexpectedly created active crew-egress.txt")
                 if not env_vals.get("CANARY_VERSION"):
                     errors.append("CANARY_VERSION is empty for container shape")
                 health_probe = env_vals.get("WORKLOAD_HEALTH_PROBE", "")
@@ -809,47 +1189,8 @@ def _verify_positive(
             "toolchain": toolchain,
             "test_cmd": test_cmd,
         }
-        if on_draft is not None and not errors:
-            cb_err = on_draft(shape, repo, contract_dir, draft_info)
-            if cb_err:
-                errors.append(cb_err)
-                callbacks_out["on_draft"] = f"FAIL: {cb_err}"
-            else:
-                callbacks_out["on_draft"] = "PASS"
 
-        if verify_light and not errors:
-            _git(repo, "add", "-A")
-            _git(repo, "commit", "-q", "-m", "commit drafted contract")
-            c2 = _git(repo, "rev-parse", "HEAD")
-            if shape.change_files:
-                _write_files(repo, shape.change_files)
-                _git(repo, "add", "-A")
-                _git(repo, "commit", "-q", "-m", "feature and test update")
-                c3 = _git(repo, "rev-parse", "HEAD")
-            else:
-                c3 = c2
-            run_host = bool(full and shape.host_testable and toolchain == "workbench")
-            rc, line, light_err = _run_light_gate(repo, c2, c3, test_on_host=run_host)
-            light_verdict = line
-            if rc != 0 or not line.startswith("GO: gates-light"):
-                errors.append(f"core.light failed ({line}): {light_err}")
-
-        if full and not errors:
-            osv_err = _run_osv_check(repo, lockfiles)
-            if osv_err:
-                errors.append(osv_err)
-            else:
-                callbacks_out["osv"] = "PASS"
-            if shape.host_sast and sast_cmd and (contract_dir / "runners" / "sast.sh").is_file():
-                sast_err = _run_sast_check(repo, sast_cmd)
-                if sast_err:
-                    errors.append(sast_err)
-                else:
-                    callbacks_out["sast"] = "PASS"
-            elif not shape.host_testable:
-                callbacks_out["host_gates"] = f"skipped: external or stub toolchain ({toolchain})"
-
-    return {
+    entry = {
         "name": shape.name,
         "kind": shape.kind,
         "status": "PASS" if not errors else "FAIL",
@@ -861,10 +1202,70 @@ def _verify_positive(
         "lockfiles": lockfiles,
         "toolchain": toolchain,
         "test_cmd": test_cmd,
-        "light_verdict": light_verdict,
+        "light_verdict": "",
         "callbacks": callbacks_out,
         "errors": errors,
     }
+    ctx = {
+        "repo": repo,
+        "contract_dir": contract_dir,
+        "draft_info": draft_info,
+        "lockfiles": lockfiles,
+        "toolchain": toolchain,
+        "sast_cmd": sast_cmd,
+        "test_root": test_root,
+    }
+    return entry, ctx
+
+
+def _run_on_draft_step(shape: Shape, entry: dict[str, Any], ctx: dict[str, Any], on_draft: Callback) -> float:
+    t0 = time.monotonic()
+    cb_err = on_draft(shape, ctx["repo"], ctx["contract_dir"], ctx["draft_info"])
+    if cb_err:
+        entry["errors"].append(cb_err)
+        entry["callbacks"]["on_draft"] = f"FAIL: {cb_err}"
+    else:
+        entry["callbacks"]["on_draft"] = "PASS"
+    return (time.monotonic() - t0) * 1000
+
+
+def _run_light_step(shape: Shape, entry: dict[str, Any], ctx: dict[str, Any], full: bool) -> float:
+    t0 = time.monotonic()
+    repo = ctx["repo"]
+    _git(repo, "add", "-A")
+    _git(repo, "commit", "-q", "-m", "commit drafted contract")
+    c2 = _git(repo, "rev-parse", "HEAD")
+    if shape.change_files:
+        _write_files(repo, shape.change_files)
+        _git(repo, "add", "-A")
+        _git(repo, "commit", "-q", "-m", "feature and test update")
+        c3 = _git(repo, "rev-parse", "HEAD")
+    else:
+        c3 = c2
+    run_host = bool(full and shape.host_testable and ctx["toolchain"] == "workbench")
+    rc, line, light_err = _run_light_gate(repo, c2, c3, test_on_host=run_host)
+    entry["light_verdict"] = line
+    if rc != 0 or not line.startswith("GO: gates-light"):
+        entry["errors"].append(f"core.light failed ({line}): {light_err}")
+    return (time.monotonic() - t0) * 1000
+
+
+def _run_full_step(shape: Shape, entry: dict[str, Any], ctx: dict[str, Any]) -> float:
+    t0 = time.monotonic()
+    osv_err = _run_osv_check(ctx["repo"], ctx["lockfiles"])
+    if osv_err:
+        entry["errors"].append(osv_err)
+    else:
+        entry["callbacks"]["osv"] = "PASS"
+    if shape.host_sast and ctx["sast_cmd"] and (ctx["contract_dir"] / "runners" / "sast.sh").is_file():
+        sast_err = _run_sast_check(ctx["repo"], ctx["sast_cmd"], test_root=ctx["test_root"])
+        if sast_err:
+            entry["errors"].append(sast_err)
+        else:
+            entry["callbacks"]["sast"] = "PASS"
+    elif not shape.host_testable:
+        entry["callbacks"]["host_gates"] = f"skipped: external or stub toolchain ({ctx['toolchain']})"
+    return (time.monotonic() - t0) * 1000
 
 
 def _verify_negative(shape: Shape, repo: Path, contract_dir: Path, stacks_dir: Path, c1: str, today: str) -> dict[str, Any]:
@@ -873,7 +1274,14 @@ def _verify_negative(shape: Shape, repo: Path, contract_dir: Path, stacks_dir: P
     err_buf = io.StringIO()
     try:
         with contextlib.redirect_stderr(err_buf):
-            stack = init.write_draft(str(repo), str(contract_dir), str(stacks_dir), today, c1[:7])
+            stack = init.write_draft(
+                str(repo),
+                str(contract_dir),
+                str(stacks_dir),
+                today,
+                c1[:7],
+                service=shape.init_service,
+            )
         errors.append(f"expected Undraftable, but write_draft succeeded with stack={stack!r}")
     except init.Undraftable as exc:
         actual_error = str(exc).strip()
@@ -897,6 +1305,31 @@ def _verify_negative(shape: Shape, repo: Path, contract_dir: Path, stacks_dir: P
         "actual_error": actual_error,
         "errors": errors,
     }
+
+
+def _build_repo_timed(shape: Shape, tmp_path: Path, refresh_uv: bool) -> tuple[Path | None, str, str | None, float]:
+    t0 = time.monotonic()
+    try:
+        repo, c1 = _build_repo(shape, tmp_path, refresh_uv=refresh_uv)
+        return repo, c1, None, (time.monotonic() - t0) * 1000
+    except Exception as exc:  # noqa: BLE001 - capture setup failures in structured shape report
+        return None, "", str(exc), (time.monotonic() - t0) * 1000
+
+
+def _run_indexed_step(
+    indices: list[int],
+    fn: Callable[[int], float],
+    elapsed_ms: list[float],
+    max_workers: int = 10,
+) -> None:
+    if len(indices) > 1:
+        with ThreadPoolExecutor(max_workers=min(max_workers, len(indices))) as pool:
+            futs = {i: pool.submit(fn, i) for i in indices}
+            for i, fut in futs.items():
+                elapsed_ms[i] += fut.result()
+    else:
+        for i in indices:
+            elapsed_ms[i] += fn(i)
 
 
 def run(
@@ -923,35 +1356,35 @@ def run(
 
     with tempfile.TemporaryDirectory(prefix="corpus-") as tmp:
         tmp_path = Path(tmp)
-        for shape in selected_shapes:
+        contexts: list[dict[str, Any] | None] = []
+        elapsed_ms: list[float] = []
+
+        if len(selected_shapes) > 1:
+            with ThreadPoolExecutor(max_workers=min(10, len(selected_shapes))) as pool:
+                built = list(pool.map(lambda s: _build_repo_timed(s, tmp_path, full), selected_shapes))
+        else:
+            built = [_build_repo_timed(s, tmp_path, full) for s in selected_shapes]
+
+        for shape, (repo, c1, setup_err, build_ms) in zip(selected_shapes, built):
             s_t0 = time.monotonic()
-            try:
-                repo, c1 = _build_repo(shape, tmp_path, refresh_uv=full)
-            except Exception as exc:  # noqa: BLE001 - capture setup failures in structured shape report
-                entry = {
-                    "name": shape.name,
-                    "kind": shape.kind,
-                    "status": "FAIL",
-                    "errors": [str(exc)],
-                    "duration_ms": int((time.monotonic() - s_t0) * 1000),
-                }
-                details.append(entry)
+            if setup_err is not None or repo is None:
+                details.append(
+                    {
+                        "name": shape.name,
+                        "kind": shape.kind,
+                        "status": "FAIL",
+                        "errors": [setup_err or "repo setup failed"],
+                    }
+                )
+                contexts.append(None)
+                elapsed_ms.append(build_ms + (time.monotonic() - s_t0) * 1000)
                 continue
             contract_dir = repo if contract_rel in ("", ".") else repo / contract_rel
             if shape.kind == "positive":
-                entry = _verify_positive(
-                    shape,
-                    repo,
-                    contract_dir,
-                    resolved_stacks,
-                    c1,
-                    today,
-                    verify_light=verify_light,
-                    on_draft=on_draft,
-                    full=full,
-                )
+                entry, ctx = _draft_positive(shape, repo, contract_dir, resolved_stacks, c1, today)
             elif shape.kind == "negative":
                 entry = _verify_negative(shape, repo, contract_dir, resolved_stacks, c1, today)
+                ctx = None
             else:
                 entry = {
                     "name": shape.name,
@@ -959,8 +1392,38 @@ def run(
                     "status": "FAIL",
                     "errors": [f"unknown shape kind {shape.kind!r}"],
                 }
-            entry["duration_ms"] = int((time.monotonic() - s_t0) * 1000)
+                ctx = None
             details.append(entry)
+            contexts.append(ctx)
+            elapsed_ms.append(build_ms + (time.monotonic() - s_t0) * 1000)
+
+        def _ready_indices() -> list[int]:
+            return [
+                i for i, ctx in enumerate(contexts)
+                if ctx is not None and ctx["draft_info"] and not details[i]["errors"]
+            ]
+
+        if on_draft is not None:
+            _run_indexed_step(
+                _ready_indices(),
+                lambda i: _run_on_draft_step(selected_shapes[i], details[i], contexts[i], on_draft),
+                elapsed_ms,
+            )
+
+        if verify_light:
+            for i in _ready_indices():
+                elapsed_ms[i] += _run_light_step(selected_shapes[i], details[i], contexts[i], full=full)
+
+        if full:
+            _run_indexed_step(
+                _ready_indices(),
+                lambda i: _run_full_step(selected_shapes[i], details[i], contexts[i]),
+                elapsed_ms,
+            )
+
+        for i, entry in enumerate(details):
+            entry["status"] = "PASS" if not entry["errors"] else "FAIL"
+            entry["duration_ms"] = int(elapsed_ms[i])
 
     total = len(details)
     passed = sum(1 for item in details if item["status"] == "PASS")
