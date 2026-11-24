@@ -66,7 +66,7 @@ def _derive_window(record: Mapping[str, Any], env: Mapping[str, str]) -> tuple[s
 
 _NAME = r"[A-Za-z0-9_]*_(?:KEY|TOKEN|SECRET)"
 _ASSIGN = re.compile(rf"\b({_NAME})=(\"[^\"]*\"|'[^']*'|\S*)", re.I)
-_JSON_MEMBER = re.compile(rf"(\"{_NAME}\"\s*:\s*)\"[^\"]*\"", re.I)
+_JSON_MEMBER = re.compile(rf"(\"{_NAME}\"\s*:\s*)\"(?:[^\"\\]|\\.)*\"", re.I)
 _AUTH = re.compile(r"\bAuthorization:\s*(Bearer|Basic)\s+\S+", re.I)
 REDACTED = "[REDACTED]"
 

@@ -70,6 +70,7 @@ class RedactionTests(unittest.TestCase):
 
     def test_json_member_and_authorization_header(self) -> None:
         self.assertEqual(ops_loop.redact_line('{"auth_token": "zzz", "n": 1}'), '{"auth_token": "[REDACTED]", "n": 1}')
+        self.assertEqual(ops_loop.redact_line('{"api_token": "ab\\"cd", "n": 1}'), '{"api_token": "[REDACTED]", "n": 1}')
         self.assertEqual(ops_loop.redact_line("Authorization: Bearer abc.def-123"), "Authorization: Bearer [REDACTED]")
         self.assertEqual(ops_loop.redact_line("authorization: bearer abc"), "Authorization: Bearer [REDACTED]")
         self.assertEqual(ops_loop.redact_line("Authorization: Basic dXNlcjpwdw=="), "Authorization: Basic [REDACTED]")
