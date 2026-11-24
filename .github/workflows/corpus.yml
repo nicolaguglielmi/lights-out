@@ -1,0 +1,36 @@
+name: corpus
+
+# Nightly unknown-repository verification corpus (docs/adr/0106):
+# builds synthetic repositories across all supported stacks and container
+# shapes, runs fast contract + light checks and full live workbench gates,
+# and archives the structured report. GitHub-only (docs/adr/0039).
+
+on:
+  schedule:
+    # Daily off the hour, staggered from nightly-github.yml.
+    - cron: '41 3 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  corpus:
+    runs-on: ubuntu-latest
+    if: github.server_url == 'https://github.com'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Fast corpus check
+        env:
+          CONTAINER_ENGINE: docker
+        run: ./go ci-corpus
+      - name: Live nightly init and gates corpus check
+        env:
+          CONTAINER_ENGINE: docker
+        run: CORPUS_FULL=1 ./go ci-corpus
+      - if: always()
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: corpus-report
+          path: .crew/corpus/report.json
+          if-no-files-found: warn

@@ -44,6 +44,7 @@ endif
 ifneq ($(origin WORKLOAD_PORT),command line)
 WORKLOAD_PORT :=
 endif
+CORPUS_FULL ?= 0
 # `init`, `try`, `cloud-setup`, `start`, and `next` may start without a contract:
 # `init`/`try` draft one (docs/adr/0042 §6, 0093 §5), `cloud-setup` stages
 # cloud infrastructure templates (docs/adr/0104), and `start`/`next` guide a
@@ -271,7 +272,7 @@ next: ## Inspect repo, contract, .env presence, tickets and logbook; print exact
 	@sh core/start.sh next $(NEXT_ARGS)
 
 # Self-checks run by `ci`, in order. engine-compat runs on the host (ADR 0004, ADR 0012 §5), never here.
-CI_CHECKS := secrets secrets-history lint shell help docs-drift map profiles workloads attach first-run zero-to-hero toolchain sast-diff init core-tests vendor-free app-free model-free codehost hooks harness harness-shape network tower mainline dev-phase intake decide screen assign perimeter review prompts evals promote board logbook roles postmortem metrics readiness package shell-boundary store-bus gates-light plugin agents plan range release wiki authors evidence outside contract
+CI_CHECKS := secrets secrets-history lint shell help docs-drift map profiles workloads attach first-run zero-to-hero toolchain sast-diff init core-tests vendor-free app-free model-free codehost hooks harness harness-shape network tower mainline dev-phase intake decide screen assign perimeter review prompts evals promote board logbook roles postmortem metrics readiness package shell-boundary store-bus gates-light plugin agents plan range release wiki authors evidence outside corpus contract
 
 # Each check runs once (docs/adr/0062): under `ci`, and only there, every
 # ci-<name> leaves its stdout and exit code in this run's own directory,
@@ -1899,3 +1900,7 @@ CLOUD_SETUP_DIR ?= .crew/cloud
 .PHONY: cloud-setup
 cloud-setup: ## Stage Terraform + OIDC starter for a cloud Delivery plugin: CLOUD=<provider> (docs/adr/0104)
 	@python3 plugins/cloud/setup.py --cloud "$(CLOUD)" --out "$(CLOUD_SETUP_DIR)"
+
+.PHONY: corpus
+corpus: ## Verify the unknown-repository corpus against init, light gates, and workload contracts: [CORPUS_FULL=1] (docs/adr/0106)
+	@sh ci/corpus.sh
