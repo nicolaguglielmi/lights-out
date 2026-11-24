@@ -6,8 +6,34 @@
 SHELL := /bin/sh
 .DEFAULT_GOAL := help
 
+ifneq ($(filter demo demo-% ci ci-% e2e corpus init try gates test-proof test-integrity mutation-baseline attached,$(MAKECMDGOALS)),)
+LIGHTS_OUT_NO_START_PLAN := 1
+export LIGHTS_OUT_NO_START_PLAN
+endif
+
+ifeq ($(LIGHTS_OUT_NO_START_PLAN),)
+ifneq ($(wildcard .crew/start-plan.env),)
+START_PLAN_SECRET := $(shell grep -nE '^[[:space:]]*(export[[:space:]]+)?([A-Za-z0-9_]*(_KEY|_TOKEN|_SECRET|_PASSWORD)|METRICS_AUTH_HEADER)=' .crew/start-plan.env 2>/dev/null | head -n 1)
+ifneq ($(START_PLAN_SECRET),)
+$(error .crew/start-plan.env must never hold secrets ($(START_PLAN_SECRET)); move keys/tokens to .env)
+endif
+ifeq ($(filter environment command,$(origin PROFILE)),)
+START_PLAN_PROFILE := $(shell sed -n 's/^START_PROFILE=\([A-Za-z0-9_-][A-Za-z0-9_-]*\)$$/\1/p' .crew/start-plan.env 2>/dev/null | tail -n 1)
+ifneq ($(START_PLAN_PROFILE),)
+PROFILE := $(START_PLAN_PROFILE)
+endif
+endif
+endif
+endif
+
 PROFILE ?= l0
 include profiles/$(PROFILE).env
+# Guided setup preferences from ./go start (docs/adr/0103, 0108), excluded on
+# deterministic demo/ci/e2e/corpus and contract/gate targets and overridden by
+# .crew/ports.env, .crew/remote.env, .env, and CLI arguments.
+ifeq ($(LIGHTS_OUT_NO_START_PLAN),)
+-include .crew/start-plan.env
+endif
 # The plane ports ./go's preflight moved off a busy default (docs/adr/0093
 # §1d), before .env so a value there wins.
 -include .crew/ports.env
@@ -63,7 +89,7 @@ export
 # goals only tries the adapter instead: its recipe goes through `conform`.
 OUTSIDE_PORTS := AGENT_HARNESS CODE_HOST DELIVERY STATE_STORE EVENT_BUS TRACKER ORCHESTRATOR METRICS FLAGS REGISTRY
 ifneq ($(filter outside/%,$(foreach p,$(OUTSIDE_PORTS),$($(p)))),)
-ifneq ($(filter-out %-conformance,$(or $(MAKECMDGOALS),help)),)
+ifneq ($(filter-out %-conformance start next cloud-setup,$(or $(MAKECMDGOALS),help)),)
 ADMIT := $(shell python3 core/adapters.py admit 2>&1)
 ifneq ($(ADMIT),)
 $(error $(ADMIT))

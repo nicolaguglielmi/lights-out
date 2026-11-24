@@ -6,12 +6,12 @@
 # with no clone of lights-out (docs/adr/0045, docs/adr/0105). The host needs
 # a container engine (podman or docker) and git, nothing else.
 #
-# Read-only & gates (socket-free):
-#   lights-out init [HEAD=]             draft .lights-out/ for this repository (or that commit), outside it
-#   lights-out gates [BASE= HEAD=]      judge the last commit, or a range; STAGED=1 judges what is staged;
-#                                       JUDGED="<sha> ..." names trees already judged, whose lines mutation skips (docs/adr/0074)
-#   lights-out test-proof [BASE= HEAD=]     only test and test-proof: the tests a change adds fail on its base
-#   lights-out test-integrity [BASE= HEAD=] only test-weakening and mutation: no test weakened, mutants killed
+# Read-only & gates (socket-free by default; --engine or LIGHTS_OUT_ENGINE_GATES=1 opts into engine socket for custom/compose toolchains):
+#   lights-out init [--engine] [HEAD=]             draft .lights-out/ for this repository (or that commit), outside it
+#   lights-out gates [--engine] [BASE= HEAD=]      judge the last commit, or a range; STAGED=1 judges what is staged;
+#                                                  JUDGED="<sha> ..." names trees already judged, whose lines mutation skips (docs/adr/0074)
+#   lights-out test-proof [--engine] [BASE= HEAD=]     only test and test-proof: the tests a change adds fail on its base
+#   lights-out test-integrity [--engine] [BASE= HEAD=] only test-weakening and mutation: no test weakened, mutants killed
 #   lights-out triage ALERT=<file>      an alert in, an incident out (PROFILE=l1 and a key on your alerts)
 #   lights-out postmortem INCIDENT=<file>   an incident document in, a post mortem and tickets out
 #   lights-out doctor                   engine, image, key: one line each, then GO or NO-GO
@@ -88,6 +88,8 @@ validate_args() {
         [ "$cmd" = start ] || die "'$a' is only valid with start"
         [ $# -gt 0 ] || die "'$a' requires a value"
         shift ;;
+      --engine)
+        case "$cmd" in init|gates|test-proof|test-integrity) ;; *) die "'$a' is only valid with init, gates, test-proof, or test-integrity" ;; esac ;;
       *)
         die "'$a' is not an argument lights-out takes; one of $all_keys" ;;
     esac
@@ -95,8 +97,19 @@ validate_args() {
 }
 validate_args "$@"
 
+engine_gates=0
 case "$cmd" in
-  init|gates|test-proof|test-integrity|doctor) image=$gates_image ;;
+  init|gates|test-proof|test-integrity)
+    [ "${LIGHTS_OUT_ENGINE_GATES:-0}" != 1 ] || engine_gates=1
+    for a do
+      [ "$a" != --engine ] || engine_gates=1
+    done ;;
+esac
+
+case "$cmd" in
+  doctor) image=$gates_image ;;
+  init|gates|test-proof|test-integrity)
+    if [ "$engine_gates" = 1 ]; then image=$full_image; else image=$gates_image; fi ;;
   *) image=$full_image ;;
 esac
 
@@ -118,12 +131,14 @@ fi
 engine_kind=$(basename "$engine")
 
 # The key the chosen provider needs, by name; L0 replays and needs none.
+profile_explicit=0
+[ -z "${PROFILE:-}" ] || profile_explicit=1
 profile=${PROFILE:-l0}
 model_provider=${MODEL_PROVIDER:-${PROVIDER:-gemini}}
 adapters_path=${ADAPTERS_PATH:-}
 for a do
   case "$a" in
-    PROFILE=*) profile=${a#PROFILE=} ;;
+    PROFILE=*) profile=${a#PROFILE=}; profile_explicit=1 ;;
     MODEL_PROVIDER=*) model_provider=${a#MODEL_PROVIDER=} ;;
     PROVIDER=*) [ -n "${MODEL_PROVIDER:-}" ] || model_provider=${a#PROVIDER=} ;;
     ADAPTERS_PATH=*) adapters_path=${a#ADAPTERS_PATH=} ;;
@@ -197,8 +212,9 @@ out=$(CDPATH='' cd -- "$out" && pwd -P)
 
 tier="readonly"
 case "$cmd" in
-  next|dora|spend|cloud-setup) tier=state ;;
-  start|intake|answer|intake-confirm|assign|up|down|smoke|release|promote|console|evidence) tier=plane ;;
+  next|dora|spend|cloud-setup) tier="state" ;;
+  start|intake|answer|intake-confirm|assign|up|down|smoke|release|promote|console|evidence) tier="plane" ;;
+  init|gates|test-proof|test-integrity) [ "$engine_gates" != 1 ] || tier="engine-gates" ;;
 esac
 
 # STAGED=1: the staged changes as this host's git sees them, handed to the
@@ -229,7 +245,7 @@ fi
 
 sock=""
 sock_gid=""
-if [ "$tier" = plane ]; then
+if [ "$tier" = plane ] || [ "$tier" = engine-gates ]; then
   if [ "$engine_kind" = podman ]; then
     sock=$("$engine" info --format '{{.Host.RemoteSocket.Path}}' 2>/dev/null || true)
     sock=${sock#unix://}
@@ -245,7 +261,9 @@ if [ "$tier" = plane ]; then
     fi
     sock_gid=$(stat -c %g "$sock" 2>/dev/null || stat -f %g "$sock" 2>/dev/null || true)
   fi
-  printf 'lights-out: mounting container engine socket (%s) for opt-in plane command %s\n' "$sock" "$cmd" >&2
+  notice_kind="plane"
+  [ "$tier" != engine-gates ] || notice_kind="--engine"
+  printf 'lights-out: mounting container engine socket (%s) for opt-in %s command %s\n' "$sock" "$notice_kind" "$cmd" >&2
 fi
 
 if [ "$cmd" = start ]; then
@@ -269,7 +287,7 @@ n=$#
 set -- "$@" --rm --init "$tty" --security-opt label=disable
 if [ "$engine_kind" = docker ]; then
   set -- "$@" --user "$(id -u):$(id -g)" -e HOME=/tmp
-  if [ "$tier" = plane ]; then
+  if [ "$tier" = plane ] || [ "$tier" = engine-gates ]; then
     set -- "$@" --add-host host.containers.internal:host-gateway
   fi
 fi
@@ -287,18 +305,24 @@ elif [ "$tier" = state ]; then
   if [ -n "$mount_adapters" ]; then
     set -- "$@" -v "$mount_adapters:$mount_adapters:ro" -e ADAPTERS_PATH="$mount_adapters"
   fi
-  set -- "$@" -v "$here:/repo:ro" -v "$out/crew:/opt/lights-out/.crew" -e LIGHTS_OUT_HOST_OUT="$out" -e PROFILE="$profile"
+  set -- "$@" -v "$here:/repo:ro" -v "$out/crew:/opt/lights-out/.crew" -e LIGHTS_OUT_HOST_OUT="$out"
+  [ "$profile_explicit" = 0 ] || set -- "$@" -e PROFILE="$profile"
 else
   mkdir -p "$out/platform" "$out/crew" || die "cannot create $out/platform or $out/crew"
-  for k in $keys $plane_keys MODEL_PROVIDER MODEL AGENT_HARNESS DELIVERY CODE_HOST GITHUB_REPO METRICS_URL GOOGLE_CLOUD_PROJECT GOOGLE_CLOUD_LOCATION; do
+  env_keys="$keys MODEL_PROVIDER MODEL"
+  [ "$tier" = engine-gates ] || env_keys="$env_keys $plane_keys AGENT_HARNESS DELIVERY CODE_HOST GITHUB_REPO METRICS_URL GOOGLE_CLOUD_PROJECT GOOGLE_CLOUD_LOCATION"
+  for k in $env_keys; do
     if eval "[ -n \"\${$k:-}\" ]"; then set -- "$@" -e "$k"; fi
   done
-  if [ -n "$mount_adapters" ]; then
+  if [ "$tier" != engine-gates ] && [ -n "$mount_adapters" ]; then
     set -- "$@" -v "$mount_adapters:$mount_adapters:ro" -e ADAPTERS_PATH="$mount_adapters"
   fi
   set -- "$@" -v "$sock:/var/run/docker.sock" -e DOCKER_HOST=unix:///var/run/docker.sock
   if [ "$engine_kind" = docker ] && [ -n "$sock_gid" ]; then
     set -- "$@" --group-add "$sock_gid"
+  fi
+  if [ "$tier" = engine-gates ]; then
+    set -- "$@" -v "$out:/out" -e LIGHTS_OUT_ENGINE_GATES=1
   fi
   if [ "$cmd" = console ]; then
     publish=${CONSOLE_PUBLISH:-127.0.0.1}
@@ -318,8 +342,8 @@ else
     -e LIGHTS_OUT_PLATFORM_DIR="$out/platform" \
     -e LIGHTS_OUT_CREW_DIR="$out/crew" \
     -e WORKBENCH_IMAGE="$image" \
-    -e LIGHTS_OUT_HOST_OUT="$out" \
-    -e PROFILE="$profile"
+    -e LIGHTS_OUT_HOST_OUT="$out"
+  [ "$profile_explicit" = 0 ] || set -- "$@" -e PROFILE="$profile"
 fi
 
 set -- "$@" "$image" "$cmd"

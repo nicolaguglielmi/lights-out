@@ -148,7 +148,7 @@ wrapper_flaws() {
     run "$w/trip:$w/tools" "$f" $a
     { [ "$rc" -ne 0 ] && [ ! -e "$w/tripped" ] && [ ! -s "$w/o" ] && has_all "$w/e" $k; } || echo "'$a' is not refused before any engine, naming $k"
   done
-  for a in "test-proof NOPE=1" "test-integrity NOPE=1" "test-proof base=x" "test-integrity BASEX=1" "gates --json" "up --non-interactive" "next --bogus" "start --preset"; do
+  for a in "test-proof NOPE=1" "test-integrity NOPE=1" "test-proof base=x" "test-integrity BASEX=1" "gates --json" "up --non-interactive" "next --bogus" "start --preset" "up --engine" "next --engine" "doctor --engine"; do
     run "$w/trip:$w/tools" "$f" $a
     { [ "$rc" -ne 0 ] && [ ! -e "$w/tripped" ] && [ ! -s "$w/o" ]; } || echo "'$a' is not refused before any engine"
   done
@@ -156,10 +156,12 @@ wrapper_flaws() {
     check_keys=$k
     check_state=$STATE_CMDS
     check_plane=$PLANE_CMDS
+    check_engine_gates="init gates test-proof test-integrity"
   else
     check_keys="BASE INCIDENT"
     check_state="next"
     check_plane="up console"
+    check_engine_gates="gates"
   fi
   for x in $check_keys; do
     run "$w/trip:$w/tools" "$f" gates "$x=x"
@@ -187,7 +189,7 @@ wrapper_flaws() {
         || echo "'$a' with no engine: want non-zero, nothing on stdout, one stderr line naming the engine"
     done
   fi
-  # Behavioral fake-engine socket boundary checks (ADR 0105):
+  # Behavioral fake-engine socket boundary checks (ADR 0105, 0108):
   if [ "$wf_mode" = full ]; then
     for a in init gates test-proof test-integrity "triage ALERT=a" "postmortem INCIDENT=i"; do
       run "$w/beh:$w/tools" "$f" $a
@@ -195,6 +197,7 @@ wrapper_flaws() {
       ! grep -qF '.sock' "$w/beh.run" || echo "read-only '$a' mounted a socket"
       ! grep -qE '^DOCKER_HOST' "$w/beh.run" || echo "read-only '$a' passed DOCKER_HOST"
       ! grep -qE '^LIGHTS_OUT_PLATFORM_DIR=' "$w/beh.run" || echo "read-only '$a' passed LIGHTS_OUT_PLATFORM_DIR"
+      ! grep -qE '^LIGHTS_OUT_ENGINE_GATES=' "$w/beh.run" || echo "read-only '$a' passed LIGHTS_OUT_ENGINE_GATES"
     done
   else
     run "$w/beh:$w/tools" "$f" gates
@@ -202,10 +205,31 @@ wrapper_flaws() {
       ! grep -qF '.sock' "$w/beh.run" || echo "read-only 'gates' mounted a socket"
       ! grep -qE '^DOCKER_HOST' "$w/beh.run" || echo "read-only 'gates' passed DOCKER_HOST"
       ! grep -qE '^LIGHTS_OUT_PLATFORM_DIR=' "$w/beh.run" || echo "read-only 'gates' passed LIGHTS_OUT_PLATFORM_DIR"
+      ! grep -qE '^LIGHTS_OUT_ENGINE_GATES=' "$w/beh.run" || echo "read-only 'gates' passed LIGHTS_OUT_ENGINE_GATES"
     else
       echo "read-only 'gates' failed under fake engine: $(cat "$w/e")"
     fi
   fi
+  for s in $check_engine_gates; do
+    run_env "$w/beh:$w/tools" LIGHTS_OUT_OUT="$w/out-eng-$s" "$f" "$s" --engine
+    { [ "$rc" -eq 0 ] && [ -s "$w/beh.run" ]; } || { echo "engine-gates '$s --engine' failed under fake engine: $(cat "$w/e")"; continue; }
+    grep -qF "$w/fake-podman.sock:/var/run/docker.sock" "$w/beh.run" || echo "engine-gates '$s --engine' did not mount the engine socket"
+    grep -qx 'DOCKER_HOST=unix:///var/run/docker.sock' "$w/beh.run" || echo "engine-gates '$s --engine' did not pass DOCKER_HOST"
+    grep -qx 'LIGHTS_OUT_ENGINE_GATES=1' "$w/beh.run" || echo "engine-gates '$s --engine' did not pass LIGHTS_OUT_ENGINE_GATES=1"
+    grep -qE '^LIGHTS_OUT_PLATFORM_DIR=' "$w/beh.run" || echo "engine-gates '$s --engine' did not pass LIGHTS_OUT_PLATFORM_DIR"
+    grep -qE '^LIGHTS_OUT_CREW_DIR=' "$w/beh.run" || echo "engine-gates '$s --engine' did not pass LIGHTS_OUT_CREW_DIR"
+    grep -qF "ghcr.io/nicolaguglielmi/lights-out:${v:-?}" "$w/beh.run" || echo "engine-gates '$s --engine' did not use full image"
+    [ "$(grep -ci 'socket' "$w/e")" = 1 ] || echo "engine-gates '$s --engine' did not print a 1-line opt-in socket notice on stderr"
+  done
+  run_env "$w/beh:$w/tools" LIGHTS_OUT_OUT="$w/out-eng-env" LIGHTS_OUT_ENGINE_GATES=1 "$f" gates
+  { [ "$rc" -eq 0 ] && grep -qF "$w/fake-podman.sock:/var/run/docker.sock" "$w/beh.run" && grep -qx 'LIGHTS_OUT_ENGINE_GATES=1' "$w/beh.run"; } \
+    || echo "LIGHTS_OUT_ENGINE_GATES=1 gates did not opt into engine socket"
+  run_env "$w/beh:$w/tools" CONTAINER_ENGINE=docker DOCKER_HOST="unix://$w/beh.sock" LIGHTS_OUT_OUT="$w/out-eng-docker" "$f" gates --engine
+  { [ "$rc" -eq 0 ] && grep -qF "$w/beh.sock:/var/run/docker.sock" "$w/beh.run" && grep -qx -- '--group-add' "$w/beh.run"; } \
+    || echo "docker 'gates --engine' did not mount DOCKER_HOST socket with --group-add"
+  run_env "$w/beh:$w/tools" FAKE_REMOTE_EXISTS=false "$f" gates --engine
+  { [ "$rc" -ne 0 ] && [ ! -s "$w/beh.run" ] && [ ! -s "$w/o" ] && [ "$(lines "$w/e")" = 1 ] && grep -qi 'socket' "$w/e"; } \
+    || echo "missing podman socket on 'gates --engine' did not fail cleanly with 1 stderr line naming socket"
   for s in $check_state; do
     run "$w/beh:$w/tools" "$f" "$s"
     { [ "$rc" -eq 0 ] && [ -s "$w/beh.run" ]; } || { echo "state-only '$s' failed under fake engine: $(cat "$w/e")"; continue; }
@@ -680,6 +704,10 @@ try wrapper_flaws "plane 'up' did not mount the engine socket" 'sed -i "s|-v \"\
 try wrapper_flaws "plane 'up' did not pass DOCKER_HOST" 'sed -i "s|-e DOCKER_HOST=unix:///var/run/docker.sock||" lights-out'
 try wrapper_flaws "plane 'up' did not pass LIGHTS_OUT_PLATFORM_DIR" 'sed -i "s|-e LIGHTS_OUT_PLATFORM_DIR=\"\$out/platform\"||" lights-out'
 try wrapper_flaws "plane 'up' did not print a 1-line opt-in socket notice" 'sed -i "/mounting container engine socket/d" lights-out'
+try wrapper_flaws "engine-gates 'gates --engine' did not mount the engine socket" 'sed -i "s/\[ \"\$a\" != --engine \] || engine_gates=1/:/" lights-out'
+try wrapper_flaws "engine-gates 'gates --engine' did not pass LIGHTS_OUT_ENGINE_GATES=1" 'sed -i "s/-e LIGHTS_OUT_ENGINE_GATES=1//" lights-out'
+try wrapper_flaws "'up --engine' is not refused before any engine" 'sed -i "s/init|gates|test-proof|test-integrity) ;; \*) die/init|gates|test-proof|test-integrity|up) ;; *) die/" lights-out'
+try wrapper_flaws "missing podman socket on 'gates --engine' did not fail cleanly" 'sed -i "s/\[ \"\$tier\" = plane \] || \[ \"\$tier\" = engine-gates \]/[ \"\$tier\" = plane ]/" lights-out'
 try wrapper_flaws "console did not publish" 'sed -i "s|-p \"\$publish:\$cport:8098\"||" lights-out'
 try wrapper_flaws "--version does not match lights-out version" 'sed -i "s/--version)/--nonesuch)/" lights-out'
 try wrapper_flaws "--version does not match lights-out version" 'sed -i "s/--version) cmd=version/--version) printf \"lights-out %s (other)\\n\" \"\$version\"; exit 0/" lights-out'

@@ -129,5 +129,5 @@ esac
 
 sh "adapters/$DELIVERY/shift.sh" 100 >&2 || nogo "shift to 100% did not take"
 python3 core/releases.py answer GO
-printf '[go-for-launch] %s at 100%% of traffic (%s)\n' "$version" "$DELIVERY" >&2
+python3 core/promote_hint.py "$version" || :
 go
