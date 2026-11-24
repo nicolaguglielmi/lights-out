@@ -720,7 +720,8 @@ function screenNetwork(arg) {
         : netFact("li", i))),
       e.patch || e.withheld ? h("details", Object.assign({cls: "net-patch", "data-truncated": e.patch ? String(e.patch.truncated === true) : "false"},
         e.attempt === v.attempt ? {open: true} : {}),
-        h("summary", {}, "The patch of attempt " + e.attempt), h("pre", {}, e.patch ? e.patch.text : e.withheld)) : null)));
+        h("summary", {}, "The patch of attempt " + e.attempt),
+        e.patch ? renderPatchPre(e.patch.text) : h("pre", {}, e.withheld)) : null)));
   const rows = [];
   for (const f of v.files) {
     if (f.kind === "file" && !shown(f)) continue;
@@ -749,6 +750,7 @@ function screenNetwork(arg) {
           : h("a", {href: "#network/" + encodeURIComponent(tid) + (k === ns[ns.length - 1] ? "" : "?attempt=" + k)}, String(k))])) : null,
         graph, facts),
       h("div", {cls: "panel"}, h("h2", {}, "Attempts, newest first"), stream)),
+    gateExplorerPanel(t),
     h("div", {cls: "panel"}, h("h2", {}, "Files by perimeter"), h("table", {cls: "net-files"}, rows)));
   // The live mark (docs/adr/0071 §3): a fact the last logbook added.
   const now = Date.now();
