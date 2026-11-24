@@ -1,0 +1,21 @@
+stages:
+  - delivery
+
+hetzner-delivery-conformance:
+  stage: delivery
+  image: bitnami/kubectl:1.31
+  id_tokens:
+    K8S_OIDC_JWT:
+      aud: $OIDC_AUDIENCE
+  variables:
+    DELIVERY: outside/hetzner-k3s
+  script:
+    - |
+      oidc_dir=$(mktemp -d)
+      trap 'rm -rf "$oidc_dir"' EXIT
+      kubectl config set-cluster "$HETZNER_CLUSTER" --server="$KUBE_APISERVER_URL" --kubeconfig="$oidc_dir/kubeconfig" >/dev/null
+      kubectl config set-credentials oidc-ci --token="$K8S_OIDC_JWT" --kubeconfig="$oidc_dir/kubeconfig" >/dev/null
+      kubectl config set-context "$HETZNER_CLUSTER" --cluster="$HETZNER_CLUSTER" --user=oidc-ci --kubeconfig="$oidc_dir/kubeconfig" >/dev/null
+      kubectl config use-context "$HETZNER_CLUSTER" --kubeconfig="$oidc_dir/kubeconfig" >/dev/null
+      export HETZNER_KUBECONFIG="$oidc_dir/kubeconfig"
+      ./go delivery-conformance DELIVERY=outside/hetzner-k3s ADAPTERS_PATH="$CI_PROJECT_DIR/plugins/cloud"

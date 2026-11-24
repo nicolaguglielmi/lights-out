@@ -1,0 +1,31 @@
+stages:
+  - delivery
+
+gcp-delivery-conformance:
+  stage: delivery
+  image: google/cloud-sdk:slim
+  id_tokens:
+    GCP_OIDC_JWT:
+      aud: https://iam.googleapis.com/$GCP_WIF_PROVIDER
+  variables:
+    DELIVERY: outside/gcp-cloud-deploy
+  script:
+    - |
+      oidc_dir=$(mktemp -d)
+      trap 'rm -rf "$oidc_dir"' EXIT
+      cat > "$oidc_dir/cred.json" <<EOF
+      {
+        "type": "external_account",
+        "audience": "//iam.googleapis.com/${GCP_WIF_PROVIDER}",
+        "subject_token_type": "urn:ietf:params:oauth:token-type:jwt",
+        "token_url": "https://sts.googleapis.com/v1/token",
+        "service_account_impersonation_url": "https://iamcredentials.googleapis.com/v1/projects/-/serviceAccounts/${GCP_DEPLOYER_SA}:generateAccessToken",
+        "credential_source": {
+          "file": "${oidc_dir}/jwt",
+          "format": { "type": "text" }
+        }
+      }
+      EOF
+      printf '%s' "$GCP_OIDC_JWT" > "$oidc_dir/jwt"
+      gcloud auth login --cred-file="$oidc_dir/cred.json" --quiet
+      ./go delivery-conformance DELIVERY=outside/gcp-cloud-deploy ADAPTERS_PATH="$CI_PROJECT_DIR/plugins/cloud"

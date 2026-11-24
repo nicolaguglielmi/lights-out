@@ -1,0 +1,36 @@
+name: Cloud Delivery Conformance (GCP Cloud Deploy OIDC)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  delivery-conformance:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Authenticate to GCP via OIDC (keyless)
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOYER_SA }}
+
+      - name: Setup Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Run Delivery conformance
+        env:
+          GCP_PROJECT: ${{ vars.GCP_PROJECT }}
+          GCP_REGION: ${{ vars.GCP_REGION }}
+          CLOUD_DEPLOY_PIPELINE: ${{ vars.CLOUD_DEPLOY_PIPELINE }}
+          CLOUD_DEPLOY_TARGET: ${{ vars.CLOUD_DEPLOY_TARGET }}
+          CLOUD_RUN_SERVICE: ${{ vars.CLOUD_RUN_SERVICE }}
+          METRICS: promql
+          METRICS_URL: ${{ vars.METRICS_URL }}
+        run: |
+          ./go delivery-conformance DELIVERY=outside/gcp-cloud-deploy ADAPTERS_PATH="$PWD/plugins/cloud"

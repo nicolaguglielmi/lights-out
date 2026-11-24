@@ -42,6 +42,7 @@ trap 'rm -f "$tmp"' EXIT
     done
     find "$w" \( -path '*/tests/mutation/run.sh' -o -path '*/tests/sast/run.sh' -o -path '*/.lights-out/runners/*.sh' \) -type f
   done
+  find plugins/cloud fixtures/outside-adapters -name '*.sh' -type f
   true
 } > "$tmp"
 

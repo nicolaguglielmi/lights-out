@@ -70,6 +70,7 @@
 #   ./go demo-jenkins   prove Jenkins as a surface: Jenkinsfile Runner posts the gates line on a local Gitea PR (ADR 0058)
 #   ./go demo-gitlab-ci  prove GitLab CI as a surface: a real gitlab-runner posts the gates line on a local GitLab merge request (ADR 0095)
 #   ./go demo-circleci  prove the CircleCI recipe as far as runs without an account: config validate, its step against a local Gitea PR (ADR 0095)
+#   ./go cloud-setup CLOUD=<provider>  stage Terraform + OIDC starter for a cloud Delivery plugin into .crew/cloud/<provider>/ (ADR 0104)
 #   ./go shell          interactive shell inside workbench
 #   ./go clean          remove the workbench image
 #

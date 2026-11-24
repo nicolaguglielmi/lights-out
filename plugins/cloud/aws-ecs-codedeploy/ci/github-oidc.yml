@@ -1,0 +1,33 @@
+name: Cloud Delivery Conformance (AWS ECS + CodeDeploy OIDC)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  delivery-conformance:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Assume AWS IAM Role via OIDC (keyless)
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Run Delivery conformance
+        env:
+          AWS_REGION: ${{ vars.AWS_REGION }}
+          ECS_CLUSTER: ${{ vars.ECS_CLUSTER }}
+          ECS_SERVICE: ${{ vars.ECS_SERVICE }}
+          CODEDEPLOY_APP: ${{ vars.CODEDEPLOY_APP }}
+          CODEDEPLOY_GROUP: ${{ vars.CODEDEPLOY_GROUP }}
+          METRICS: promql
+          METRICS_URL: ${{ vars.METRICS_URL }}
+        run: |
+          ./go delivery-conformance DELIVERY=outside/aws-ecs-codedeploy ADAPTERS_PATH="$PWD/plugins/cloud"

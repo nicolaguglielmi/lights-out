@@ -1,0 +1,19 @@
+stages:
+  - delivery
+
+azure-delivery-conformance:
+  stage: delivery
+  image: mcr.microsoft.com/azure-cli:latest
+  id_tokens:
+    AZURE_OIDC_TOKEN:
+      aud: api://AzureADTokenExchange
+  variables:
+    DELIVERY: outside/azure-container-apps
+  script:
+    - |
+      az login --service-principal \
+        --username "$AZURE_CLIENT_ID" \
+        --tenant "$AZURE_TENANT_ID" \
+        --federated-token "$AZURE_OIDC_TOKEN" >/dev/null
+      az account set --subscription "$AZURE_SUBSCRIPTION_ID"
+      ./go delivery-conformance DELIVERY=outside/azure-container-apps ADAPTERS_PATH="$CI_PROJECT_DIR/plugins/cloud"
