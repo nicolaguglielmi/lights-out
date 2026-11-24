@@ -91,6 +91,29 @@ class AutoIncidentTests(TempWorkspaceCase):
         self.assertEqual(res2["incident_path"], res1["incident_path"])
         self.assertEqual(inc_path.read_bytes(), first_bytes)
 
+    def test_on_rollback_adds_exemplars_and_keeps_every_adr_0109_key(self) -> None:
+        # ADR 0121 §1: exemplars sit beside, never inside, incident.py's own keys.
+        rec_path = self.root / ".crew" / "release.json"
+        rec_path.parent.mkdir(parents=True, exist_ok=True)
+        rec_path.write_text(json.dumps(SAMPLE_RECORD), encoding="utf-8")
+        with contextlib.redirect_stderr(io.StringIO()):
+            res = ops_loop.on_rollback(str(rec_path), {"INCIDENT_OUT": ".crew/incidents"})
+        doc = res["incident"]
+        self.assertEqual(set(doc) - {"exemplars"}, {"kind", "name", "window", "release", "alerts", "logs", "chain"})
+        self.assertEqual(doc["exemplars"]["failing_stage_pct"], 25)
+        self.assertEqual(doc["exemplars"]["stages"][1]["error_rate"]["canary"], 0.5)
+        self.assertEqual(doc, json.loads(Path(res["incident_path"]).read_text(encoding="utf-8")))
+
+    def test_on_rollback_redacts_credentials_of_a_supplied_log(self) -> None:
+        rec_path = self.root / ".crew" / "release.json"
+        rec_path.parent.mkdir(parents=True, exist_ok=True)
+        rec_path.write_text(json.dumps(SAMPLE_RECORD), encoding="utf-8")
+        log = self.root / "supplied.log"
+        log.write_text("start\nDEPLOY_TOKEN=abc123\nend\n", encoding="utf-8")
+        with contextlib.redirect_stderr(io.StringIO()):
+            res = ops_loop.on_rollback(str(rec_path), {"LOGS": str(log), "INCIDENT_OUT": ".crew/incidents"})
+        self.assertEqual(res["incident"]["logs"], ["start", "DEPLOY_TOKEN=[REDACTED]", "end"])
+
     def test_on_rollback_anchors_chain_and_copies_real_logs_when_ticket_present(self) -> None:
         rec_path = self.root / ".crew" / "release.json"
         rec_path.parent.mkdir(parents=True, exist_ok=True)
