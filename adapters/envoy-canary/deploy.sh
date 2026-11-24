@@ -18,6 +18,7 @@ version=${1:?usage: deploy.sh <version> <image>}
 image=${2:?usage: deploy.sh <version> <image>}
 : "${READY_TIMEOUT:=60}"
 probe=${WORKLOAD_HEALTH_PROBE:-http:/healthz}
+port=${WORKLOAD_PORT:-8000}
 
 tmpdir=$(mktemp -d)
 trap 'rm -rf "$tmpdir"' EXIT
@@ -30,7 +31,7 @@ COMPOSE_FILE="${COMPOSE_FILE:-compose.yaml}:$override" \
   CANARY_IMAGE="localhost:5050/$image" \
   docker-compose --profile canary up -d --no-deps backend-canary >&2
 
-if ! docker-compose run --rm -T --no-deps probe python3 - "$probe" "$READY_TIMEOUT" <<'PY' >&2
+if ! docker-compose run --rm -T --no-deps probe python3 - "$probe" "$READY_TIMEOUT" "$port" <<'PY' >&2
 import http.client
 import socket
 import sys
@@ -38,6 +39,7 @@ import time
 
 probe = sys.argv[1] or "http:/healthz"
 timeout = int(sys.argv[2])
+default_port = int(sys.argv[3]) if len(sys.argv) > 3 and sys.argv[3] else 8000
 deadline = time.monotonic() + timeout
 last = "no answer"
 
@@ -50,7 +52,7 @@ if probe.startswith("http:"):
     target = path
 elif probe == "tcp":
     check_kind = "tcp"
-    target = 8000
+    target = default_port
 elif probe.startswith("tcp:"):
     check_kind = "tcp"
     target = int(probe.split(":", 1)[1])
@@ -61,7 +63,7 @@ else:
 while True:
     try:
         if check_kind == "http":
-            conn = http.client.HTTPConnection("backend-canary", 8000, timeout=2)
+            conn = http.client.HTTPConnection("backend-canary", default_port, timeout=2)
             try:
                 conn.request("GET", target)
                 resp = conn.getresponse()

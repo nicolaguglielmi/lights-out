@@ -38,6 +38,9 @@ endif
 ifneq ($(origin WORKLOAD_HEALTH_PROBE),command line)
 WORKLOAD_HEALTH_PROBE :=
 endif
+ifneq ($(origin WORKLOAD_PORT),command line)
+WORKLOAD_PORT :=
+endif
 # `init` and `try` are the goals that may start without a contract: they
 # draft one (docs/adr/0042 §6, docs/adr/0093 §5). Every other goal stops
 # here, naming the file.

@@ -27,6 +27,11 @@ import sys
 import tomllib
 from datetime import date
 
+try:
+    from . import init_plane
+except ImportError:  # run as a script: core/ is sys.path[0]
+    import init_plane
+
 WORKBENCH_PYTHON = (3, 13)
 WORKBENCH_NODE = 24
 # The images a runtime the workbench does not admit gets (docs/adr/0042
@@ -380,9 +385,13 @@ def infer(repo):
     raise Undraftable("no stack found: looked for pyproject.toml (python) and package.json (javascript) at the root")
 
 
-def render_workload_env(d, committed, today, commit):
+def render_workload_env(d, committed, today, commit, plane=None):
     kept = {k: committed.get(k, "") for k in PLANE_KEYS}
-    has_committed = any(kept.values()) or ("WORKLOAD_HEALTH_PROBE" in committed)
+    has_committed = (
+        any(kept.values())
+        or ("WORKLOAD_HEALTH_PROBE" in committed)
+        or ("WORKLOAD_PORT" in committed)
+    )
     lines = [
         f"# .lights-out/workload.env, drafted by ./go init on {today} at {commit} (docs/adr/0042 §6):",
         "# the twelve keys the platform reads (docs/adr/0030 §2, 0042 §1, 0053 §1), each under",
@@ -398,17 +407,34 @@ def render_workload_env(d, committed, today, commit):
         lines.append(f"{name}={value}")
         lines.append("")
 
-    for name in PLANE_KEYS:
+    if plane is not None:
+        for name, (val, prov) in plane.items():
+            if has_committed and name in committed:
+                key(name, committed[name], "kept: from the committed .lights-out/workload.env")
+            else:
+                key(name, val, prov)
         if has_committed:
-            key(name, kept[name], "kept: from the committed .lights-out/workload.env; the plane half is not drafted")
-        else:
-            key(name, "", "default: empty, the plane half is not drafted (docs/adr/0042 §7); fill in to run the plane")
-    if "WORKLOAD_HEALTH_PROBE" in committed:
-        key(
-            "WORKLOAD_HEALTH_PROBE",
-            committed["WORKLOAD_HEALTH_PROBE"],
-            "kept: from the committed .lights-out/workload.env; optional health probe (ADR 0098 §3)",
-        )
+            for extra in ("WORKLOAD_HEALTH_PROBE", "WORKLOAD_PORT"):
+                if extra in committed and extra not in plane:
+                    key(extra, committed[extra], "kept: from the committed .lights-out/workload.env")
+    else:
+        for name in PLANE_KEYS:
+            if has_committed:
+                key(name, kept[name], "kept: from the committed .lights-out/workload.env; the plane half is not drafted")
+            else:
+                key(name, "", "default: empty, the plane half is not drafted (docs/adr/0042 §7); fill in to run the plane")
+        if "WORKLOAD_HEALTH_PROBE" in committed:
+            key(
+                "WORKLOAD_HEALTH_PROBE",
+                committed["WORKLOAD_HEALTH_PROBE"],
+                "kept: from the committed .lights-out/workload.env; optional health probe (ADR 0098 §3)",
+            )
+        if "WORKLOAD_PORT" in committed:
+            key(
+                "WORKLOAD_PORT",
+                committed["WORKLOAD_PORT"],
+                "kept: from the committed .lights-out/workload.env; optional workload port (ADR 0100)",
+            )
     key("MUTATION_BASELINE", "", "measurement: not yet measured; ./go init measures it (docs/adr/0042 §6)")
     key("WORKLOAD_LOCKFILES", d["lockfiles"], f"inferred: {d['lockfiles_evidence']}")
     key("WORKLOAD_MUTATION_SCOPE", d["scope"], f"inferred: {d['scope_evidence']}")
@@ -469,14 +495,26 @@ def write_draft(repo, out, stacks, today, commit):
     if os.path.isdir(runners_dst):
         shutil.rmtree(runners_dst)
     shutil.copytree(runners_src, runners_dst)
+    container = init_plane.detect_container(repo)
+    plane = init_plane.draft_plane(repo, out, container, committed) if container is not None else None
     with open(os.path.join(out, "workload.env"), "w") as fh:
-        fh.write(render_workload_env(d, committed, today, commit))
+        fh.write(render_workload_env(d, committed, today, commit, plane=plane))
     with open(os.path.join(out, "worker.md"), "w") as fh:
         fh.write(render_worker_md(d, os.path.basename(repo.rstrip("/")), today))
     with open(os.path.join(out, "policy.env"), "w") as fh:
         fh.write(render_policy_env(today))
     for note in d["notes"]:
         print(f"init: {note}", file=sys.stderr)
+    if container is not None and plane is not None:
+        print(
+            f"init: plane: {container['dockerfile']} port {container['port']}, probe {plane['WORKLOAD_HEALTH_PROBE'][0]}",
+            file=sys.stderr,
+        )
+    else:
+        print(
+            "init: plane: no Containerfile or Dockerfile at root; drafted gates half only",
+            file=sys.stderr,
+        )
     if committed:
         print(
             "init: the repository has a committed .lights-out/; its workload.env, worker.md, "

@@ -158,6 +158,8 @@ services:
       context: ./adapters/envoy-canary
       dockerfile: Containerfile
     user: envoy
+    environment:
+      WORKLOAD_PORT: "${WORKLOAD_PORT:-8000}"
     # Host side: APP_PORT (Makefile, .env), 8080 unless set.
     ports:
       - "${APP_PORT:-8080}:8080"

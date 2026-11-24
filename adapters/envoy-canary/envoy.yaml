@@ -70,6 +70,8 @@ static_resources:
                       routes:
                         - match: { prefix: "/" }
                           route: { cluster: canary }
+  # Upstream cluster default port 8000 is validated at build time and substituted
+  # with WORKLOAD_PORT by entrypoint.sh when != 8000 (docs/adr/0100).
   clusters:
     - name: stable
       type: STRICT_DNS

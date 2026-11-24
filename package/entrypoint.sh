@@ -126,6 +126,13 @@ if [ "$sub" = init ]; then
         cat "/out/.lights-out/$f"
         printf '%s\n' "$fence"
       done
+      if [ -f /out/.lights-out/compose.yaml ]; then
+        printf '\nPlane half (`.lights-out/`):\n\n'
+        for f in compose.yaml flags/flags.json smoke.sh load.sh; do
+          [ -f "/out/.lights-out/$f" ] || continue
+          printf -- '- `.lights-out/%s`, %s bytes\n' "$f" "$(wc -c < "/out/.lights-out/$f" | tr -d ' ')"
+        done
+      fi
       if [ -d /out/.lights-out/runners ]; then
         stack=${line#GO: init — }
         printf '\n`.lights-out/runners/`, the %s stack'"'"'s runners as lights-out ships them:\n\n' "${stack%%,*}"

@@ -2,6 +2,11 @@
 #
 # Envoy with its static config baked in and validated at build time
 # (docs/adr/0012 §2). Index digest: one line serves amd64 and arm64.
+# Runtime entrypoint substitutes WORKLOAD_PORT into /tmp/envoy.yaml when != 8000 (docs/adr/0100).
 FROM docker.io/envoyproxy/envoy:v1.39.1@sha256:57e14a549d7bd43c8d3f6d03e8cfa653e037d4b38e133acd9b54f38c524401b4
 COPY envoy.yaml /etc/envoy/envoy.yaml
 RUN envoy --mode validate -c /etc/envoy/envoy.yaml
+COPY entrypoint.sh /usr/local/bin/envoy-entrypoint.sh
+RUN chmod +x /usr/local/bin/envoy-entrypoint.sh
+ENTRYPOINT ["/usr/local/bin/envoy-entrypoint.sh"]
+CMD []

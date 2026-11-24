@@ -29,7 +29,7 @@ case "$probe" in
     ;;
   tcp|tcp:*)
     if [ "$probe" = "tcp" ]; then
-      port=8000
+      port=${WORKLOAD_PORT:-8000}
     else
       port=${probe#tcp:}
     fi

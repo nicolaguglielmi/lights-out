@@ -464,13 +464,20 @@ if "WORKLOAD_HEALTH_PROBE" in values:
         print(f"{path}: WORKLOAD_HEALTH_PROBE={probe!r} must be empty, http:/<path>, tcp or tcp:<port> (docs/adr/0098)")
         sys.exit(1)
 
+if "WORKLOAD_PORT" in values:
+    wport = values["WORKLOAD_PORT"]
+    ok_port = wport == "" or (bool(re.fullmatch(r"[1-9][0-9]*", wport)) and 1 <= int(wport) <= 65535)
+    if not ok_port:
+        print(f"{path}: WORKLOAD_PORT={wport!r} must be empty or integer 1..65535 (docs/adr/0100)")
+        sys.exit(1)
+
 seen = set()
 dupes = sorted({k for k in keys if k in seen or seen.add(k)})
 if dupes:
     print(f"{path} defines a key more than once: {', '.join(dupes)}")
     sys.exit(1)
 
-optional_keys = {"WORKLOAD_HEALTH_PROBE"}
+optional_keys = {"WORKLOAD_HEALTH_PROBE", "WORKLOAD_PORT"}
 actual = set(keys)
 extra = sorted(actual - expected - optional_keys)
 missing = sorted(expected - actual)
@@ -480,7 +487,7 @@ if extra or missing:
         bits.append("extra: " + ", ".join(extra))
     if missing:
         bits.append("missing: " + ", ".join(missing))
-    print(f"{path} must define the twelve docs/adr/0030 §2, 0042 §1 and 0053 §1 keys plus optional WORKLOAD_HEALTH_PROBE ({'; '.join(bits)})")
+    print(f"{path} must define the twelve docs/adr/0030 §2, 0042 §1 and 0053 §1 keys plus optional WORKLOAD_HEALTH_PROBE and WORKLOAD_PORT ({'; '.join(bits)})")
     sys.exit(1)
 PY
   ) && ok=1 || ok=0
