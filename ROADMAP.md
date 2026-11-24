@@ -107,6 +107,13 @@ change and the sequence after them (attestation, the jury, `./go
 demo-loop`, the toolbelt, then the launch), is
 [docs/plans/adoption-roadmap-2026-11.md](docs/plans/adoption-roadmap-2026-11.md).
 
+The gap analysis and living development registry (M72–M89) for evolving
+lights-out into a full plug-and-play autonomous enterprise software farm
+(greenfield apps and epics, autonomous ADRs and external trackers,
+closed-loop enterprise ops, modern workstation UI, and unified
+power-user CLI) is
+[docs/plans/enterprise-farm-roadmap.md](docs/plans/enterprise-farm-roadmap.md).
+
 ## Later
 
 - **M17 — the dashboard.** The console grows into the view of every
