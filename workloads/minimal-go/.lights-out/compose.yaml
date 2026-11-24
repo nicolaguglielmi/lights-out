@@ -1,0 +1,19 @@
+# SPDX-License-Identifier: Apache-2.0
+services:
+  backend:
+    image: localhost:5050/lights-out-backend:${APP_TAG:-latest}
+    build:
+      context: ${WORKLOAD}
+      dockerfile: Containerfile
+      target: runtime
+
+  backend-canary:
+    image: ${CANARY_IMAGE:-localhost:5050/lights-out-backend:latest}
+    profiles: ["canary"]
+
+  backend-test:
+    build:
+      context: ${WORKLOAD}
+      dockerfile: Containerfile
+      target: test
+    profiles: ["test"]

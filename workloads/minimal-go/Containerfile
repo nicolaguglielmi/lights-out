@@ -1,0 +1,16 @@
+# SPDX-License-Identifier: Apache-2.0
+FROM docker.io/library/golang:1.24@sha256:d2d2bc1c84f7e60d7d2438a3836ae7d0c847f4888464e7ec9ba3a1339a1ee804 AS build
+WORKDIR /src
+COPY go.mod go.sum ./
+COPY pkg ./pkg
+COPY cmd ./cmd
+RUN CGO_ENABLED=0 go build -o /out/server ./cmd/server
+
+FROM build AS test
+CMD ["go", "test", "./..."]
+
+FROM docker.io/library/golang:1.24@sha256:d2d2bc1c84f7e60d7d2438a3836ae7d0c847f4888464e7ec9ba3a1339a1ee804 AS runtime
+WORKDIR /app
+COPY --from=build /out/server /usr/local/bin/server
+EXPOSE 8000
+CMD ["/usr/local/bin/server"]

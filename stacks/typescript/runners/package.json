@@ -1,0 +1,17 @@
+{
+  "name": "lights-out-typescript-runners",
+  "version": "0.0.0",
+  "private": true,
+  "description": "The typescript stack's gate runners (docs/adr/0102): the tools .lights-out/runners/mutation.sh and sast.sh run, pinned here and locked in package-lock.json, installed with `npm ci` into a prefix of their own (/tmp, per container), never into the repository's node_modules.",
+  "dependencies": {
+    "@stryker-mutator/core": "10.1.1",
+    "@typescript-eslint/parser": "^8.0.0",
+    "eslint": "10.14.0",
+    "eslint-plugin-security": "4.2.1",
+    "typescript": "^5.8.0"
+  },
+  "overrides": {
+    "minimatch": ">=11.0.1",
+    "qs": ">=6.16.1"
+  }
+}

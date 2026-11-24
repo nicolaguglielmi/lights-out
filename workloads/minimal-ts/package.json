@@ -1,0 +1,15 @@
+{
+  "name": "minimal-ts",
+  "version": "0.1.0",
+  "private": true,
+  "description": "The smallest TypeScript repository the lights-out gates run on (docs/adr/0102): typed module, tests on node's own Node 24 test runner, no dependencies.",
+  "type": "module",
+  "main": "src/calc.ts",
+  "scripts": {
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=24"
+  },
+  "license": "Apache-2.0"
+}
