@@ -488,6 +488,13 @@ class EnvelopeVerbTests(unittest.TestCase):
         self.assertEqual(run_main(["envelope", "--command", "assign"])[0], 2)
         self.assertEqual(run_main(["envelope", "--command", "gates", "--rc", "0"])[0], 2)
 
+    def test_double_dash_stops_envelope_option_parsing(self):
+        rc, out, _ = run_main(["envelope", "--command", "answer", "--rc", "0", "--", "--answer", "--command"],
+                              stdin="GO: answer\n")
+        self.assertEqual(rc, 0)
+        env = json.loads(out)
+        self.assertEqual((env["command"], env["args"]), ("ticket answer", {"ANSWER": "--command"}))
+
 
 class CompletionTests(unittest.TestCase):
     """ADR 0112 §7."""

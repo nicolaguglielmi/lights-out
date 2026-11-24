@@ -67,7 +67,11 @@ name=$sub
 # shellcheck source=ci/lib.sh disable=SC1091
 . ci/lib.sh
 
-member() { case " $2 " in *" $1 "*) return 0 ;; esac; return 1; }
+member() {
+  case "$1" in ""|*[[:space:]]*) return 1 ;; esac
+  case " $2 " in *" $1 "*) return 0 ;; esac
+  return 1
+}
 
 verbs_of() {
   case "$1" in
@@ -145,7 +149,7 @@ if [ -n "$json_mode" ]; then
   rc=0
   inner=$(LIGHTS_OUT_JSON_INNER=1 sh "$0" "$sub" "$@") || rc=$?
   rc_env=0
-  if [ -n "$inner" ]; then printf '%s\n' "$inner"; fi | python3 core/cli.py envelope "$json_mode" --command "$sub" --rc "$rc" "$@" || rc_env=$?
+  if [ -n "$inner" ]; then printf '%s\n' "$inner"; fi | python3 core/cli.py envelope "$json_mode" --command "$sub" --rc "$rc" -- "$@" || rc_env=$?
   exit "$rc_env"
 fi
 

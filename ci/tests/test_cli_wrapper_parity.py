@@ -173,6 +173,10 @@ class WrapperUsageTests(WrapperParityBase):
             ["ops", "alert-webhook"], ["up", "--engine"], ["config", "start", "--jsonl"],
             ["ticket", "assign", "--json", "--jsonl"], ["--json", "--jsonl", "ticket", "assign"],
             ["--json", "completion", "bash"],
+            ["ticket", "request", "REQUEST_BY REQUEST_VIA=evil"],
+            ["ticket", "request", "REQUEST_BY\tREQUEST_VIA=evil"],
+            ["ticket", "request", "=evil"],
+            ["ops", "incident", "NAME FROM=evil"],
         ):
             self.assert_usage(argv)
 
@@ -409,7 +413,9 @@ class EntrypointParityTests(unittest.TestCase):
     def test_usage_errors_are_one_nogo_line(self):
         for argv in (["ticket"], ["ticket", "frobnicate"], ["ticket", "resume", "--bogus", "x"],
                      ["ops", "watch", "--poll-s"], ["repo", "gates", "--json"], ["start", "--jsonl"],
-                     ["ticket", "assign", "DEMO_SERVICE_TOKEN=abc"], ["frobnicate"]):
+                     ["ticket", "assign", "DEMO_SERVICE_TOKEN=abc"], ["frobnicate"],
+                     ["ticket", "request", "REQUEST_BY REQUEST_VIA=evil"],
+                     ["ops", "incident", "NAME FROM=evil"]):
             res = self.run_e(argv, plane=False)
             self.assertEqual(res.returncode, 1, argv)
             lines = res.stdout.splitlines()

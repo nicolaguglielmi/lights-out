@@ -82,7 +82,11 @@ completion_extra_keys="REQUEST_BY REQUEST_VIA ATTEMPT ONCE POLL_S ALERT_FILE REL
 # engine (docs/adr/0112 §3).
 die() { printf 'lights-out: %s\n' "$1" >&2; exit "${2:-1}"; }
 usage_die() { die "$*" 2; }
-member() { case " $2 " in *" $1 "*) return 0 ;; esac; return 1; }
+member() {
+  case "$1" in ""|*[[:space:]]*) return 1 ;; esac
+  case " $2 " in *" $1 "*) return 0 ;; esac
+  return 1
+}
 
 verbs_of() {
   case "$1" in

@@ -476,6 +476,9 @@ def _envelope_verb(args, environ, stdin, out, err):
         while i < len(args):
             a = args[i]
             i += 1
+            if a == "--":
+                rest.extend(args[i:])
+                break
             if a in ("--json", "--jsonl"):
                 mode = a[2:]
             elif a in ("--command", "--rc"):
