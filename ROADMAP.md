@@ -63,7 +63,14 @@ wins when the two disagree. Decisions behind each step are in
 | M62 | `DELIVERY=flagger` with Flagger's own rollback and 100% held for a person, GitLab CI on a real runner, the CircleCI recipe validated ([ADR 0095](docs/adr/0095-flagger-under-the-launchpads-gates-and-two-more-ci-surfaces.md)) |
 | M64 | From zero to hero: seven levels at the head of the tutorial, each ending on a real `GO`; an Open in Codespaces dev container proven on Actions (668 s to the rollback); the site's first screen on the frozen console ([ADR 0097](docs/adr/0097-from-zero-to-hero-and-a-start-with-nothing-installed.md), *proposed*) |
 | M65 | Verify from the proxy: `verify/slo.promql` reads Envoy cluster stats instead of requiring app `/metrics` or `target_info`; optional `WORKLOAD_HEALTH_PROBE` (`http:/<path>` or `tcp[:<port>]`) and optional empty `WORKLOAD_KILL_SWITCH`; uninstrumented stdlib `workloads/plain/` + `./go demo-seam-plain` ([ADR 0098](docs/adr/0098-verify-from-the-proxy.md)) |
+| M66 | `init` drafts the plane half: `core/init_plane.py` detects root `Containerfile` or `Dockerfile` (`EXPOSE` port via optional `WORKLOAD_PORT`, `HEALTHCHECK` path or TCP probe) and drafts `compose.yaml`, `flags/flags.json`, `smoke.sh` and `load.sh`; stdlib `unittest` fallback when `uv.lock` lacks `pytest` ([ADR 0100](docs/adr/0100-init-drafts-the-plane-half.md)) |
+| M67 | Plane and full workflow from the single `lights-out` wrapper: 24 subcommands across socket-free (`init`, `gates`, `test-proof`, `test-integrity`, `triage`, `postmortem`, `next`, `dora`, `spend`, `cloud-setup`) and opt-in plane tiers (`start`, `intake`, `answer`, `intake-confirm`, `assign`, `up`, `down`, `smoke`, `release`, `promote`, `console`, `evidence`) with synchronized 29-key allowlists and host-mirrored staging ([ADR 0105](docs/adr/0105-plane-and-workflow-from-wrapper.md)) |
+| M68 | Origin remote as CodeHost: `core/remote.py` normalizes SSH and HTTPS remotes (stripping embedded tokens) via `detect-remote.sh` probes during `./go attach`, supporting remote GitLab projects alongside GitHub (`adapters/gitlab/`, [ADR 0101](docs/adr/0101-origin-remote-as-codehost.md)) |
 | M69 | One install: `uv tool install lights-out-gates` ships both `lights-out` (via `script-files`, byte-identical POSIX wrapper with `--version`) and `lights-out-gates`; updated docs and `package.yml`/`stranger.yml` checks ([ADR 0099](docs/adr/0099-one-install-via-lights-out-gates.md)) |
+| M70 | Unknown-repository corpus: `core/corpus.py` and `./go corpus` test 12 synthetic repository shapes (8 positive across Python, JavaScript, TypeScript and Go + 4 negative) cold in `./go ci` and live (`CORPUS_FULL=1`) in `.github/workflows/corpus.yml` ([ADR 0106](docs/adr/0106-unknown-repository-corpus.md)) |
+| M71 | More stacks: `core/stacks.py` infers Go (`go.mod` + `go.sum`, `stacks/go/runners/`), TypeScript (`tsconfig.json`, `stacks/typescript/runners/`) and Python `poetry.lock`/pinned `requirements.txt` fallbacks alongside `uv` and JavaScript; `workloads/minimal-go/` and `workloads/minimal-ts/` ([ADR 0102](docs/adr/0102-more-stacks-go-typescript-python-fallbacks.md)) |
+| Guided UX | Dual-mode guided flow: `./go start` (interactive or `--non-interactive` setup saving non-secret `.crew/start-plan.env`), `./go next` (`MODE=junior`, `MODE=expert`, `--json`), `profiles/providers.json` and Console `section#journey` ([ADR 0103](docs/adr/0103-guided-end-to-end-experience.md)) |
+| M44 | Cloud delivery plugins and extended `outside/*` conformance: `plugins/cloud/` adapters (`gcp-cloud-deploy`, `aws-ecs-codedeploy`, `azure-container-apps`, `hetzner-k3s` via `./go cloud-setup` with OIDC CI + Terraform, stub-CLI contract-tested locally in `ci/tests/test_cloud_plugins.py`) plus `DELIVERY` and `CODE_HOST` in `ci/outside.sh` ([ADR 0104](docs/adr/0104-cloud-delivery-plugins-and-outside-conformance.md)) |
 | 0.4.0 | Tagged 2026-11-12: the agent network ([ADR 0071](docs/adr/0071-the-governed-network-on-screen-and-in-text.md)), per-role instructions and MCP servers ([ADR 0073](docs/adr/0073-a-repository-customizes-its-agents.md)), the toolbelt ([ADR 0069](docs/adr/0069-the-agents-own-toolbelt.md)), the Trello-style kanban ([ADR 0068](docs/adr/0068-the-kanban-that-is-looked-at.md)), `self` judged from its last green ancestor ([ADR 0074](docs/adr/0074-judge-what-was-never-judged.md)) |
 | 0.5.0 | Tagged 2026-11-12, the first release cut by its own tag ([ADR 0075](docs/adr/0075-the-tag-releases-itself.md)): security scanning ([ADR 0072](docs/adr/0072-security-scanning-sast-sca-dast-sbom.md)); [release notes](docs/releases/v0.5.0.md) |
 | 0.6.0 | Tagged 2026-11-13: the why of a NO-GO, the human gate on the card, the live canary, the evidence pack, `./go dora` and `./go spend` ([ADR 0078](docs/adr/0078-the-why-of-a-no-go-one-click-away.md) to [0083](docs/adr/0083-cost-and-time-per-ticket-with-a-budget.md)); [release notes](docs/releases/v0.6.0.md) |
@@ -102,12 +109,14 @@ demo-loop`, the toolbelt, then the launch), is
 
 ## When someone needs it
 
-- **M44 — deploy on the main clouds** (planned 2026-11-11, nothing built):
-  connectors and installable plugins that deploy, release and operate the
-  repository lights-out is attached to on GCP, AWS, Azure, Hetzner and the
-  other main providers, each behind the same Delivery, Registry, Metrics and
-  Flags ports and its conformance suite, with no long-lived credential in
-  the repository. Started by the owner when a user needs it.
+- **M44 — deploy on the main clouds** ([ADR 0104](docs/adr/0104-cloud-delivery-plugins-and-outside-conformance.md)):
+  installable `outside/*` Delivery adapters in `plugins/cloud/` (`gcp-cloud-deploy`,
+  `aws-ecs-codedeploy`, `azure-container-apps`, `hetzner-k3s`), keyless OIDC
+  workflows + Terraform starters staged via `./go cloud-setup`, and extended
+  `DELIVERY` / `CODE_HOST` verification in `ci/outside.sh`. Contract-tested locally
+  against stateful stub CLIs (`ci/tests/test_cloud_plugins.py`); live cloud
+  conformance (`./go delivery-conformance DELIVERY=outside/<provider>`) runs
+  against a user's own cloud account and OIDC identity without static keys.
 - **M8 cloud track (L2)**: Google Cloud with Terraform and Cloud Deploy.
 - **M10 (L3)**: Agent Engine and the nightly self-test.
 

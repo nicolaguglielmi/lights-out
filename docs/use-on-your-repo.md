@@ -27,7 +27,7 @@ The plane half (section 2) adds the services, the canary and the rollback.
 | The light tier, `lights-out-gates --light` (ADR 0061) | Proven in `./go ci` (`ci/gates-light.sh`): on the eleven fixtures of `./go demo-gates` it agrees with the full gates where both run, and it answers on this repository in under 10 s. On PyPI as `lights-out-gates` since 2026-11-09, and `uvx lights-out-gates --light` from PyPI answered GO on this repository that day |
 | The Claude Code plugin and `lights-out-gates mcp` (ADR 0069) | **Verified** once on 2026-11-10, Claude Code 2.1.311 with the scripted model, the plugin from a local marketplace directory: `claude plugin validate --strict` passed, `/lights-out:gates` answered its line, the MCP server answered a tool call, the hook stopped a commit that weakened a test. Not listed anywhere yet; `/lights-out:spec` and the MCP server need the next release of the package (section 5) |
 | The Codex plugin and the Gemini CLI extension (ADR 0069, amendment 2026-11-11) | **Verified** once on 2026-11-11, Codex 0.166.0 and Gemini CLI 0.61.0-preview.0 with the scripted model, each from a local copy of this repository: the gates line reached the model, and the hook stopped a commit that weakened a test. Not listed anywhere yet; the trust steps a person takes were not run |
-| An adapter outside the repository, admitted by the hash of its tree and a conformance GO (ADR 0058) | Proven for a StateStore, by `ci/outside.sh` in `./go ci`. Not proven for `CODE_HOST`, `DELIVERY` or `EVENT_BUS`; `AGENT_HARNESS` is refused |
+| An adapter outside the repository, admitted by the hash of its tree and a conformance GO (ADR 0058, ADR 0104) | Proven for `STATE_STORE`, `DELIVERY` and `CODE_HOST` by `ci/outside.sh` in `./go ci`. Four cloud Delivery plugins (`plugins/cloud/`) are contract-tested locally against stateful stub CLIs (`ci/tests/test_cloud_plugins.py`), not yet run against live cloud accounts. Not proven: `EVENT_BUS`; `AGENT_HARNESS` is refused |
 | Jenkins as a surface: the line posted as `lights-out/jenkins` | Proven with Jenkinsfile Runner by `./go demo-jenkins`. Not proven on a real Jenkins controller |
 | A codebase that was not written for lights-out | **Tried once**, M24 on tenacity: ten small, low-risk tickets, one run per provider, merged 10 of 10 on Anthropic (`claude-code`) and 7 of 10 on Gemini (`gemini-cli`, three stopped at `TOKEN_BUDGET`). No review and no human gate ran; nothing was released ([the scoreboard](scoreboard/m24-tenacity.json)) |
 
@@ -60,11 +60,19 @@ Known limits today, before you start:
   `deps` judges every lockfile whole, so an advisory already in a fresh
   repository's lockfile is a NO-GO on its first `./go gates` (ADR 0015's
   time bomb, now on your first run).
-- **Init drafts the gates half only.** The plane half (`compose.yaml`, the
-  flag file, the smoke and load scripts, the fixtures) cannot be inferred
-  from a lockfile. You write it.
-- **Two stacks.** Init infers python and javascript from their files. For
-  any other repository it names what it looked for and stops.
+- **Init drafts the plane half when a container build file exists.** If your
+  repository has a root `Containerfile` or `Dockerfile`, `init` infers the
+  service port (`WORKLOAD_PORT`, `EXPOSE`) and health probe, and drafts
+  `compose.yaml`, `flags/flags.json`, `smoke.sh` and `load.sh` without
+  clobbering existing plane files ([ADR 0100](adr/0100-init-drafts-the-plane-half.md)).
+  Otherwise it drafts the gates half only; review and customize `smoke.sh`,
+  `load.sh` and any database migrations or app flags before production rollout.
+- **Four stacks supported.** Init infers Python (`uv.lock` with `pytest` or
+  stdlib `unittest`, `poetry.lock`, or pinned `requirements.txt`), JavaScript
+  (`package-lock.json`), TypeScript (`tsconfig.json`), and Go (`go.mod` +
+  `go.sum`) ([ADR 0102](adr/0102-more-stacks-go-typescript-python-fallbacks.md)),
+  plus 12 synthetic shapes verified by `./go corpus` ([ADR 0106](adr/0106-unknown-repository-corpus.md)).
+  For any other layout it names what it looked for and stops.
 - **A `compose:` workload's worker stays on the workbench.** The dev-worker
   runs in an image of your own only when `TOOLCHAIN_IMAGE` names an image
   (ADR 0042 §8).
@@ -167,10 +175,10 @@ first.
 
 | File | What it is |
 |---|---|
-| `workload.env` | The twelve required keys below (plus optional `WORKLOAD_HEALTH_PROBE`), each under a provenance line |
+| `workload.env` | The twelve required keys below (plus optional `WORKLOAD_HEALTH_PROBE` and `WORKLOAD_PORT`), each under a provenance line |
 | `worker.md` | The dev-worker's brief: `## Scope` (the paths it may change) and `## Tests` (the exact command, and where to run it) |
 | `policy.env` | Your thresholds. A draft overrides none: every threshold is the platform default (section 3) |
-| `runners/` | The stack's runners, copied from `stacks/<stack>/runners/`: cosmic-ray and bandit for python, StrykerJS and eslint with eslint-plugin-security for javascript. Each set is pinned by its own lockfile |
+| `runners/` | The stack's runners, copied from `stacks/<stack>/runners/`: cosmic-ray and bandit for python, StrykerJS and eslint-plugin-security for javascript/typescript, and stdlib AST SAST/mutation for go. Each JS/Python set is pinned by its own lockfile |
 
 Init also lists, on stderr, every secret gitleaks finds in your history,
 each with its fingerprint. The secrets gate judges the whole history: a key
@@ -204,7 +212,7 @@ contract, `WORKLOAD_TEST_PATHS` is ADR 0053's, and the last four are ADR
 | `SAST_CMD` | The static analysis command, one `sh -c` line. It prints one line, `{"findings": N, "items": [{"rule", "file", "line"}]}`, with `file` relative to the directory the command runs from. The gate judges the diff: a finding HEAD has and the base does not is a NO-GO, an inherited one is listed on stderr (ADR 0072 §1). A runner that prints no `items`, such as a copy made before ADR 0072, keeps the whole-tree verdict until `./go init` refreshes it. A non-zero exit with no findings parsed is a NO-GO too |
 | `MUTATION_CMD` | The mutation command, one `sh -c` line. It reads `MUTATION_LINES` (`all` for the whole scope, as init uses it) and prints one line, `{"total","killed","survived","score"}`. The gate compares the score with `MUTATION_BASELINE` and `MUTATION_MARGIN`. The python runner splits the mutants into `MUTATION_SHARDS` parallel shards, one per processor by default, with the same score as a single run; each mutant runs only the `unittest.TestCase` tests that executed its statement in the clean run (`MUTATION_SELECT=off` runs the whole suite for every mutant). The python runner's quoted test command is run by cosmic-ray without a shell, so it cannot start with `VAR=value`: put the variable before the runner (`VAR=value sh .lights-out/runners/mutation.sh …`). A test command cosmic-ray cannot start is a failed run, not a score |
 
-Optional key: `WORKLOAD_HEALTH_PROBE` (`http:/<path>`, `tcp`, or `tcp:<port>`; empty or unset defaults to `http:/healthz`), preserved by `./go init` if present in your committed `workload.env` (ADR 0098).
+Optional keys: `WORKLOAD_HEALTH_PROBE` (`http:/<path>`, `tcp`, or `tcp:<port>`; empty or unset defaults to `http:/healthz`) and `WORKLOAD_PORT` (empty or `1`–`65535`; defaults to `8000` inside Compose), preserved or drafted by `./go init` from your root `Containerfile` or `Dockerfile` (ADR 0098, ADR 0100).
 
 A key that is empty (other than optional `WORKLOAD_KILL_SWITCH` or `WORKLOAD_TEST_ROOT`) or names a missing path makes its gate answer NO-GO and
 name the key. A typo never turns into a silent GO.
@@ -310,12 +318,12 @@ copied out. `./go detach` drops it.
 
 ### Without cloning lights-out: the wrapper
 
-The gates half also runs from the `lights-out` wrapper, with no clone of
-lights-out. The host needs podman or docker, and git.
+Every command in lights-out now runs through the `lights-out` wrapper, with
+no clone of lights-out ([ADR 0105](adr/0105-plane-and-workflow-from-wrapper.md)).
+The host needs podman or docker, and git.
 
-The image is `ghcr.io/nicolaguglielmi/lights-out:0.2.0`, public, for amd64
-and arm64. One install puts both the `lights-out` wrapper and the light
-tier (`lights-out-gates`) on your `PATH`:
+One install puts both the `lights-out` wrapper and the light tier
+(`lights-out-gates`) on your `PATH`:
 
 ```sh
 uv tool install lights-out-gates
@@ -332,10 +340,9 @@ curl -fsSL -o ~/.local/bin/lights-out https://raw.githubusercontent.com/nicolagu
 chmod +x ~/.local/bin/lights-out
 ```
 
-Tags are mutable and the image is unsigned. To pin it, set
-`LIGHTS_OUT_IMAGE=ghcr.io/nicolaguglielmi/lights-out@sha256:d647d0555ce8dbfb622da35f068a8883af8fcd0366d07beb0a7eb53e22aa3631`.
 From a clone of lights-out, `./go package` builds
-`localhost/lights-out:dev` instead, for `LIGHTS_OUT_IMAGE`.
+`localhost/lights-out:dev` and `./go package-gates` builds
+`localhost/lights-out-gates:dev` for `LIGHTS_OUT_IMAGE`.
 
 Then, in your repository:
 
@@ -345,6 +352,7 @@ lights-out init
 cp -R ~/.local/state/lights-out/your-repo/.lights-out/. .lights-out/
 git add .lights-out && git commit -m "add lights-out contract"
 lights-out gates
+lights-out start     # or lights-out next to follow the guided end-to-end flow
 ```
 
 - `init` writes the draft to `~/.local/state/lights-out/<repo name>/.lights-out`
@@ -355,15 +363,22 @@ lights-out gates
   judges what is staged as one commit. A name relative to HEAD
   (`HEAD=HEAD~1`) is the commit it names here; in 0.3.0 `test-proof` read
   it from the base's worktree and answered NO-GO, fixed in 0.3.1.
-- `triage ALERT=<file>` and `postmortem INCIDENT=<file>` also work. At L0
-  they replay only lights-out's own recordings, so on your alerts and
-  incidents use `PROFILE=l1` and the key in your environment.
-- Keys are read from the environment by name, never from `.env`. Your
-  repository is mounted read-only. The engine socket is never given to the
-  image.
-- Only `TOOLCHAIN_IMAGE=workbench` works through the wrapper. A `compose:` or
-  image form gets a NO-GO that names the socket. Judge it from a clone with
-  `./go gates`.
+- `triage ALERT=<file>` and `postmortem INCIDENT=<file>`, along with the
+  state-only commands (`next`, `dora`, `spend`, `cloud-setup`), run in the
+  full image without any engine socket. At L0 `triage` and `postmortem`
+  replay only lights-out's own recordings, so on your alerts and incidents
+  use `PROFILE=l1` and the key in your environment.
+- Keys are read from the environment by name, never from `.env` or `--env-file`.
+  Your repository is mounted read-only. Read-only/gates and state-only
+  commands never receive the engine socket.
+- Only `TOOLCHAIN_IMAGE=workbench` works through socket-free `lights-out gates`.
+  A `compose:` or image form gets a NO-GO that names the socket; judge it
+  from a clone with `./go gates`.
+- Opt-in plane and E2E workflow commands (`start`, `intake`, `answer`,
+  `intake-confirm`, `assign`, `up`, `down`, `smoke`, `release`, `promote`,
+  `console`, `evidence`) explicitly mount the engine socket with a 1-line
+  notice on stderr and mirror `$out/platform` and `$out/crew` so Compose
+  runs from any attached repository ([ADR 0105](adr/0105-plane-and-workflow-from-wrapper.md)).
 - A range is judged by the contract at its base (`workload.env`,
   `policy.env`, `runners/`), so a change cannot loosen what judges it.
   With no contract at the base, the head's own judges, and the wrapper says
@@ -373,15 +388,18 @@ lights-out gates
   0.3.1); the Action uses it to draft from the base. Every `init` also
   writes `init/summary.md` next to the draft: its line, the three small
   files and the runners by size, with no path of your machine in it.
-- The plane (`./go demo`, canary, rollback) stays the clone path.
 
 ## 2. The plane half
 
 The plane half is what `./go up`, smoke, verify, release and `demo-gates`
-need. Nothing in it is drafted. A lockfile cannot tell lights-out how your
-services start, where health is, or which flag turns a feature off, and a
-guessed file would be a hidden mock. `./go up` refuses a contract without
-`compose.yaml` and names it. `compose:` in `TOOLCHAIN_IMAGE` needs it too.
+need. When a root `Containerfile` or `Dockerfile` exists, `./go init`
+drafts `compose.yaml`, `flags/flags.json`, `smoke.sh` and `load.sh` from
+your container build file and `EXPOSE` / `HEALTHCHECK` metadata without
+clobbering existing files ([ADR 0100](adr/0100-init-drafts-the-plane-half.md)).
+Inspect and tailor those generated scripts, flags and any database
+services before rollout; without a root container file, no plane files
+are guessed and `./go up` refuses a contract without `compose.yaml`.
+`compose:` in `TOOLCHAIN_IMAGE` needs it too.
 
 | File | What it is |
 |---|---|
@@ -1244,12 +1262,18 @@ your verbs run with the lights-out checkout as their working directory. A
 code host names the secret for the suite's case 10 as `CODEHOST_SECRET` in
 its `env.sh`. A symlink anywhere in the tree is refused.
 
-What is proven: a test StateStore, `fixtures/outside-adapters/json-files/`,
-by `ci/outside.sh` in `./go ci`. Not proven: an outside `CODE_HOST`,
-`DELIVERY` or `EVENT_BUS`. An outside `AGENT_HARNESS` is refused, and so is
-`outside/` on a port with no suite (`TRACKER`, `ORCHESTRATOR`, `METRICS`,
-`FLAGS`, `REGISTRY`). The register guards against mistakes and drift, not
-against whoever owns the checkout.
+What is proven: a test StateStore (`fixtures/outside-adapters/json-files/`),
+Delivery (`fixtures/outside-adapters/file-delivery/`) and CodeHost
+(`fixtures/outside-adapters/file-codehost/`) by `ci/outside.sh` in `./go ci`
+([ADR 0104](adr/0104-cloud-delivery-plugins-and-outside-conformance.md)). Four
+installable cloud Delivery plugins (`plugins/cloud/`: `gcp-cloud-deploy`,
+`aws-ecs-codedeploy`, `azure-container-apps`, `hetzner-k3s`, staged with
+`./go cloud-setup`) are contract-tested locally against stateful stub CLIs
+(`ci/tests/test_cloud_plugins.py`); live cloud runs require your own cloud
+account and OIDC setup. Not proven: an outside `EVENT_BUS`. An outside
+`AGENT_HARNESS` is refused, and so is `outside/` on a port with no suite
+(`TRACKER`, `ORCHESTRATOR`, `METRICS`, `FLAGS`, `REGISTRY`). The register guards
+against mistakes and drift, not against whoever owns the checkout.
 
 ## Your CI as a surface
 

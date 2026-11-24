@@ -656,7 +656,7 @@ steps:
       fetch-depth: 0
   - uses: nicolaguglielmi/lights-out@v0.8.1</pre></div>
         <p>From the clone, one command: <code>./go try ~/code/your-repo</code> drafts the contract, runs the eight gates on your last commit, and prints the three commands that keep the draft.</p>
-        <p>The <code>lights-out</code> wrapper runs init and the gates from the same image, inside your repository, without cloning lights-out. One install gives you both <code>lights-out</code> and the light CLI <code>lights-out-gates</code> (PyPI <code>0.8.1</code> carries <code>lights-out-gates</code> alone; the next release adds <code>lights-out</code> to the package):</p>
+        <p>The <code>lights-out</code> wrapper runs init, the gates, guided <code>start</code>/<code>next</code> setup, and opt-in plane and E2E workflow commands from the container images inside your repository without cloning lights-out. One install gives you both <code>lights-out</code> and the light CLI <code>lights-out-gates</code> (PyPI <code>0.8.1</code> carries <code>lights-out-gates</code> alone; the next release adds <code>lights-out</code> to the package):</p>
         <div class="code"><button class="copy" type="button" data-copy="uv tool install lights-out-gates">copy</button>
 <pre><span class="p">$ </span>uv tool install lights-out-gates</pre></div>
         <p class="fine">Or, without Python, download the standalone POSIX wrapper directly:</p>

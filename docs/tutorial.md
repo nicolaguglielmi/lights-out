@@ -123,7 +123,7 @@ GO: demo, milestone M9, 427s to rollback (budget 900s, plan §2)
 14 s on a laptop with the toolchain image already built (40 s the first time); the Action posted its check on a pull request in
 37 s ([the probe](https://github.com/nicolaguglielmi/lights-out-probe/pull/1)).
 
-**You need:** your repository, Python or JavaScript, with its tests. From
+**You need:** your repository (Python, JavaScript, TypeScript or Go), with its tests. From
 a clone of lights-out, nothing more. Without one: the GitHub Action on
 your pull requests, or `uv tool install lights-out-gates` (which installs
 both the `lights-out` wrapper for podman or docker and `lights-out-gates
@@ -213,12 +213,14 @@ fixtures judged by the eight gates.
 **Go deeper:** [the plane half](use-on-your-repo.md#2-the-plane-half),
 [attach it and prove the plane on it](use-on-your-repo.md#attach-it-and-prove-the-plane-on-it).
 
-Nothing in the plane half is drafted for you, on purpose: a guessed
-compose file would bring up a plane whose canary cannot be judged (ADR
-0097 §4). Start from the example instead, which works:
+When your repository has a root `Containerfile` or `Dockerfile`, `init`
+also drafts the plane half (`compose.yaml`, `flags/flags.json`,
+`smoke.sh`, and `load.sh`) beside the gates half ([ADR 0100](adr/0100-init-drafts-the-plane-half.md)).
+Inspect and tailor the drafted probes/scripts before rollout, or copy
+from `workloads/plain/` or `workloads/minimal/`:
 
 1. Copy `workloads/plain/.lights-out/compose.yaml` (or `workloads/minimal/.lights-out/compose.yaml` if using flagd), `flags/flags.json`,
-   `smoke.sh` and `load.sh` into your `.lights-out/`, and set the service's build context.
+   `smoke.sh` and `load.sh` into your `.lights-out/` if starting manually, and set the service's build context.
 2. Your service answers the probe declared in `WORKLOAD_HEALTH_PROBE` (defaults to `GET /healthz`, 2xx–3xx, or `tcp:<port>`) on `:8000` (`workloads/plain/` uses `http:/ok` with zero OTel, `/metrics`, or JSON `/healthz`; Kubernetes adapters still read `/healthz` and `/metrics`).
 3. On L0 Envoy, traffic, 5xx, and p95 latency come straight from the proxy (`verify/slo.promql`), verified first by `GO: metric-shape` (`./go demo-seam-plain` proves this without app instrumentation).
 4. Optionally, an app can read a kill-switch flag from flagd, on for `CANARY_VERSION` (`WORKLOAD_KILL_SWITCH` in `workload.env`, as `workloads/minimal/` does), and expose fixtures under `fixtures/gates/` (`git format-patch` + expected verdict).
@@ -1227,10 +1229,13 @@ GO: demo-package — init and gates 50s in workbench (budget 300s), a staged bre
 
 Read it in order:
 
-- **The wrapper never gets your engine's socket.** So it runs only
+- **Read-only/gates and state-only commands never get your engine's socket.** So `lights-out gates` runs only
   `TOOLCHAIN_IMAGE=workbench`. `workloads/minimal` commits
   `compose:backend-test`, and the line says so and names the fix. Judge
-  the `compose:` and image forms from a clone, with `./go gates`.
+  the `compose:` and image forms from a clone, with `./go gates`. The 12 opt-in
+  plane and workflow commands (`start`, `up`, `intake`, `answer`, `assign`,
+  `release`, `promote`, `console`, `evidence`, `down`, etc.) mount the socket
+  explicitly with a one-line notice on stderr ([ADR 0105](adr/0105-plane-and-workflow-from-wrapper.md)).
 - **`init` writes outside your repository**, to
   `~/.local/state/lights-out/<repo>/.lights-out` (`LIGHTS_OUT_OUT` moves
   it). Your repository is mounted read-only.

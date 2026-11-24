@@ -1291,6 +1291,34 @@ Oggi il wrapper si installa con un `curl` e il light tier con `uv tool install l
 
 *Stato 2026-11-23 (sessione M69, branch `agy/m69-one-install`, integrato su `main`):* [ADR 0099](adr/0099-one-install-via-lights-out-gates.md) scritta; `pyproject.toml` aggiunge `script-files = ["lights-out"]` sotto `[tool.setuptools]` mantenendo `name = "lights-out-gates"` e `version = "0.8.1"`; `lights-out --version` aggiunto come alias di `version`; `ci/package.sh`, `ci/gates-light.sh`, `ci/release.sh`, `package.yml` e `stranger.yml` aggiornati e verificati su wheel `uv build` + `uv tool install` su `workloads/minimal/` (con `lights-out` byte-identico).
 
+#### M66 — Init abbozza il mezzo piano (ADR 0100)
+
+*Stato 2026-11-24 (branch `agy/m66-plane-init`, integrato su `main`):* [ADR 0100](adr/0100-init-drafts-the-plane-half.md) scritta; `core/init_plane.py` rileva `Containerfile` / `Dockerfile` nella radice (`EXPOSE` tramite `WORKLOAD_PORT`, `HEALTHCHECK` o sonda `tcp:<port>`) e abbozza `compose.yaml`, `flags/flags.json`, `smoke.sh` e `load.sh` senza sovrascrivere file esistenti; `adapters/envoy-canary/` supporta `WORKLOAD_PORT` dinamico; aggiunto fallback a `unittest` quando `uv.lock` non include `pytest` (verificato su `workloads/plain/`).
+
+#### M68 — Il remote origin come CodeHost (ADR 0101)
+
+*Stato 2026-11-24 (branch `agy/m68-remote-codehost`, integrato su `main`):* [ADR 0101](adr/0101-origin-remote-as-codehost.md) scritta; `core/remote.py` normalizza `origin` SSH/HTTPS rimuovendo eventuali token incorporati tramite le sonde `adapters/*/detect-remote.sh` durante `./go attach` (`.crew/remote.env` incluso nel `Makefile` sotto `.env`); `adapters/gitlab/` esteso per repository GitLab remoti (`GITLAB_PROJECT_PATH`, `GITLAB_TOKEN` via stdin).
+
+#### M71 — Altri stack: Go, TypeScript e fallback Python (ADR 0102)
+
+*Stato 2026-11-24 (branch `agy/m71-more-stacks`, integrato su `main`):* [ADR 0102](adr/0102-more-stacks-go-typescript-python-fallbacks.md) scritta; `core/stacks.py` aggiunge Go (`go.mod` + `go.sum`, runner SAST/mutazione AST `stacks/go/runners/`), TypeScript (`tsconfig.json`, runner ESLint/Stryker `stacks/typescript/runners/`) e fallback Python (`poetry.lock`, `requirements.txt` pinnato); aggiunti `workloads/minimal-go/` e `workloads/minimal-ts/`.
+
+#### Esperienza guidata dual-mode Junior/Expert (ADR 0103)
+
+*Stato 2026-11-24 (branch `agy/guided-ux`, integrato su `main`):* [ADR 0103](adr/0103-guided-end-to-end-experience.md) scritta; `core/start.py` (`./go start` e `./go next`, `MODE=junior|expert`, `--json`) salva le sole preferenze non segrete in `.crew/start-plan.env`, legge `profiles/providers.json` (senza introdurre nomi di modelli in `core/`), verifica `doctor` e aggiunge la striscia guidata `section#journey` in `console/index.html` mantenendo `#your-turn` per primo.
+
+#### M44 — Plugin cloud e conformità outside estesa (ADR 0104)
+
+*Stato 2026-11-24 (branch `agy/m44-cloud-delivery`, integrato su `main`):* [ADR 0104](adr/0104-cloud-delivery-plugins-and-outside-conformance.md) scritta; aggiunti quattro plugin Delivery in `plugins/cloud/` (`gcp-cloud-deploy`, `aws-ecs-codedeploy`, `azure-container-apps`, `hetzner-k3s`) con workflow OIDC, Terraform, SLO PromQL e `./go cloud-setup` (verificati localmente con stub CLI senza mock nascosti; la prova su cloud reale richiede account dell'utente). Estesa `ci/outside.sh` a `DELIVERY=outside/*` e `CODE_HOST=outside/*` tramite `fixtures/outside-adapters/` e corretta la scrittura annidata in `core/gates/delivery.py`.
+
+#### M67 — Piano e flusso completo dal wrapper lights-out (ADR 0105)
+
+*Stato 2026-11-24 (branch `agy/m67-wrapper-plane`, integrato su `main`):* [ADR 0105](adr/0105-plane-and-workflow-from-wrapper.md) scritta; `lights-out` e `package/entrypoint.sh` espongono 24 sottocomandi su tre fasce (`readonly`/`gates`, `state` senza socket, `plane`/workflow con socket opt-in, avviso esplicito su stderr, mirroring host `$out/platform` e allowlist sincronizzata a 29 chiavi); `ci/package.sh` sostituisce i grep grezzi sul socket con verifiche comportamentali a guasti piantati.
+
+#### M70 — Corpus notturno su repository sconosciuti (ADR 0106)
+
+*Stato 2026-11-24 (branch `agy/m70-corpus`, integrato su `main`):* [ADR 0106](adr/0106-unknown-repository-corpus.md) scritta; `core/corpus.py`, `./go corpus` e `.github/workflows/corpus.yml` (notturno con `CORPUS_FULL=1`) verificano 12 forme sintetiche di repository (8 positive fra Python, JS, TS e Go e 4 rifiuti negativi) con `GO: corpus` integrato in `./go ci`.
+
 ### Dopo
 
 M16 (la rete, decisa), M17 e M11 (board e console), i track cloud di M8 e M10: quando esiste un consumatore esterno, come in §14. La sequenza dopo M35 (attestazione, giuria, loop chiuso, toolbelt, stack) è nella roadmap di adozione, §7.
