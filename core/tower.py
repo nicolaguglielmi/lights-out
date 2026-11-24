@@ -217,6 +217,24 @@ def spend_module():
     return spend
 
 
+def spec_module():
+    """core/spec.py, imported only where ticket metadata headers are read."""
+    try:
+        from . import spec
+    except ImportError:  # run as a script: core/ is on sys.path
+        import spec
+    return spec
+
+
+def epics_module():
+    """core/epics.py (docs/adr/0119), imported only when mainline unblocks dependents."""
+    try:
+        from . import epics
+    except ImportError:  # run as a script: core/ is on sys.path
+        import epics
+    return epics
+
+
 class Refused(Exception):
     """One `[tower]` line on stderr and an exit code."""
 
@@ -294,10 +312,46 @@ def sh(script, *args, **kwargs):
 class Tower:
     def __init__(self, ticket, env):
         self.ticket = ticket
+        self.env = dict(env)
         self.store_adapter = env["STATE_STORE"]
         self.bus = env["EVENT_BUS"]
         self.steps = env.get("TOWER_STEPS") or "core/steps"
         self.tickets_dir = env.get("TICKETS_DIR") or "tickets"
+
+    def ticket_metadata(self, tid=None):
+        """Return (depends_on, epic) from TICKETS_DIR/<tid>.md when present, else ([], None)."""
+        tid = tid or self.ticket
+        path = os.path.join(self.tickets_dir, f"{tid}.md")
+        if not os.path.isfile(path):
+            return [], None
+        try:
+            with open(path, encoding="utf-8") as fh:
+                content = fh.read()
+        except OSError:
+            return [], None
+        try:
+            return spec_module().dependencies(content, own_id=tid)
+        except ImportError:
+            return [], None
+        except ValueError as exc:
+            raise Refused(f"[tower] {tid}: {exc}") from None
+
+    @staticmethod
+    def _dep_is_main_green(dep_doc):
+        """True when dependency has reached `main-green` (or passed mainline before `release`)."""
+        if not isinstance(dep_doc, dict):
+            return False
+        st = text(dep_doc.get("state"))
+        if st == "main-green":
+            return True
+        if st in ("held", "rolled-back"):
+            if dig(dep_doc, "mainline", "verdict") == "GO":
+                return True
+            return any(
+                isinstance(h, dict) and h.get("step") == "mainline" and h.get("state") == "main-green"
+                for h in (dep_doc.get("history") or [])
+            )
+        return False
 
     def store_get(self, ticket=None):
         """The document, or None when the store has none (get.sh exit non-zero)."""
@@ -415,8 +469,13 @@ class Tower:
         self.tell(f"resume with ./go resume TICKET={self.ticket}")
 
     def open(self):
+        deps, epic_id = self.ticket_metadata()
         doc = {"id": self.ticket, "state": "opened",
                "history": [{"step": "open", "state": "opened", "at": now()}]}
+        if deps:
+            doc["depends_on"] = deps
+        if epic_id:
+            doc["epic"] = epic_id
         if not self.store_put(doc):
             raise Refused(f"[tower] {self.ticket}: could not write the document")
         if not self.publish("assign"):
@@ -425,8 +484,13 @@ class Tower:
 
     def request(self, env):
         by, via = env.get("REQUEST_BY") or "unauthenticated", env.get("REQUEST_VIA") or "cli"
+        deps, epic_id = self.ticket_metadata()
         doc = {"id": self.ticket, "state": "requested",
                "history": [{"step": "request", "state": "requested", "at": now(), "by": by, "via": via}]}
+        if deps:
+            doc["depends_on"] = deps
+        if epic_id:
+            doc["epic"] = epic_id
         if not self.store_put(doc):
             raise Refused(f"[tower] {self.ticket}: could not write the document")
         if not self.publish("clarify"):
@@ -477,6 +541,11 @@ class Tower:
                        "spec": {"criteria": ticket.get("criteria") or [], "by": "intake"},
                        "history": [{"step": "request", "state": "spec-ready", "at": at, "by": by, "via": via,
                                     "intake": self.ticket}]}
+                deps, epic_id = self.ticket_metadata(tid)
+                if deps:
+                    kid["depends_on"] = deps
+                if epic_id:
+                    kid["epic"] = epic_id
                 if not child.store_put(kid):
                     raise Refused(f"[tower] {tid}: could not write the document; tickets written so far: {born}")
                 born.append(tid)
@@ -525,6 +594,19 @@ class Tower:
         if have != want:
             self.tell(f"{step} already applied (state {have}), ignoring")
             return
+        deps = [d for d in (doc.get("depends_on") or []) if isinstance(d, str) and d]
+        if step == "assign" and deps:
+            blocking = [d for d in deps if not self._dep_is_main_green(self.store_get(d))]
+            if blocking:
+                waiting = dict(doc, wait={"kind": "depends_on", "blocking": blocking})
+                if waiting != doc and not self.store_put(waiting):
+                    raise Refused(f"[tower] {self.ticket}: could not record depends_on wait")
+                self.tell(f"assign blocked by depends_on ({', '.join(blocking)}); waiting at {have}")
+                return
+            if isinstance(doc.get("wait"), dict) and doc["wait"].get("kind") == "depends_on":
+                doc = {k: v for k, v in doc.items() if k != "wait"}
+                if not self.store_put(doc):
+                    raise Refused(f"[tower] {self.ticket}: could not clear depends_on wait")
         script = f"{self.steps}/{step}.sh"
         if not os.path.isfile(script):
             raise Refused(f"[tower] {self.ticket}: no {script}")
@@ -585,6 +667,12 @@ class Tower:
             raise Refused(None)
 
         updated = merge(doc, result)
+        if step == "spec" and new_state == "opened":
+            deps, epic_id = self.ticket_metadata()
+            if deps and not updated.get("depends_on"):
+                updated["depends_on"] = deps
+            if epic_id and not updated.get("epic"):
+                updated["epic"] = epic_id
         if isinstance(result.get("task"), dict):
             updated["tasks"] = (doc.get("tasks") or []) + [dict(result["task"], **attempt(updated))]
         # Every run's cost beside its tokens, appended, never rewritten (docs/adr/0083 §3).
@@ -597,6 +685,17 @@ class Tower:
         if not self.store_put(updated):
             raise Refused(f"[tower] {self.ticket}: could not write the document after {step}")
         self.tell(f"{step} → {new_state}")
+
+        if step == "mainline" and new_state == "main-green":
+            try:
+                epics = epics_module()
+            except ImportError:
+                epics = None
+            if epics is not None:
+                try:
+                    epics.on_main_green(self.ticket, env=self.env, tickets_dir=self.tickets_dir)
+                except Exception as exc:
+                    self.tell(f"epics on_main_green warning: {exc}")
 
         following = NEXT.get(new_state)
         if following is None:
