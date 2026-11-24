@@ -1,0 +1,19 @@
+stages:
+  - delivery
+
+aws-delivery-conformance:
+  stage: delivery
+  image: registry.gitlab.com/gitlab-org/cloud-deploy/aws-base:latest
+  id_tokens:
+    AWS_OIDC_TOKEN:
+      aud: https://sts.amazonaws.com
+  variables:
+    DELIVERY: outside/aws-ecs-codedeploy
+  script:
+    - |
+      oidc_dir=$(mktemp -d)
+      trap 'rm -rf "$oidc_dir"' EXIT
+      printf '%s' "$AWS_OIDC_TOKEN" > "$oidc_dir/web-identity-token"
+      export AWS_ROLE_ARN="$AWS_DEPLOY_ROLE_ARN"
+      export AWS_WEB_IDENTITY_TOKEN_FILE="$oidc_dir/web-identity-token"
+      ./go delivery-conformance DELIVERY=outside/aws-ecs-codedeploy ADAPTERS_PATH="$CI_PROJECT_DIR/plugins/cloud"

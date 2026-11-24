@@ -260,8 +260,8 @@ class Suite:
 
     def write_record(self):
         record_dir = self.env.get("CONFORMANCE_DIR") or ".crew/conformance"
-        os.makedirs(record_dir, exist_ok=True)
         path = f"{record_dir}/delivery-{self.delivery}.env"
+        os.makedirs(os.path.dirname(path), exist_ok=True)
         with open(path, "w") as fh:
             fh.write(f"ADAPTER={self.delivery}\nHASH={adapter_hash(self.delivery_dir)}\n"
                      f"AT={time.strftime('%Y-%m-%dT%H:%M:%SZ', time.gmtime())}\n")

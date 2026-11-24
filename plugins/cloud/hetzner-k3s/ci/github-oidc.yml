@@ -1,0 +1,45 @@
+name: Cloud Delivery Conformance (Hetzner k3s OIDC)
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  delivery-conformance:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup kubectl and jq
+        uses: azure/setup-kubectl@v4
+
+      - name: Mint ephemeral OIDC kubeconfig outside workspace
+        env:
+          HETZNER_CLUSTER: ${{ vars.HETZNER_CLUSTER }}
+          KUBE_APISERVER_URL: ${{ vars.KUBE_APISERVER_URL }}
+          OIDC_AUDIENCE: ${{ vars.OIDC_AUDIENCE }}
+        run: |
+          oidc_dir=$(mktemp -d)
+          echo "OIDC_DIR=$oidc_dir" >> "$GITHUB_ENV"
+          jwt=$(curl -fsSL -H "Authorization: bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" \
+            "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=${OIDC_AUDIENCE}" | jq -er .value)
+          kubectl config set-cluster "$HETZNER_CLUSTER" --server="$KUBE_APISERVER_URL" --kubeconfig="$oidc_dir/kubeconfig" >/dev/null
+          kubectl config set-credentials oidc-ci --token="$jwt" --kubeconfig="$oidc_dir/kubeconfig" >/dev/null
+          kubectl config set-context "$HETZNER_CLUSTER" --cluster="$HETZNER_CLUSTER" --user=oidc-ci --kubeconfig="$oidc_dir/kubeconfig" >/dev/null
+          kubectl config use-context "$HETZNER_CLUSTER" --kubeconfig="$oidc_dir/kubeconfig" >/dev/null
+          echo "HETZNER_KUBECONFIG=$oidc_dir/kubeconfig" >> "$GITHUB_ENV"
+
+      - name: Run Delivery conformance
+        env:
+          HETZNER_CLUSTER: ${{ vars.HETZNER_CLUSTER }}
+          HETZNER_NAMESPACE: ${{ vars.HETZNER_NAMESPACE }}
+          HETZNER_ROLLOUT: ${{ vars.HETZNER_ROLLOUT }}
+          METRICS: promql
+          METRICS_URL: ${{ vars.METRICS_URL }}
+        run: |
+          ./go delivery-conformance DELIVERY=outside/hetzner-k3s ADAPTERS_PATH="$PWD/plugins/cloud"
+          rm -rf "$OIDC_DIR"

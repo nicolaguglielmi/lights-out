@@ -41,7 +41,7 @@ endif
 # `init` and `try` are the goals that may start without a contract: they
 # draft one (docs/adr/0042 §6, docs/adr/0093 §5). Every other goal stops
 # here, naming the file.
-ifneq ($(filter $(MAKECMDGOALS),init try),)
+ifneq ($(filter $(MAKECMDGOALS),init try cloud-setup),)
 -include $(WORKLOAD_CONTRACT)/workload.env
 else
 include $(WORKLOAD_CONTRACT)/workload.env
@@ -1874,3 +1874,13 @@ record-evals: ## Record the ADK roles' responses at L1 and keep them only if the
 	done; \
 	[ -z "$$failed" ] || { printf 'NO-GO: record-evals — eval failed for:%s (recordings kept under .crew/adk/)\n' "$$failed"; exit 1; }; \
 	printf 'GO: record-evals\n'
+
+# Stage Terraform + OIDC starter files for an external cloud Delivery plugin
+# (docs/adr/0104): checks CLI presence, stages infra/ and ci/ under
+# .crew/cloud/<provider>/ without modifying WORKLOAD, and prints the exact
+# ADAPTERS_PATH + ./go delivery-conformance command.
+CLOUD ?=
+CLOUD_SETUP_DIR ?= .crew/cloud
+.PHONY: cloud-setup
+cloud-setup: ## Stage Terraform + OIDC starter for a cloud Delivery plugin: CLOUD=<provider> (docs/adr/0104)
+	@python3 plugins/cloud/setup.py --cloud "$(CLOUD)" --out "$(CLOUD_SETUP_DIR)"
