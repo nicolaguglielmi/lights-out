@@ -212,6 +212,22 @@ def write_normalized(doc: Mapping[str, Any], out_dir: str, stem: str | None = No
     return out_path
 
 
+def _mitigate(item_path: Path, env: Mapping[str, str]) -> dict[str, Any]:
+    """Policy-gated mitigation of the incident core/triage.sh just wrote (docs/adr/0121 §3)."""
+    try:
+        from . import triage
+    except ImportError:  # run as a script: core/ is sys.path[0]
+        import triage
+    incident_path = os.path.join((env.get("TRIAGE_OUT") or "").strip() or os.path.join(".crew", "triage"),
+                                 item_path.stem, "incident.json")
+    record_path = (env.get("RELEASE_RECORD") or "").strip() or os.path.join(".crew", "release.json")
+    try:
+        return triage.mitigate(incident_path, record_path, env)
+    except OSError as exc:  # a failed audit or record write must not take the server down
+        print(f"[webhook] mitigation not completed: {exc}", file=sys.stderr)
+        return {"status": "error", "reason": str(exc)}
+
+
 def _dispatch_alerts(
     doc: Mapping[str, Any],
     base_path: Path,
@@ -248,7 +264,10 @@ def _dispatch_alerts(
         status = "ok" if proc.returncode == 0 else "error"
         if proc.returncode != 0:
             print(f"[webhook] triage dispatch for {item_path} exited {proc.returncode}: {line}", file=sys.stderr)
-        results.append({"index": idx, "version": version, "status": status, "line": line})
+        result = {"index": idx, "version": version, "status": status, "line": line}
+        if status == "ok" and env.get("AUTO_MITIGATE_ON_TRIAGE") == "on":
+            result["mitigation"] = _mitigate(item_path, env)
+        results.append(result)
     return results
 
 
