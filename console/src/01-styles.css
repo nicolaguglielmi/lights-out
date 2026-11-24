@@ -476,3 +476,56 @@ dialog#onboard-wizard::backdrop { background: var(--scrim); }
 .wiz-field .muted { font-size: 12px; }
 dialog#onboard-wizard select, dialog#onboard-wizard input[type="text"] { width: 100%; min-height: 36px; padding: 6px 8px; }
 #wizard-output { max-height: 280px; overflow: auto; }
+/* Control-Plane Web Workstation (docs/adr/0125). */
+.cmd-k-btn { min-height: 28px; padding: 3px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--ink); font-size: 13px; display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
+.cmd-k-btn:hover { border-color: var(--accent); color: var(--accent); }
+.cmd-k-btn kbd { font: 600 11px ui-monospace, SFMono-Regular, Menlo, monospace; padding: 1px 5px; border: 1px solid var(--line); border-radius: 4px; background: var(--panel); color: var(--muted); }
+dialog#cmd-palette, dialog#ops-dialog { padding: 16px 20px; border: 0; border-radius: 12px; width: min(680px, calc(100vw - 32px)); max-height: calc(100vh - 48px); background: var(--panel); color: var(--ink); box-shadow: 0 12px 40px var(--shadow); overflow-y: auto; }
+dialog#cmd-palette::backdrop, dialog#ops-dialog::backdrop { background: var(--scrim); }
+@media (max-width: 720px) {
+  dialog#cmd-palette, dialog#ops-dialog { width: 100%; height: 100%; max-width: 100%; max-height: 100%; margin: 0; border-radius: 0; }
+}
+.cmd-search { width: 100%; min-height: 40px; padding: 8px 12px; margin: 10px 0; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--ink); font-size: 15px; }
+.cmd-results { list-style: none; margin: 0; padding: 0; max-height: 360px; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; }
+.cmd-item-btn { width: 100%; text-align: left; min-height: 38px; padding: 8px 10px; border: 1px solid transparent; border-radius: 8px; background: transparent; color: var(--ink); display: flex; align-items: center; justify-content: space-between; gap: 10px; cursor: pointer; }
+.cmd-item-btn:hover, .cmd-item-btn[aria-selected="true"] { background: var(--bg); border-color: var(--accent); }
+.cmd-item-btn[disabled] { opacity: .55; cursor: not-allowed; }
+.cmd-group { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+.ops-bar { display: flex; flex-direction: column; gap: 10px; }
+.ops-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.ops-actions button { min-height: 36px; padding: 6px 12px; font-size: 13px; cursor: pointer; }
+.ops-actions button.go { background: var(--go); color: var(--panel); border-color: transparent; }
+.ops-actions button.nogo { background: var(--nogo); color: var(--panel); border-color: transparent; }
+.ops-actions button.warn { background: var(--wait-bg); color: var(--wait); border-color: var(--wait); }
+.ops-reason-input { width: 100%; min-height: 38px; padding: 8px 10px; margin: 8px 0; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--ink); }
+.dag-wrap { overflow-x: auto; }
+#epics-dag { display: block; width: 100%; min-width: 540px; height: auto; }
+@media (min-width: 721px) { #epics-dag { min-width: 0; } }
+#epics-dag text { font: 600 12px system-ui, -apple-system, "Segoe UI", sans-serif; fill: var(--ink); }
+#epics-dag .dag-sub { font: 400 10.5px ui-monospace, SFMono-Regular, Menlo, monospace; fill: var(--muted); }
+#epics-dag .dag-node rect { fill: var(--panel); stroke: var(--line); stroke-width: 1.75; }
+#epics-dag .dag-node[data-turn="you"] rect { stroke: var(--accent); stroke-width: 2.25; }
+#epics-dag .dag-node[data-turn="done"] rect { fill: var(--go-bg); stroke: var(--go); }
+#epics-dag .dag-node[data-turn="stopped"] rect { fill: var(--wait-bg); stroke: var(--wait); }
+#epics-dag .dag-node[data-verdict="NO-GO"] rect,
+#epics-dag .dag-node[data-verdict="stranded"] rect { fill: var(--nogo-bg); stroke: var(--nogo); }
+#epics-dag .dag-edge { fill: none; stroke: var(--muted); stroke-width: 1.5; }
+pre.diff-view { margin: 8px 0 0; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); overflow-x: auto; font: 12.5px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; }
+.diff-line { display: inline-block; min-width: 100%; }
+.diff-add { background: var(--go-bg); color: var(--go); }
+.diff-del { background: var(--nogo-bg); color: var(--nogo); }
+.diff-hunk { color: var(--accent); font-weight: 600; }
+.diff-meta { color: var(--muted); font-weight: 600; }
+.charts-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px; }
+.chart-card { border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; background: var(--bg); }
+svg.slo-chart, svg.ts-chart { display: block; width: 100%; height: auto; }
+svg.slo-chart text, svg.ts-chart text { font: 11px system-ui, -apple-system, "Segoe UI", sans-serif; fill: var(--muted); }
+.adr-filters { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 0; }
+.adr-chip-btn { min-height: 30px; padding: 4px 10px; border: 1px solid var(--line); border-radius: 999px; background: var(--bg); color: var(--ink); font-size: 12.5px; cursor: pointer; }
+.adr-chip-btn[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); background: var(--panel); font-weight: 700; }
+@media (prefers-reduced-motion: reduce) {
+  .cmd-k-btn, .cmd-item-btn, .ops-actions button, .adr-chip-btn { transition: none; }
+}
+@media (forced-colors: active) {
+  .cmd-item-btn[aria-selected="true"], .adr-chip-btn[aria-pressed="true"] { outline: 2px solid Highlight; }
+}

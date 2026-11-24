@@ -327,3 +327,235 @@ function flowDetail(t, id) {
         n.line ? h("span", {cls: "flow-why", id: pre + i, role: "tooltip"}, n.line) : null);
     }));
 }
+
+// --- workstation ops, diff highlighter & gate/mutant helpers (docs/adr/0125) ---
+const CMD_PALETTE_MAX_RESULTS = 40;
+const DIFF_RENDER_MAX_LINES = 2000;
+const OPS_REASON_MAX_LEN = 512;
+let opsNotice = null;
+let liveCharts = null, liveChartsLoading = false;
+
+function announceMsg(msg) {
+  const ann = document.getElementById("announce");
+  if (ann) ann.textContent = String(msg || "");
+}
+function isResumableTicket(t) {
+  if (!t || typeof t !== "object") return false;
+  if (t.outcome && t.outcome.verdict === "stranded") return true;
+  if (t.stranded) return true;
+  const hist = Array.isArray(t.history) ? t.history : [];
+  const last = hist.length ? hist[hist.length - 1] : null;
+  return Boolean(last && last.error);
+}
+function opsPermissions() {
+  const mode = con && con.mode;
+  const auth = con && con.auth;
+  const isLive = Boolean(mode === "live" && auth !== "public");
+  const reason = mode !== "live" ? "Snapshot mode: operator actions disabled."
+    : auth === "public" ? "Public mode: operator actions disabled."
+    : !con.can_launch ? (con.reason || "Launch privilege required for rollback or freeze.")
+    : busy ? "Another operator command is running." : null;
+  return {
+    isLive: isLive,
+    canOps: isLive && !busy,
+    canPrivileged: Boolean(isLive && con.can_launch && !busy),
+    reason: reason,
+  };
+}
+async function _runOpsFetch(label, runFetch) {
+  if (busy || !opsPermissions().isLive) return null;
+  busy = true;
+  if (typeof render === "function") render();
+  try {
+    const r = await runFetch();
+    const body = await r.json().catch(() => ({}));
+    const ok = Boolean(r.ok && (body.exit === 0 || body.exit === undefined));
+    const line = body.line || body.error || r.statusText || (label + " finished");
+    opsNotice = {action: label, ok: ok, line: line, at: new Date().toISOString()};
+    announceMsg(line);
+    if (con && con.mode === "live" && typeof load === "function") await load();
+    return opsNotice;
+  } catch (e) {
+    const msg = label + " failed: " + e;
+    opsNotice = {action: label, ok: false, line: msg, at: new Date().toISOString()};
+    announceMsg(msg);
+    return opsNotice;
+  } finally {
+    busy = false;
+    if (typeof render === "function") render();
+  }
+}
+function assignTicket(ticketId) {
+  return _runOpsFetch("assign " + ticketId, () =>
+    fetch("/v1/assign", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({ticket: ticketId})}));
+}
+function resumeTicket(ticketId) {
+  return _runOpsFetch("resume " + ticketId, () =>
+    fetch("/v1/resume", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({ticket: ticketId})}));
+}
+function watchOnce() {
+  return _runOpsFetch("watch-once", () =>
+    fetch("/v1/watch-once", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({})}));
+}
+function rollbackRelease(reason) {
+  return _runOpsFetch("rollback", () =>
+    fetch("/v1/rollback", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({reason: reason})}));
+}
+function toggleFreeze(state, reason) {
+  return _runOpsFetch("freeze " + state, () =>
+    fetch("/v1/freeze", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({state: state, reason: reason})}));
+}
+async function fetchLiveCharts(force) {
+  if (!con || con.mode !== "live") return null;
+  if (liveChartsLoading && !force) return liveCharts;
+  liveChartsLoading = true;
+  try {
+    const r = await fetch("/v1/charts.json");
+    const body = await r.json().catch(() => ({ok: false, error: "invalid charts response"}));
+    liveCharts = body && typeof body === "object" ? body : {ok: false, error: "empty charts payload"};
+  } catch (e) {
+    liveCharts = {ok: false, error: "failed to load live charts: " + e};
+  } finally {
+    liveChartsLoading = false;
+    if (typeof render === "function") render();
+  }
+  return liveCharts;
+}
+let opsOpener = null;
+function closeOpsDialog() {
+  const d = document.getElementById("ops-dialog");
+  if (!d) return;
+  if (d.open && typeof d.close === "function") d.close(); else d.open = false;
+  d.replaceChildren();
+  const back = opsOpener;
+  opsOpener = null;
+  if (back && back.isConnected && typeof back.focus === "function") back.focus();
+}
+function openOpsDialog(kind, opts, opener) {
+  const d = document.getElementById("ops-dialog");
+  if (!d) return;
+  const p = opsPermissions();
+  if (!p.canPrivileged) return;
+  const st = (opts && opts.state) === "off" ? "off" : "on";
+  const isRollback = kind === "rollback";
+  opsOpener = opener || null;
+  const note = h("p", {cls: "nogo", style: "display:none"});
+  const input = h("input", {type: "text", id: "ops-reason-input", cls: "ops-reason-input", maxlength: String(OPS_REASON_MAX_LEN),
+    placeholder: isRollback ? "Reason for emergency rollback (required, audited)" : "Reason for release-freeze " + st + " (required, audited)",
+    "aria-label": "Audit reason"});
+  function submit() {
+    const reason = input.value.replace(/\s+/g, " ").trim();
+    if (!reason) { note.textContent = "A non-empty reason is required for the audit log."; note.style.display = "block"; input.focus(); return; }
+    closeOpsDialog();
+    if (isRollback) rollbackRelease(reason);
+    else toggleFreeze(st, reason);
+  }
+  input.addEventListener("keydown", (e) => {
+    if (e.isComposing || e.keyCode === 229) return;
+    if (e.key === "Enter") { e.preventDefault(); submit(); }
+  });
+  const titleText = isRollback ? "Confirm Emergency Rollback" : "Confirm Release Freeze: " + st.toUpperCase();
+  const bodyCopy = isRollback
+    ? "Engages WORKLOAD_KILL_SWITCH (if configured), executes DELIVERY rollback, and writes an audit record."
+    : "Sets the release-freeze flag to " + st + " via the FLAGS port and writes an audit record.";
+  d.replaceChildren(
+    h("div", {cls: "back-top"},
+      h("h2", {id: "ops-dialog-title", style: "flex:1;margin:0"}, titleText),
+      h("button", {type: "button", cls: "close", onclick: closeOpsDialog}, "Close (Esc)")),
+    h("p", {cls: "muted"}, bodyCopy),
+    h("label", {for: "ops-reason-input"}, "Reason (required, max " + OPS_REASON_MAX_LEN + " chars)"),
+    input,
+    note,
+    h("div", {cls: "buttons"},
+      h("button", {type: "button", id: "ops-dialog-confirm", cls: isRollback ? "nogo" : "warn", onclick: submit},
+        isRollback ? "Execute rollback" : "Set freeze " + st),
+      h("button", {type: "button", onclick: closeOpsDialog}, "Cancel")));
+  if (!d.open) { if (typeof d.showModal === "function") d.showModal(); else d.open = true; }
+  input.focus();
+}
+(function () {
+  const d = document.getElementById("ops-dialog");
+  if (!d || typeof d.addEventListener !== "function") return;
+  d.addEventListener("cancel", (e) => { if (typeof e.preventDefault === "function") e.preventDefault(); closeOpsDialog(); });
+  if (!(typeof HTMLDialogElement !== "undefined" && HTMLDialogElement.prototype && "closedBy" in HTMLDialogElement.prototype)) {
+    d.addEventListener("click", (e) => { if (e.target === d) closeOpsDialog(); });
+  }
+})();
+function opsBar(scopeId) {
+  const p = opsPermissions();
+  return h("div", {cls: "ops-bar", id: scopeId + "-ops-bar"},
+    h("div", {cls: "ops-actions"},
+      h("button", {type: "button", id: scopeId + "-watch-btn", disabled: !p.canOps, onclick: watchOnce}, "Watch once"),
+      h("button", {type: "button", id: scopeId + "-freeze-on-btn", cls: "warn", disabled: !p.canPrivileged,
+        onclick: (e) => openOpsDialog("freeze", {state: "on"}, e.currentTarget)}, "Freeze releases"),
+      h("button", {type: "button", id: scopeId + "-freeze-off-btn", disabled: !p.canPrivileged,
+        onclick: (e) => openOpsDialog("freeze", {state: "off"}, e.currentTarget)}, "Unfreeze releases"),
+      h("button", {type: "button", id: scopeId + "-rollback-btn", cls: "nogo", disabled: !p.canPrivileged,
+        onclick: (e) => openOpsDialog("rollback", {}, e.currentTarget)}, "Emergency rollback")),
+    p.reason ? h("p", {cls: "muted ops-status", style: "margin:0"}, p.reason) : null,
+    opsNotice ? h("p", {cls: "ops-status mono " + (opsNotice.ok ? "go" : "nogo"), style: "margin:0"},
+      opsNotice.action + ": " + opsNotice.line) : null);
+}
+function diffLineClass(line) {
+  if (line.startsWith("+++") || line.startsWith("---") || line.startsWith("diff --git") || line.startsWith("index ")) return "diff-meta";
+  if (line.startsWith("@@")) return "diff-hunk";
+  if (line.startsWith("+")) return "diff-add";
+  if (line.startsWith("-")) return "diff-del";
+  return "";
+}
+function renderPatchPre(text) {
+  const raw = typeof text === "string" ? text : String(text || "");
+  const lines = raw.split("\n");
+  if (lines.length > DIFF_RENDER_MAX_LINES) return h("pre", {cls: "diff-view"}, raw);
+  const children = [];
+  for (let i = 0; i < lines.length; i++) {
+    const ln = lines[i];
+    const kind = diffLineClass(ln);
+    children.push(kind ? h("span", {cls: "diff-line " + kind}, ln) : ln);
+    if (i < lines.length - 1) children.push("\n");
+  }
+  return h("pre", {cls: "diff-view"}, children);
+}
+function gateExplorerPanel(t) {
+  const whys = [];
+  if (t.ci && t.ci.why) whys.push(t.ci.why);
+  for (const r of (Array.isArray(t.rework) ? t.rework : [])) {
+    if (r && r.why && !whys.includes(r.why)) whys.push(r.why);
+  }
+  const tasks = Array.isArray(t.tasks) ? t.tasks : [];
+  const mutLines = [];
+  for (const w of whys) {
+    const details = Array.isArray(w.details) ? w.details : [];
+    const hit = w.gate === "mutation" || String(w.line || "").toLowerCase().includes("mutat");
+    if (hit) mutLines.push({attempt: w.attempt, line: w.line, details: details});
+  }
+  for (const tk of tasks) {
+    if (!tk || typeof tk !== "object") continue;
+    for (const g of (Array.isArray(tk.gates) ? tk.gates : [])) {
+      if (g && (g.gate === "mutation" || String(g.line || "").toLowerCase().includes("mutat"))) {
+        mutLines.push({attempt: tk.attempt, line: g.line, details: Array.isArray(g.details) ? g.details : []});
+      }
+    }
+  }
+  if (!whys.length && !mutLines.length && !tasks.length) return null;
+  const blocks = [];
+  if (mutLines.length) {
+    blocks.push(h("div", {cls: "mutant-box"},
+      h("h3", {}, "Mutation Gate Findings"),
+      mutLines.map((m) => h("div", {cls: "panel"},
+        h("p", {cls: "mono", style: "margin:0 0 6px"}, "attempt " + shown(m.attempt) + ": " + shown(m.line)),
+        m.details.length ? h("ul", {}, m.details.map((d) => h("li", {cls: "mono"}, d))) : null))));
+  }
+  if (whys.length) {
+    blocks.push(h("div", {},
+      h("h3", {}, "Gate Rejections & SAST Explorer"),
+      whys.map((w) => h("div", {cls: "panel"},
+        h("p", {cls: "mono", style: "margin:0 0 6px"}, chip("NO-GO"), " attempt " + shown(w.attempt) + " · gate " + shown(w.gate) + ": " + shown(w.line)),
+        Array.isArray(w.details) && w.details.length ? h("ul", {}, w.details.map((d) => h("li", {cls: "mono"}, d))) : null,
+        Array.isArray(w.sast) && w.sast.length ? h("table", {},
+          h("tr", {}, ["Rule", "File", "Line"].map((c) => h("th", {}, c))),
+          w.sast.map((f) => h("tr", {}, h("td", {cls: "mono"}, f.rule), h("td", {cls: "mono"}, f.file), h("td", {cls: "mono"}, String(f.line))))) : null))));
+  }
+  return blocks.length ? h("div", {cls: "panel", id: "gate-mutant-explorer"},
+    h("h2", {}, "Gate, SAST & Mutant Explorer"), ...blocks) : null;
+}

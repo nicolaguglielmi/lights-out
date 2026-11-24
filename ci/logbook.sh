@@ -221,11 +221,15 @@ def cmd_names(root):
 
 
 # What console/serve.py may run (docs/adr/0047 §3, docs/adr/0055 §2,
-# docs/adr/0059 §4): three scripts, one command of core/spec.py, two recipes.
-SCRIPTS = {"core/logbook.sh", "core/promote.sh", "gates/spec.sh"}
-MAKES = {"answer", "request", "intake", "intake-confirm"}
-GETS = {"/v1/logbook.json", "/v1/console.json", "/v1/events"}
-WRITES = {"/v1/go-for-launch", "/v1/answer", "/v1/spec-check", "/v1/request", "/v1/intake", "/v1/intake-confirm"}
+# docs/adr/0059 §4, docs/adr/0090 §8, docs/adr/0125 §2).
+SCRIPTS = {"core/logbook.sh", "core/promote.sh", "gates/spec.sh", "core/console_ops.sh"}
+MAKES = {"answer", "request", "intake", "intake-confirm", "assign", "resume", "watch"}
+GETS = {"/v1/logbook.json", "/v1/console.json", "/v1/events", "/v1/charts.json"}
+WRITES = {
+    "/v1/go-for-launch", "/v1/answer", "/v1/spec-check", "/v1/request",
+    "/v1/intake", "/v1/intake-confirm",
+    "/v1/assign", "/v1/resume", "/v1/watch-once", "/v1/rollback", "/v1/freeze",
+}
 DRAG = r"(?:drag|dragstart|dragover|dragend|dragenter|dragleave|drop)"
 
 
@@ -693,8 +697,8 @@ must_reject "the console's names (.crew/)" names "$st/names-bad"
 printf 'STATE_STORE\n' > "$st/names-bad/a.py"
 must_reject "the console's names (STATE_STORE)" names "$st/names-bad"
 
-# serve.py: three scripts, `core/spec.py draft` and four recipes, six POST
-# routes (docs/adr/0059 §4, docs/adr/0090 §8).
+# serve.py: permitted scripts, `core/spec.py draft`, permitted make recipes,
+# and routes (docs/adr/0059 §4, docs/adr/0090 §8, docs/adr/0125 §2).
 cat > "$st/serve-good.py" <<'PY'
 """Docstring naming core/anything-else.sh is not an argv."""
 import subprocess
@@ -702,19 +706,24 @@ import subprocess
 
 class H:
     def do_GET(self):
-        if self.path in ("/", "/v1/logbook.json", "/v1/console.json", "/v1/events"):
+        if self.path in ("/", "/v1/logbook.json", "/v1/console.json", "/v1/events", "/v1/charts.json"):
             return
     def do_POST(self):
-        if self.path not in ("/v1/go-for-launch", "/v1/answer", "/v1/spec-check", "/v1/intake", "/v1/intake-confirm", "/v1/request"):
+        if self.path not in ("/v1/go-for-launch", "/v1/answer", "/v1/spec-check", "/v1/intake", "/v1/intake-confirm",
+                             "/v1/assign", "/v1/resume", "/v1/watch-once", "/v1/rollback", "/v1/freeze", "/v1/request"):
             return
         subprocess.run(["sh", "core/promote.sh"], check=False)
         subprocess.run(["sh", "core/logbook.sh"], check=False)
+        subprocess.run(["sh", "core/console_ops.sh", "charts"], check=False)
         subprocess.run(["sh", "gates/spec.sh", "draft.md"], check=False)
         subprocess.run(["python3", "core/spec.py", "draft", "fields.json", "tickets"], check=False)
         subprocess.run(["make", "--no-print-directory", "answer", "TICKET=1"], check=False)
         subprocess.run(["make", "--no-print-directory", "request", "TICKET=1"], check=False)
         subprocess.run(["make", "--no-print-directory", "intake"], check=False)
         subprocess.run(["make", "--no-print-directory", "intake-confirm", "TICKET=1"], check=False)
+        subprocess.run(["make", "--no-print-directory", "assign", "TICKET=1"], check=False)
+        subprocess.run(["make", "--no-print-directory", "resume", "TICKET=1"], check=False)
+        subprocess.run(["make", "--no-print-directory", "watch", "ONCE=1"], check=False)
 PY
 { cat "$st/serve-good.py"; printf 'subprocess.run(["sh", "adapters/x/get.sh"])\n'; } > "$st/serve-adapter.py"
 sed 's|"/v1/request"):|"/v1/request", "/other"):|' "$st/serve-good.py" > "$st/serve-two-posts.py"
@@ -758,12 +767,18 @@ function column(c) {
   return h("div", {cls: "col"});
 }
 fetch('/v1/logbook.json').then(r => r.json());
+fetch('/v1/charts.json').then(r => r.json());
 fetch("/v1/go-for-launch", {method: 'POST', body: '{}'});
 fetch("/v1/answer", {method: 'POST', body: '{}'});
 fetch("/v1/spec-check", {method: 'POST', body: '{}'});
 fetch("/v1/request", {method: 'POST', body: '{}'});
 fetch("/v1/intake", {method: 'POST', body: '{}'});
 fetch("/v1/intake-confirm", {method: 'POST', body: '{}'});
+fetch("/v1/assign", {method: 'POST', body: '{}'});
+fetch("/v1/resume", {method: 'POST', body: '{}'});
+fetch("/v1/watch-once", {method: 'POST', body: '{}'});
+fetch("/v1/rollback", {method: 'POST', body: '{}'});
+fetch("/v1/freeze", {method: 'POST', body: '{}'});
 const label = "drop";
 </script>
 HTML
@@ -1143,13 +1158,28 @@ set -eu
 d=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
 printf 'rollback\n' >> "$d/effects.log"
 STUB
-  # `make answer`, as the console runs it: records what it was given.
+  # `make` targets as the console runs them: records args in effects.log.
   # shellcheck disable=SC2016 # the stub Makefile expands its own variables
-  printf 'answer:\n\t@printf '"'"'answer %%s %%s %%s %%s\\n'"'"' "$(TICKET)" "$$ANSWER" "$$ANSWER_BY" "$$ANSWER_VIA" >> effects.log\n\t@echo "GO: answer"\n' > "$r/Makefile"
-  # `make request`, as the console runs it after writing the ticket (docs/adr/0059 §4).
-  # shellcheck disable=SC2016 # the stub Makefile expands its own variables
-  printf 'request:\n\t@printf '"'"'request %%s %%s %%s\\n'"'"' "$(TICKET)" "$$REQUEST_BY" "$$REQUEST_VIA" >> effects.log\n\t@echo "GO: request"\n' >> "$r/Makefile"
-  chmod +x "$r"/adapters/stub-state/get.sh "$r"/adapters/stub-delivery/*.sh
+  {
+    printf 'answer:\n\t@printf '"'"'answer %%s %%s %%s %%s\\n'"'"' "$(TICKET)" "$$ANSWER" "$$ANSWER_BY" "$$ANSWER_VIA" >> effects.log\n\t@echo "GO: answer"\n'
+    printf 'request:\n\t@printf '"'"'request %%s %%s %%s\\n'"'"' "$(TICKET)" "$$REQUEST_BY" "$$REQUEST_VIA" >> effects.log\n\t@echo "GO: request"\n'
+    printf 'assign:\n\t@printf '"'"'assign %%s\\n'"'"' "$(TICKET)" >> effects.log\n\t@echo "GO: assign"\n'
+    printf 'resume:\n\t@printf '"'"'resume %%s\\n'"'"' "$(TICKET)" >> effects.log\n\t@echo "GO: resume"\n'
+    printf 'watch:\n\t@printf '"'"'watch %%s\\n'"'"' "$(ONCE)" >> effects.log\n\t@echo "GO: watch"\n'
+  } > "$r/Makefile"
+  mkdir -p "$r/adapters/stub-flags" "$r/adapters/stub-charts"
+  cat > "$r/adapters/stub-flags/set.sh" <<'STUB'
+#!/bin/sh
+set -eu
+d=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)
+printf 'flags %s %s\n' "$1" "$2" >> "$d/effects.log"
+STUB
+  cat > "$r/adapters/stub-charts/query-range.sh" <<'STUB'
+#!/bin/sh
+set -eu
+printf '{"status":"ok","series":[{"name":"up","points":[[1700000000,1.0],[1700000015,1.0]]}]}\n'
+STUB
+  chmod +x "$r/adapters/stub-state/get.sh" "$r/adapters/stub-delivery/"*.sh "$r/adapters/stub-flags/set.sh" "$r/adapters/stub-charts/query-range.sh"
   printf '{"stable":"0.3.0-b","canary":"0.5.0-d","weight":25}\n' > "$r/world/status.json"
   : > "$r/effects.log"
   # One commit with fixed names and dates and the same files: the same hash in
@@ -2348,9 +2378,10 @@ trip="$tmp/trip"
 mkdir -p "$trip/core" "$trip/fixtures/logbook" "$trip/gates" "$trip/ci"
 cp -R "$repo/console" "$trip/console"
 cp "$golden" "$trip/fixtures/logbook/golden-1.8.json"
-for s in logbook promote; do
+for s in logbook promote console_ops; do
   # shellcheck disable=SC2016 # the tripwire script expands its own $d
   printf '#!/bin/sh\nd=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)\necho "$0" >> "$d/ran"\nexit 1\n' > "$trip/core/$s.sh"
+  chmod +x "$trip/core/$s.sh"
 done
 # The spec check runs the gate and the draft, and nothing else of core/.
 for f in "$repo"/core/*.py; do ln -s "$f" "$trip/core/$(basename "$f")"; done
@@ -2414,6 +2445,17 @@ post_json /v1/spec-check "{\"title\":\"long\",\"context\":\"$sc_pad\"}"
 [ "$code" = 200 ] || nogo "spec check: a body of 16000 bytes, under the limit of 16384, answered $code, want 200" "$(head -c 300 "$body")"
 post_json /v1/request "$draft_go"
 [ "$code" = 403 ] || nogo "snapshot mode: a request answered $code, want 403" "$(cat "$body")"
+req "$(base)/v1/charts.json"
+[ "$code" = 200 ] || nogo "snapshot mode: GET /v1/charts.json answered $code, want 200" "$(cat "$body")"
+jq -e '.ok == false and (.error | contains("snapshot"))' "$body" >/dev/null \
+  || nogo "snapshot mode: GET /v1/charts.json did not return {ok: false, error: ...snapshot...}" "$(cat "$body")"
+for ws_pair in '/v1/assign {"ticket":"0005"}' '/v1/resume {"ticket":"0004"}' '/v1/watch-once {}' \
+               '/v1/rollback {"reason":"drill"}' '/v1/freeze {"state":"on","reason":"drill"}'; do
+  ws_path=${ws_pair%% *}
+  ws_body=${ws_pair#* }
+  post_json "$ws_path" "$ws_body"
+  [ "$code" = 403 ] || nogo "snapshot mode: POST $ws_path answered $code, want 403" "$(cat "$body")"
+done
 [ "$(tree_digest "$trip")" = "$snap_digest" ] || nogo "snapshot mode: the spec check or a request changed the files under the root"
 [ "$(ls "$tmp/ctmp")" = "$snap_ctmp" ] || nogo "the spec check left its temporary files behind: $(ls "$tmp/ctmp")"
 [ ! -e "$trip/ran" ] || nogo "snapshot mode started $(cat "$trip/ran"); it must run nothing"
@@ -2426,10 +2468,20 @@ public_digest=$(tree_digest "$trip")
 start_console "$trip" "$tmp/public.log" CONSOLE_AUTH=public CONSOLE_SNAPSHOT=console/snapshot/logbook.json TMPDIR="$tmp/ctmp"
 req "$(base)/v1/logbook.json"
 [ "$code" = 200 ] || nogo "public mode: GET /v1/logbook.json answered $code, want 200" "$(cat "$tmp/public.log")"
+req "$(base)/v1/charts.json"
+[ "$code" = 200 ] || nogo "public mode: GET /v1/charts.json answered $code, want 200" "$(cat "$body")"
+jq -e '.ok == false' "$body" >/dev/null || nogo "public mode: GET /v1/charts.json not ok: false" "$(cat "$body")"
 post_json /v1/spec-check "$draft_go"
 [ "$code" = 403 ] || nogo "public mode: a spec check answered $code, want 403" "$(cat "$body")"
 post_json /v1/request "$draft_go"
 [ "$code" = 403 ] || nogo "public mode: a request answered $code, want 403" "$(cat "$body")"
+for ws_pair in '/v1/assign {"ticket":"0005"}' '/v1/resume {"ticket":"0004"}' '/v1/watch-once {}' \
+               '/v1/rollback {"reason":"drill"}' '/v1/freeze {"state":"on","reason":"drill"}'; do
+  ws_path=${ws_pair%% *}
+  ws_body=${ws_pair#* }
+  post_json "$ws_path" "$ws_body"
+  [ "$code" = 403 ] || nogo "public mode: POST $ws_path answered $code, want 403" "$(cat "$body")"
+done
 [ "$(tree_digest "$trip")" = "$public_digest" ] || nogo "public mode: a POST changed the files under the root"
 [ ! -e "$trip/ran" ] || nogo "public mode started $(cat "$trip/ran"); it must run nothing"
 stop_console
@@ -2747,6 +2799,59 @@ jq -e --arg id "$second_id" '.ticket == $id' "$body" >/dev/null || nogo "the sec
 cmp -s "$live/tickets/$want_id.md" "$tmp/shown.md" || nogo "the second request changed tickets/$want_id.md"
 [ "$(head -n 1 "$live/tickets/$second_id.md")" = "# $second_id — A second request" ] || nogo "tickets/$second_id.md does not start with its id and title" "$(head -n 3 "$live/tickets/$second_id.md")"
 [ "$(cat "$live/effects.log")" = "request $second_id unauthenticated console" ] || nogo "the second make request saw '$(cat "$live/effects.log")'"
+stop_console
+
+# --- e6. LIVE workstation ops & CHARTS endpoints (docs/adr/0125) -----------
+: > "$live/effects.log"
+# shellcheck disable=SC2046
+start_console "$live" "$tmp/ws-noconf.log" $(live_env)
+first_read
+req "$(base)/v1/charts.json"
+[ "$code" = 200 ] || nogo "live charts (unset): GET /v1/charts.json answered $code, want 200" "$(cat "$body")"
+jq -e '.ok == false and (.error | contains("CHARTS is not configured"))' "$body" >/dev/null \
+  || nogo "live charts (unset): unexpected body $(cat "$body")"
+stop_console
+
+# shellcheck disable=SC2046
+start_console "$live" "$tmp/ws-live.log" $(live_env) FLAGS=stub-flags CHARTS=stub-charts WORKLOAD_KILL_SWITCH=canary-kill CONSOLE_OPS_LOG="$live/.crew/console-ops.jsonl"
+first_read
+req "$(base)/v1/charts.json"
+[ "$code" = 200 ] || nogo "live charts: GET /v1/charts.json answered $code, want 200" "$(cat "$body")"
+jq -e '.ok == true and (.series | length >= 1)' "$body" >/dev/null || nogo "live charts: unexpected body $(cat "$body")"
+
+post_json /v1/assign '{"ticket":"0002"}'
+[ "$code" = 409 ] || nogo "live assign on held ticket 0002 answered $code, want 409" "$(cat "$body")"
+post_json /v1/assign '{"ticket":"0005"}'
+[ "$code" = 200 ] || nogo "live assign on opened ticket 0005 answered $code, want 200" "$(cat "$body")"
+jq -e '.exit == 0 and (.line | contains("GO: assign"))' "$body" >/dev/null || nogo "live assign: bad response $(cat "$body")"
+
+post_json /v1/resume '{"ticket":"0002"}'
+[ "$code" = 409 ] || nogo "live resume on non-stranded ticket 0002 answered $code, want 409" "$(cat "$body")"
+post_json /v1/resume '{"ticket":"0004"}'
+[ "$code" = 200 ] || nogo "live resume on stranded ticket 0004 answered $code, want 200" "$(cat "$body")"
+jq -e '.exit == 0 and (.line | contains("GO: resume"))' "$body" >/dev/null || nogo "live resume: bad response $(cat "$body")"
+
+post_json /v1/watch-once '{}'
+[ "$code" = 200 ] || nogo "live watch-once answered $code, want 200" "$(cat "$body")"
+jq -e '.exit == 0 and (.line | contains("GO: watch"))' "$body" >/dev/null || nogo "live watch-once: bad response $(cat "$body")"
+
+post_json /v1/rollback '{"reason":""}'
+[ "$code" = 400 ] || nogo "live rollback with empty reason answered $code, want 400" "$(cat "$body")"
+post_json /v1/rollback '{"reason":"latency regression"}'
+[ "$code" = 200 ] || nogo "live rollback answered $code, want 200" "$(cat "$body")"
+jq -e '.exit == 0 and (.line | startswith("GO: rollback"))' "$body" >/dev/null || nogo "live rollback: bad response $(cat "$body")"
+
+post_json /v1/freeze '{"state":"bogus","reason":"hold"}'
+[ "$code" = 400 ] || nogo "live freeze invalid state answered $code, want 400" "$(cat "$body")"
+post_json /v1/freeze '{"state":"on","reason":"incident hold"}'
+[ "$code" = 200 ] || nogo "live freeze answered $code, want 200" "$(cat "$body")"
+jq -e '.state == "on" and .exit == 0 and (.line | startswith("GO: freeze"))' "$body" >/dev/null || nogo "live freeze: bad response $(cat "$body")"
+
+for want_eff in 'assign 0005' 'resume 0004' 'watch 1' 'flags canary-kill on' 'rollback' 'flags release-freeze on'; do
+  grep -Fqx "$want_eff" "$live/effects.log" || nogo "live workstation effects.log missing [$want_eff]" "$(cat "$live/effects.log")"
+done
+[ -f "$live/.crew/console-ops.jsonl" ] && [ "$(wc -l < "$live/.crew/console-ops.jsonl")" -ge 2 ] \
+  || nogo "live workstation did not write audit entries to .crew/console-ops.jsonl"
 stop_console
 
 # --- f. every numeric policy key has its provenance --------------------------

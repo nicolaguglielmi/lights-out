@@ -152,6 +152,13 @@ function screenOverview() {
         h("td", {}, d.docs_ticket_state ? h("a", {href: "#ticket/" + encodeURIComponent(d.docs_ticket)}, d.docs_ticket) : d.docs_ticket),
         h("td", {}, shown(d.docs_ticket_state) === "—" ? "not opened by the tower" : d.docs_ticket_state))))
       : h("p", {cls: "muted"}, "No merge has left docs to realign.")));
+  out.push(h("h2", {}, "Workstation Controls"),
+    h("div", {cls: "panel", id: "overview-ops"},
+      opsBar("overview"),
+      h("p", {cls: "muted", style: "margin:0"}, "Quick navigation: ",
+        h("a", {href: "#epics"}, "Epics & Dependency DAG"), " · ",
+        h("a", {href: "#adrs"}, "ADR Explorer"), " · ",
+        h("a", {href: "#launch"}, "Canary & Live Charts"), " · Press Cmd+K / Ctrl+K for Command Palette.")));
   out.push(journeyPanel());
   return out;
 }
@@ -429,9 +436,18 @@ function screenTicket(id) {
       h("td", {}, rowDetail(r)), h("td", {cls: "mono at"}, shown(r.at)), h("td", {cls: "muted"}, r.record)));
   });
   const w = now(t);
+  const perms = opsPermissions();
+  const tasks = Array.isArray(t.tasks) ? t.tasks : [];
+  const patches = tasks.filter((tk) => tk && tk.patch && (typeof tk.patch === "string" || typeof tk.patch.text === "string"));
   return [back, h("h1", {}, named(t)),
     h("div", {cls: "panel", id: "ticket-now"},
       h("div", {cls: "nowbox", "data-turn": w.turn}, nowLine(t)),
+      h("div", {cls: "ops-actions", style: "margin:8px 0"},
+        t.state === "opened" ? h("button", {type: "button", id: "ticket-assign-btn", cls: "go", disabled: !perms.canOps,
+          onclick: () => assignTicket(t.id)}, "Assign ticket") : null,
+        isResumableTicket(t) ? h("button", {type: "button", id: "ticket-resume-btn", cls: "warn", disabled: !perms.canOps,
+          onclick: () => resumeTicket(t.id)}, "Resume stranded step") : null,
+        h("a", {href: "#network/" + encodeURIComponent(t.id)}, "Inspect in Network →")),
       stageStrip(t, "stages"),
       flowDetail(t, "flow"),
       liveLine(t),
@@ -444,6 +460,12 @@ function screenTicket(id) {
     t.spec && (t.spec.criteria || []).length ? h("div", {cls: "panel"}, h("h2", {}, "The spec's criteria (" + shown(t.spec.by) + ")"),
       h("ol", {}, t.spec.criteria.map((c) => h("li", {}, c)))) : null,
     t.adrs !== undefined ? h("div", {cls: "panel"}, h("h2", {}, "ADRs that govern its perimeter"), adrLinks(t.adrs)) : null,
+    gateExplorerPanel(t),
+    patches.length ? h("div", {cls: "panel", id: "ticket-patches"},
+      h("h2", {}, "PR Unified Patches"),
+      patches.map((tk, idx) => h("details", {cls: "ticket-patch", open: idx === 0},
+        h("summary", {}, "Attempt " + shown(tk.attempt) + (tk.worker ? " · " + shown(tk.worker) : "")),
+        renderPatchPre(typeof tk.patch === "string" ? tk.patch : tk.patch.text)))) : null,
     h("h2", {}, "History"),
     h("div", {cls: "panel"}, h("table", {}, h("tr", {}, ["Step", "State", "Attempt", "At", "Error"].map((c) => h("th", {}, c))),
       t.history.map((e) => h("tr", {}, h("td", {}, e.step), h("td", {}, e.state), h("td", {}, shown(e.attempt)), h("td", {cls: "mono at"}, shown(e.at)), h("td", {cls: "mono"}, shown(e.error))))))];
@@ -618,11 +640,108 @@ function canaryPanel(rec) {
           h("td", {cls: "mono at"}, shown(run.started_at)), h("td", {cls: "canary-left"}, timeLeft(run)), h("td", {}, chip("pending"))) : null),
       rec.verdict === "in-progress" && !run ? h("p", {cls: "muted"}, "Staging: deploying the canary before any traffic.") : null));
 }
+function svgEl(tag, attrs, ...kids) {
+  const NS = "http://www.w3.org/2000/svg";
+  const el = document.createElementNS(NS, tag);
+  for (const [k, v] of Object.entries(attrs || {})) {
+    if (v === null || v === undefined || v === false) continue;
+    el.setAttribute(k === "cls" ? "class" : k, String(v));
+  }
+  for (const kid of kids.flat(Infinity)) {
+    if (kid === null || kid === undefined || kid === false) continue;
+    el.append(kid instanceof Node ? kid : document.createTextNode(String(kid)));
+  }
+  return el;
+}
+function sloDeltaChart(rec) {
+  const stages = Array.isArray(rec && rec.stages) ? rec.stages : [];
+  if (!stages.length) return h("p", {cls: "muted"}, "No canary stages verified yet.");
+  const metrics = ["error_rate", "latency_p95"];
+  const cards = metrics.map((metric) => {
+    const pts = stages.map((st) => {
+      const m = (Array.isArray(st.slo) ? st.slo : []).find((x) => x.query === metric);
+      return {pct: st.pct, delta: m && typeof m.delta === "number" ? m.delta : null, max: m && typeof m.max_delta === "number" ? m.max_delta : null};
+    }).filter((p) => p.delta !== null);
+    if (!pts.length) return h("div", {cls: "chart-card"}, h("h3", {}, metric), h("p", {cls: "muted"}, "No samples."));
+    const W = 280, H = 110, padL = 32, padB = 22, padT = 14, padR = 10;
+    const maxVal = Math.max(0.0001, ...pts.map((p) => Math.max(Math.abs(p.delta), p.max || 0)));
+    const bw = Math.max(18, Math.floor((W - padL - padR) / Math.max(1, pts.length) * 0.6));
+    const stepX = (W - padL - padR) / Math.max(1, pts.length);
+    const bars = pts.map((p, idx) => {
+      const x = padL + idx * stepX + (stepX - bw) / 2;
+      const ratio = Math.min(1, Math.max(0, Math.abs(p.delta) / maxVal));
+      const bh = Math.max(3, ratio * (H - padT - padB));
+      const y = H - padB - bh;
+      const ok = p.max === null || p.delta <= p.max;
+      return [svgEl("rect", {x: x.toFixed(1), y: y.toFixed(1), width: bw, height: bh.toFixed(1), rx: 3,
+          fill: ok ? "var(--go)" : "var(--nogo)"}),
+        svgEl("text", {x: (x + bw / 2).toFixed(1), y: H - 6, "text-anchor": "middle"}, p.pct + "%")];
+    });
+    const maxLimit = pts[0].max;
+    const limitY = maxLimit !== null ? H - padB - Math.min(1, maxLimit / maxVal) * (H - padT - padB) : null;
+    const svg = svgEl("svg", {cls: "slo-chart", viewBox: "0 0 " + W + " " + H, role: "img", "aria-label": "Canary " + metric + " delta by stage"},
+      svgEl("line", {x1: padL, y1: H - padB, x2: W - padR, y2: H - padB, stroke: "var(--line)"}),
+      limitY !== null ? svgEl("line", {x1: padL, y1: limitY.toFixed(1), x2: W - padR, y2: limitY.toFixed(1), stroke: "var(--wait)", "stroke-dasharray": "4 3"}) : null,
+      ...bars);
+    return h("div", {cls: "chart-card"},
+      h("h3", {style: "margin:0 0 6px"}, metric + " delta"),
+      svg,
+      h("p", {cls: "mono muted", style: "margin:4px 0 0"}, pts.map((p) => p.pct + "%: " + p.delta).join(" · ") + (maxLimit !== null ? " (max " + maxLimit + ")" : "")));
+  });
+  return h("div", {cls: "charts-grid"}, cards);
+}
+function timeSeriesSvg(series) {
+  const W = 420, H = 140, padL = 36, padR = 12, padT = 14, padB = 24;
+  const allPts = series.flatMap((s) => (Array.isArray(s.points) ? s.points : []).map((pt) => ({t: Number(pt[0]), v: Number(pt[1])}))).filter((p) => Number.isFinite(p.t) && Number.isFinite(p.v));
+  if (!allPts.length) return h("p", {cls: "muted"}, "No time-series data points returned.");
+  const minT = Math.min(...allPts.map((p) => p.t)), maxT = Math.max(...allPts.map((p) => p.t));
+  const minV = Math.min(0, ...allPts.map((p) => p.v)), maxV = Math.max(minV + 0.0001, ...allPts.map((p) => p.v));
+  const spanT = Math.max(1, maxT - minT), spanV = Math.max(0.0001, maxV - minV);
+  const colors = ["var(--accent)", "var(--go)", "var(--wait)", "var(--nogo)"];
+  const paths = series.slice(0, 8).map((s, idx) => {
+    const pts = (Array.isArray(s.points) ? s.points : []).map((pt) => {
+      const x = padL + ((Number(pt[0]) - minT) / spanT) * (W - padL - padR);
+      const y = H - padB - ((Number(pt[1]) - minV) / spanV) * (H - padT - padB);
+      return x.toFixed(1) + "," + y.toFixed(1);
+    });
+    return pts.length ? svgEl("polyline", {fill: "none", stroke: colors[idx % colors.length], "stroke-width": 2, points: pts.join(" ")}) : null;
+  }).filter(Boolean);
+  const svg = svgEl("svg", {cls: "ts-chart", viewBox: "0 0 " + W + " " + H, role: "img", "aria-label": "Live CHARTS time-series"},
+    svgEl("line", {x1: padL, y1: H - padB, x2: W - padR, y2: H - padB, stroke: "var(--line)"}),
+    svgEl("line", {x1: padL, y1: padT, x2: padL, y2: H - padB, stroke: "var(--line)"}),
+    svgEl("text", {x: 4, y: padT + 4}, maxV.toFixed(2)),
+    svgEl("text", {x: 4, y: H - padB}, minV.toFixed(2)),
+    ...paths);
+  return h("div", {}, svg, h("ul", {cls: "muted", style: "margin:6px 0 0;padding-left:18px"},
+    series.slice(0, 8).map((s) => {
+      const pts = Array.isArray(s.points) ? s.points : [];
+      const last = pts.length ? pts[pts.length - 1][1] : null;
+      return h("li", {cls: "mono"}, shown(s.name) + ": " + (last === null ? "—" : String(last)) + " (" + pts.length + " pts)");
+    })));
+}
+function liveChartsPanel(rec) {
+  const isLive = con && con.mode === "live";
+  let liveBody;
+  if (!isLive) liveBody = h("p", {cls: "muted"}, "Snapshot mode: no live charts.");
+  else if (liveChartsLoading && !liveCharts) liveBody = h("p", {cls: "muted"}, "Loading live time-series from CHARTS port…");
+  else if (!liveCharts) liveBody = h("p", {cls: "muted"}, "Click Refresh charts to query /v1/charts.json.");
+  else if (!liveCharts.ok) liveBody = h("p", {cls: "muted mono"}, shown(liveCharts.error));
+  else liveBody = timeSeriesSvg(Array.isArray(liveCharts.series) ? liveCharts.series : []);
+  return h("section", {id: "canary-charts", cls: "panel"},
+    h("h2", {}, "Canary SLO & Live Time-Series Charts"),
+    sloDeltaChart(rec),
+    h("div", {cls: "chart-card", style: "margin-top:12px"},
+      h("div", {cls: "ops-actions", style: "justify-content:space-between;margin-bottom:6px"},
+        h("h3", {style: "margin:0"}, "CHARTS Port Series"),
+        isLive ? h("button", {type: "button", id: "charts-refresh-btn", onclick: () => fetchLiveCharts(true)}, liveChartsLoading ? "Refreshing…" : "Refresh charts") : null),
+      liveBody));
+}
 function screenLaunch() {
   const L = book.launch, rec = L.record;
   const out = [h("h1", {}, "Go-for-launch"),
     h("p", {cls: "lede"}, "The one human decision before 100% of traffic. The same check and the same script as ./go promote."),
-    canaryPanel(rec)];
+    canaryPanel(rec),
+    liveChartsPanel(rec)];
   if (rec && !unread(rec)) {
     // The ticket this release carries (docs/adr/0063 §3): its release.version is the record's.
     const carried = ticketsList().find((x) => x.release && x.release.version && x.release.version === rec.version);
@@ -658,6 +777,7 @@ function screenLaunch() {
       h("button", {cls: "nogo", id: "launch-nogo", onclick: (e) => openLaunch("NO-GO", e.currentTarget), disabled: !(can && L.pressable)}, "NO-GO — roll back")),
     busy ? h("p", {cls: "muted"}, "core/promote.sh is running…") : null,
     lastLine ? h("pre", {}, lastLine) : null));
+  out.push(h("h2", {}, "Workstation Controls"), h("div", {cls: "panel", id: "launch-ops"}, opsBar("launch")));
   return out;
 }
 
@@ -837,26 +957,138 @@ function screenRequest() {
   return out;
 }
 
-// --- ADR search (docs/adr/0059 §3) ----------------------------------------
+// --- Epics & Dependency DAG (docs/adr/0125) -------------------------------
+function buildDagModel() {
+  const all = ticketsList();
+  const byId = Object.fromEntries(all.map((t) => [t.id, t]));
+  const edges = [];
+  const depsOf = {};
+  const blocksOf = {};
+  for (const t of all) {
+    const rawDeps = [];
+    if (Array.isArray(t.depends_on)) rawDeps.push(...t.depends_on);
+    if (t.wait && Array.isArray(t.wait.holders)) rawDeps.push(...t.wait.holders);
+    const deps = [...new Set(rawDeps.filter((d) => typeof d === "string" && d && d !== t.id && byId[d]))];
+    depsOf[t.id] = deps;
+    for (const d of deps) {
+      edges.push([d, t.id]);
+      (blocksOf[d] = blocksOf[d] || []).push(t.id);
+    }
+  }
+  const memo = {};
+  function depthOf(id, seen) {
+    if (id in memo) return memo[id];
+    if (seen.has(id)) return 0;
+    const nextSeen = new Set(seen); nextSeen.add(id);
+    let maxD = 0;
+    for (const d of (depsOf[id] || [])) maxD = Math.max(maxD, depthOf(d, nextSeen) + 1);
+    memo[id] = maxD;
+    return maxD;
+  }
+  for (const t of all) depthOf(t.id, new Set());
+  return {tickets: all, byId: byId, edges: edges, depsOf: depsOf, blocksOf: blocksOf, depth: memo};
+}
+function screenEpics() {
+  const out = [h("h1", {}, "Epics & Dependency DAG"),
+    h("p", {cls: "lede"}, "Epic cohorts and depends_on / wait-holder dependency edges across tickets. Works seamlessly across historical and multi-epic logbooks.")];
+  if (unread(book.tickets)) return out.concat(h("div", {cls: "panel"}, err(book.tickets)));
+  const model = buildDagModel();
+  if (!model.tickets.length) return out.concat(h("div", {cls: "panel"}, h("p", {cls: "muted"}, "No tickets in this logbook yet.")));
+  const epics = Array.isArray(book.epics) && book.epics.length ? book.epics : null;
+  if (epics) {
+    out.push(h("div", {cls: "panel", id: "epics-summary"},
+      h("h2", {}, "Epics"),
+      h("table", {},
+        h("tr", {}, ["Epic", "Title", "State", "Tickets"].map((c) => h("th", {}, c))),
+        epics.map((ep) => h("tr", {},
+          h("td", {cls: "mono"}, shown(ep.id)),
+          h("td", {}, shown(ep.title)),
+          h("td", {}, chip(shown(ep.state))),
+          h("td", {}, Array.isArray(ep.tickets) ? ep.tickets.map((id, i) => [i ? ", " : null, h("a", {href: "#ticket/" + encodeURIComponent(id)}, id)]) : "—"))))));
+  }
+  const byCol = {};
+  if (model.edges.length) {
+    for (const t of model.tickets) (byCol[model.depth[t.id] || 0] = byCol[model.depth[t.id] || 0] || []).push(t);
+  } else {
+    const groups = [...new Set(model.tickets.map((t) => String(t.epic || t.feature || "default")))];
+    for (const t of model.tickets) {
+      const col = groups.indexOf(String(t.epic || t.feature || "default"));
+      (byCol[col] = byCol[col] || []).push(t);
+    }
+  }
+  const cols = Object.keys(byCol).map(Number).sort((a, b) => a - b);
+  const maxRows = Math.max(1, ...cols.map((c) => byCol[c].length));
+  const nodeW = 190, nodeH = 58, gapX = 56, gapY = 20, pad = 20;
+  const W = Math.max(540, pad * 2 + cols.length * nodeW + Math.max(0, cols.length - 1) * gapX);
+  const H = Math.max(140, pad * 2 + maxRows * nodeH + Math.max(0, maxRows - 1) * gapY);
+  const pos = {};
+  cols.forEach((c, ci) => {
+    byCol[c].forEach((t, ri) => {
+      pos[t.id] = {x: pad + ci * (nodeW + gapX), y: pad + ri * (nodeH + gapY)};
+    });
+  });
+  const marker = svgEl("defs", {},
+    svgEl("marker", {id: "dag-arrow", viewBox: "0 0 10 10", refX: "9", refY: "5", markerWidth: "6", markerHeight: "6", orient: "auto-start-reverse"},
+      svgEl("path", {d: "M 0 1 L 10 5 L 0 9 z", fill: "var(--muted)"})));
+  const edgeEls = model.edges.map(([fromId, toId]) => {
+    const a = pos[fromId], b = pos[toId];
+    if (!a || !b) return null;
+    const x1 = a.x + nodeW, y1 = a.y + nodeH / 2, x2 = b.x, y2 = b.y + nodeH / 2;
+    const mx = (x1 + x2) / 2;
+    return svgEl("path", {cls: "dag-edge", d: "M" + x1 + " " + y1 + " C" + mx + " " + y1 + " " + mx + " " + y2 + " " + x2 + " " + y2,
+      "marker-end": "url(#dag-arrow)"});
+  }).filter(Boolean);
+  const nodeEls = model.tickets.map((t) => {
+    const p = pos[t.id], w = now(t), v = (t.outcome && t.outcome.verdict) || "";
+    const label = named(t).slice(0, 24);
+    const link = svgEl("a", {href: "#ticket/" + encodeURIComponent(t.id)});
+    const grp = svgEl("g", {cls: "dag-node", "data-ticket": t.id, "data-turn": w.turn, "data-verdict": v},
+      svgEl("rect", {x: p.x, y: p.y, width: nodeW, height: nodeH, rx: 8}),
+      svgEl("text", {x: p.x + 10, y: p.y + 22}, label),
+      svgEl("text", {cls: "dag-sub", x: p.x + 10, y: p.y + 42}, t.state + (t.epic || t.feature ? " · " + (t.epic || t.feature) : "")));
+    link.append(grp);
+    return link;
+  });
+  const svg = svgEl("svg", {id: "epics-dag", viewBox: "0 0 " + W + " " + H, role: "img", "aria-label": "Ticket dependency graph"}, marker, ...edgeEls, ...nodeEls);
+  out.push(h("div", {cls: "panel dag-wrap"}, h("h2", {}, "Dependency Graph"), svg));
+  out.push(h("div", {cls: "panel"},
+    h("h2", {}, "Dependency Matrix"),
+    h("table", {id: "epics-matrix"},
+      h("tr", {}, ["Ticket", "Epic / Feature", "State", "Depends on", "Blocks"].map((c) => h("th", {}, c))),
+      model.tickets.map((t) => h("tr", {},
+        h("td", {}, h("a", {href: "#ticket/" + encodeURIComponent(t.id)}, named(t))),
+        h("td", {}, shown(t.epic || t.feature)),
+        h("td", {}, t.state),
+        h("td", {cls: "mono"}, (model.depsOf[t.id] || []).length ? model.depsOf[t.id].map((id, i) => [i ? ", " : null, h("a", {href: "#ticket/" + encodeURIComponent(id)}, id)]) : "—"),
+        h("td", {cls: "mono"}, (model.blocksOf[t.id] || []).length ? model.blocksOf[t.id].map((id, i) => [i ? ", " : null, h("a", {href: "#ticket/" + encodeURIComponent(id)}, id)]) : "—"))))));
+  return out;
+}
+
+// --- ADR search (docs/adr/0059 §3 & docs/adr/0125) -------------------------
 // The ADRs are the logbook's, read from the project map: the page searches
 // and links them, it computes no relation of its own.
 function adrItems() { return book.adrs && Array.isArray(book.adrs.items) ? book.adrs.items : []; }
-function adrSearch(q) {
+function adrSearch(q, filter) {
   const text = q.trim();
-  if (!text) return adrItems();
-  const num = text.match(/^(?:adr\s*)?0*(\d{1,4})$/i);
-  const want = num ? num[1].padStart(4, "0") : null;
-  const words = text.toLowerCase().split(/\s+/);
-  const hits = [];
-  for (const a of adrItems()) {
-    const hay = (a.number + " " + a.title + " " + a.status + " " + a.text).toLowerCase();
-    const byNumber = a.number === want;
-    const byFile = a.files.some((f) => f === text || f.endsWith("/" + text) || (text.includes("/") && f.startsWith(text.replace(/\/$/, "") + "/")));
-    const byTitle = words.every((w) => a.title.toLowerCase().includes(w));
-    if (byNumber || byFile || words.every((w) => hay.includes(w)))
-      hits.push([byNumber ? 0 : byFile ? 1 : byTitle ? 2 : 3, a]);
-  }
-  return hits.sort((x, y) => x[0] - y[0] || x[1].number.localeCompare(y[1].number)).map(([, a]) => a);
+  const base = !text ? adrItems() : (() => {
+    const num = text.match(/^(?:adr\s*)?0*(\d{1,4})$/i);
+    const want = num ? num[1].padStart(4, "0") : null;
+    const words = text.toLowerCase().split(/\s+/);
+    const hits = [];
+    for (const a of adrItems()) {
+      const hay = (a.number + " " + a.title + " " + a.status + " " + a.text).toLowerCase();
+      const byNumber = a.number === want;
+      const byFile = a.files.some((f) => f === text || f.endsWith("/" + text) || (text.includes("/") && f.startsWith(text.replace(/\/$/, "") + "/")));
+      const byTitle = words.every((w) => a.title.toLowerCase().includes(w));
+      if (byNumber || byFile || words.every((w) => hay.includes(w)))
+        hits.push([byNumber ? 0 : byFile ? 1 : byTitle ? 2 : 3, a]);
+    }
+    return hits.sort((x, y) => x[0] - y[0] || x[1].number.localeCompare(y[1].number)).map(([, a]) => a);
+  })();
+  if (!filter || filter === "all") return base;
+  if (filter === "with-files") return base.filter((a) => Array.isArray(a.files) && a.files.length > 0);
+  if (filter === "with-tickets") return base.filter((a) => Array.isArray(a.tickets) && a.tickets.length > 0);
+  return base.filter((a) => String(a.status || "").toLowerCase().includes(filter));
 }
 function snippet(a, q) {
   const w = q.trim().toLowerCase().split(/\s+/)[0];
@@ -880,7 +1112,8 @@ function drawAdrs() {
   const area = document.getElementById("adr-results");
   if (!area) return;
   const q = route().query.q || "";
-  const found = adrSearch(q);
+  const f = route().query.f || "all";
+  const found = adrSearch(q, f);
   area.replaceChildren(h("p", {cls: "muted"}, found.length + " of " + adrItems().length + " ADRs"), ...found.map((a) => adrRow(a, q)));
 }
 function screenAdrs() {
@@ -889,17 +1122,32 @@ function screenAdrs() {
   if (unread(book.adrs)) return out.concat(h("div", {cls: "panel"}, err(book.adrs)));
   if (!book.adrs) return out.concat(h("div", {cls: "panel"}, h("p", {cls: "muted"}, "This logbook has no adrs (written before 1.2).")));
   const q = route().query.q || "";
+  const f = route().query.f || "all";
+  const filters = [["all", "All"], ["accepted", "Accepted"], ["proposed", "Proposed"], ["with-files", "With files"], ["with-tickets", "With tickets"]];
   out.push(h("div", {cls: "controls"},
     h("input", {type: "search", id: "adr-q", value: q, placeholder: "0055, kanban, proposed, core/spec.py", "aria-label": "Search the ADRs",
-      oninput: (e) => { history.replaceState(null, "", viewHash("adrs", {q: e.target.value}, ["q"])); drawAdrs(); }}),
-    h("span", {}, "map built at ", h("span", {cls: "mono"}, shown(book.adrs.map_sha).slice(0, 12)))),
+      oninput: (e) => { history.replaceState(null, "", viewHash("adrs", {q: e.target.value, f: route().query.f || ""}, ["q", "f"])); drawAdrs(); }}),
+    h("span", {}, "map built at ", h("span", {cls: "mono"}, shown(book.adrs.map_sha).slice(0, 12))),
+    h("div", {cls: "adr-filters", role: "group", "aria-label": "Filter ADRs"},
+      filters.map(([key, label]) => h("button", {type: "button", cls: "adr-chip-btn", "data-filter": key, "aria-pressed": String(f === key),
+        onclick: () => { history.replaceState(null, "", viewHash("adrs", {q: route().query.q || "", f: key === "all" ? "" : key}, ["q", "f"])); render(); }}, label)))),
     h("div", {cls: "panel", id: "adr-results"}));
   return out;
 }
 function screenAdr(n) {
   const a = adrItems().find((x) => x.number === n);
   if (!a) return [h("h1", {}, "ADR " + n), h("div", {cls: "panel"}, unread(book.adrs) ? err(book.adrs) : "This ADR is not in the project map.")];
+  const byTicket = Object.fromEntries(ticketsList().map((t) => [t.id, t]));
+  const sections = String(a.text || "").split("\n").filter((ln) => /^#{1,3}\s+/.test(ln));
   return [h("h1", {}, a.title), h("p", {cls: "lede"}, h("a", {href: "#adrs"}, "← every ADR"), " · ", h("code", {}, a.path)),
-    h("div", {cls: "panel"}, adrRow(a, "")), h("div", {cls: "panel"}, h("pre", {}, a.text))];
+    h("div", {cls: "panel"}, adrRow(a, "")),
+    h("div", {cls: "panel", id: "adr-link-explorer"},
+      h("h2", {}, "Link & Scope Inspector"),
+      dl([["Sections", sections.length ? sections.join(" · ") : "none"],
+        ["Governed files", Array.isArray(a.files) && a.files.length ? h("span", {cls: "mono"}, a.files.join(", ")) : "none"],
+        ["Linked tickets", Array.isArray(a.tickets) && a.tickets.length ? h("span", {}, a.tickets.map((id, i) => [i ? " · " : null,
+          byTicket[id] ? [h("a", {href: "#ticket/" + encodeURIComponent(id)}, named(byTicket[id])), " (", byTicket[id].state, ")"] : id])) : "none"],
+        ["Related ADRs", Array.isArray(a.adrs) && a.adrs.length ? h("span", {}, a.adrs.map((num, i) => [i ? ", " : null, h("a", {href: "#adr/" + encodeURIComponent(num)}, "ADR " + num)])) : "none"]])),
+    h("div", {cls: "panel"}, h("pre", {}, a.text))];
 }
 

@@ -2,10 +2,11 @@
 # SPDX-License-Identifier: Apache-2.0
 """console: the business client's view of the record (docs/adr/0047).
 
-    GET  /                   console/index.html, five screens
+    GET  /                   console/index.html, workstation views
     GET  /v1/logbook.json    the logbook, as core/logbook.sh wrote it, with an ETag
     GET  /v1/console.json    this console and this request: mode, auth, identity
     GET  /v1/events          SSE stream of logbook ETag and read-state updates (docs/adr/0124)
+    GET  /v1/charts.json     time-series metrics from CHARTS via core/console_ops.sh (docs/adr/0125)
     POST /v1/go-for-launch   the first write: core/promote.sh, as ./go promote runs it, with
                              the human's reason, required for a rollback (docs/adr/0079 §2)
     POST /v1/answer          the second: ./go answer's recipe (docs/adr/0055 §2)
@@ -13,6 +14,11 @@
     POST /v1/request         the third: the draft as TICKETS_DIR/<id>.md, then ./go request's recipe
     POST /v1/intake          the fourth: a client's words, then ./go intake's recipe (docs/adr/0090 §8)
     POST /v1/intake-confirm  the fifth: the decisions on a proposed intake, ./go intake-confirm's recipe
+    POST /v1/assign          assigns an opened ticket via `make assign TICKET=<id>` (docs/adr/0125)
+    POST /v1/resume          resumes a stranded ticket via `make resume TICKET=<id>` (docs/adr/0125)
+    POST /v1/watch-once      drains one orchestrator batch via `make watch ONCE=1` (docs/adr/0125)
+    POST /v1/rollback        emergency rollback via core/console_ops.sh (docs/adr/0125)
+    POST /v1/freeze          release-freeze toggle via core/console_ops.sh (docs/adr/0125)
 
 It reads one document, the logbook, and nothing behind it: the tower, the
 plane, the policy files and the project map reach it only through
@@ -43,6 +49,7 @@ import hashlib
 import json
 import os
 import pathlib
+import re
 import subprocess
 import sys
 import tempfile
@@ -74,6 +81,9 @@ LOOPBACK = ("127.0.0.1", "::1", "localhost")
 # request's several criteria; the check reads one file, no network.
 DRAFT_MAX = 16384
 CHECK_TIMEOUT_S = 10
+OPS_TIMEOUT_S = 30
+MAX_REASON_LEN = 512
+TICKET_ID = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$")
 
 
 def refuse(line):
@@ -215,6 +225,20 @@ def may_launch(who):
     return True, None
 
 
+def _ticket_resumable(ticket_obj):
+    """True when the logbook shows a stranded or failed-step ticket."""
+    if not isinstance(ticket_obj, dict):
+        return False
+    outcome = ticket_obj.get("outcome")
+    if isinstance(outcome, dict) and outcome.get("verdict") == "stranded":
+        return True
+    if ticket_obj.get("stranded"):
+        return True
+    history = ticket_obj.get("history") or []
+    last = history[-1] if history and isinstance(history[-1], dict) else {}
+    return bool(last.get("error"))
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = "lights-out-console"
 
@@ -296,12 +320,25 @@ class Handler(BaseHTTPRequestHandler):
                 "read_error": state["read_error"],
                 "snapshot": CFG.snapshot or None,
             })
+        if path == "/v1/charts.json":
+            return self.charts()
         self.send(404, {"error": "not found"})
 
     def do_POST(self):
         route = self.path.split("?")[0]
-        if route not in ("/v1/go-for-launch", "/v1/answer", "/v1/spec-check", "/v1/request", "/v1/intake",
-                         "/v1/intake-confirm"):
+        if route not in (
+            "/v1/go-for-launch",
+            "/v1/answer",
+            "/v1/spec-check",
+            "/v1/request",
+            "/v1/intake",
+            "/v1/intake-confirm",
+            "/v1/assign",
+            "/v1/resume",
+            "/v1/watch-once",
+            "/v1/rollback",
+            "/v1/freeze",
+        ):
             return self.send(404, {"error": "not found"})
         who, err = identity(self.headers)
         if err:
@@ -320,6 +357,16 @@ class Handler(BaseHTTPRequestHandler):
             return self.intake(who)
         if route == "/v1/intake-confirm":
             return self.confirm(who)
+        if route == "/v1/assign":
+            return self.assign_ticket()
+        if route == "/v1/resume":
+            return self.resume_ticket()
+        if route == "/v1/watch-once":
+            return self.watch_once()
+        if route == "/v1/rollback":
+            return self.ops_rollback(who)
+        if route == "/v1/freeze":
+            return self.ops_freeze(who)
         can, reason = may_launch(who)
         if not can:
             return self.send(403, {"error": reason})
@@ -454,6 +501,182 @@ class Handler(BaseHTTPRequestHandler):
         line = p.stdout.strip().splitlines()[-1] if p.stdout.strip() else f"{' '.join(argv)} exit {p.returncode}"
         read_once(self.server.logbook_file)
         return line, p.returncode
+
+    def read_json_body(self, limit=DRAFT_MAX):
+        try:
+            length = int(self.headers.get("Content-Length") or "0")
+        except ValueError:
+            return None, "invalid Content-Length"
+        if length <= 0 or length > limit:
+            return None, f"the body must be a JSON object of 1..{limit} bytes"
+        try:
+            data = json.loads(self.rfile.read(length))
+        except ValueError:
+            return None, "the body is not valid JSON"
+        if not isinstance(data, dict):
+            return None, "the body must be a JSON object"
+        return data, None
+
+    def run_ops(self, argv):
+        """Run control-plane ops wrapper cleanly and refresh logbook state."""
+        try:
+            p = subprocess.run(
+                argv,
+                cwd=ROOT,
+                env=os.environ.copy(),
+                stdin=subprocess.DEVNULL,
+                capture_output=True,
+                text=True,
+                timeout=OPS_TIMEOUT_S,
+            )
+        except subprocess.TimeoutExpired:
+            return f"core/console_ops.sh timed out after {OPS_TIMEOUT_S}s", 124
+        sys.stderr.write(p.stderr)
+        line = p.stdout.strip().splitlines()[-1] if p.stdout.strip() else f"core/console_ops.sh exit {p.returncode}"
+        read_once(self.server.logbook_file)
+        return line, p.returncode
+
+    def charts(self):
+        """Time-series metrics endpoint (docs/adr/0125 §2)."""
+        if CFG.snapshot:
+            return self.send(200, {"ok": False, "error": "snapshot mode: no live charts"})
+        try:
+            p = subprocess.run(
+                ["sh", "core/console_ops.sh", "charts"],
+                cwd=ROOT,
+                env=os.environ.copy(),
+                stdin=subprocess.DEVNULL,
+                capture_output=True,
+                text=True,
+                timeout=OPS_TIMEOUT_S,
+            )
+        except subprocess.TimeoutExpired:
+            return self.send(504, {"ok": False, "error": f"core/console_ops.sh charts timed out after {OPS_TIMEOUT_S}s"})
+        sys.stderr.write(p.stderr)
+        try:
+            payload = json.loads(p.stdout)
+        except ValueError:
+            return self.send(502, {"ok": False, "error": "core/console_ops.sh charts returned invalid JSON"})
+        if not isinstance(payload, dict):
+            return self.send(502, {"ok": False, "error": "core/console_ops.sh charts returned non-object JSON"})
+        return self.send(200, payload)
+
+    def _reject_unavailable_write(self, action):
+        if CFG.auth == "public":
+            return 403, f"CONSOLE_AUTH=public: {action} is disabled"
+        if CFG.snapshot:
+            return 403, f"snapshot: no tower behind it, cannot {action}"
+        return None, None
+
+    def assign_ticket(self):
+        code, msg = self._reject_unavailable_write("assign")
+        if code:
+            return self.send(code, {"error": msg})
+        body, err = self.read_json_body()
+        if err:
+            return self.send(400, {"error": err})
+        ticket = body.get("ticket")
+        if not isinstance(ticket, str) or not TICKET_ID.fullmatch(ticket):
+            return self.send(400, {"error": "the body must be {ticket: <id>}"})
+        if not press.acquire(blocking=False):
+            return self.send(409, {"error": "another press is running"})
+        try:
+            read_once(self.server.logbook_file)
+            tickets = (state["book"] or {}).get("tickets")
+            t = next((x for x in tickets if isinstance(x, dict) and x.get("id") == ticket), None) \
+                if isinstance(tickets, list) else None
+            if not t or t.get("state") != "opened":
+                return self.send(409, {"error": f"ticket {ticket} is not opened; nothing assigned"})
+            line, rc = self.run_make(["make", "--no-print-directory", "assign", f"TICKET={ticket}"], os.environ.copy())
+            return self.send(200, {"ticket": ticket, "line": line, "exit": rc})
+        finally:
+            press.release()
+
+    def resume_ticket(self):
+        code, msg = self._reject_unavailable_write("resume")
+        if code:
+            return self.send(code, {"error": msg})
+        body, err = self.read_json_body()
+        if err:
+            return self.send(400, {"error": err})
+        ticket = body.get("ticket")
+        if not isinstance(ticket, str) or not TICKET_ID.fullmatch(ticket):
+            return self.send(400, {"error": "the body must be {ticket: <id>}"})
+        if not press.acquire(blocking=False):
+            return self.send(409, {"error": "another press is running"})
+        try:
+            read_once(self.server.logbook_file)
+            tickets = (state["book"] or {}).get("tickets")
+            t = next((x for x in tickets if isinstance(x, dict) and x.get("id") == ticket), None) \
+                if isinstance(tickets, list) else None
+            if not _ticket_resumable(t):
+                return self.send(409, {"error": f"ticket {ticket} is not stranded or failed; nothing resumed"})
+            line, rc = self.run_make(["make", "--no-print-directory", "resume", f"TICKET={ticket}"], os.environ.copy())
+            return self.send(200, {"ticket": ticket, "line": line, "exit": rc})
+        finally:
+            press.release()
+
+    def watch_once(self):
+        code, msg = self._reject_unavailable_write("watch")
+        if code:
+            return self.send(code, {"error": msg})
+        body, err = self.read_json_body()
+        if err or body is None:
+            return self.send(400, {"error": err or "the body must be {}"})
+        if not press.acquire(blocking=False):
+            return self.send(409, {"error": "another press is running"})
+        try:
+            line, rc = self.run_make(["make", "--no-print-directory", "watch", "ONCE=1"], os.environ.copy())
+            return self.send(200, {"line": line, "exit": rc})
+        finally:
+            press.release()
+
+    def ops_rollback(self, who):
+        code, msg = self._reject_unavailable_write("rollback")
+        if code:
+            return self.send(code, {"error": msg})
+        can, denied = may_launch(who)
+        if not can:
+            return self.send(403, {"error": denied})
+        body, err = self.read_json_body()
+        if err:
+            return self.send(400, {"error": err})
+        raw_reason = body.get("reason")
+        reason = " ".join(raw_reason.split()) if isinstance(raw_reason, str) else ""
+        if not reason or len(reason) > MAX_REASON_LEN:
+            return self.send(400, {"error": f"reason must be a non-empty string of at most {MAX_REASON_LEN} characters"})
+        if not press.acquire(blocking=False):
+            return self.send(409, {"error": "another press is running"})
+        try:
+            line, rc = self.run_ops(["sh", "core/console_ops.sh", "rollback", "--reason", reason, "--by", who])
+            return self.send(200, {"line": line, "exit": rc})
+        finally:
+            press.release()
+
+    def ops_freeze(self, who):
+        code, msg = self._reject_unavailable_write("freeze")
+        if code:
+            return self.send(code, {"error": msg})
+        can, denied = may_launch(who)
+        if not can:
+            return self.send(403, {"error": denied})
+        body, err = self.read_json_body()
+        if err:
+            return self.send(400, {"error": err})
+        st = body.get("state")
+        if st not in ("on", "off"):
+            return self.send(400, {"error": "state must be 'on' or 'off'"})
+        raw_reason = body.get("reason")
+        reason = " ".join(raw_reason.split()) if isinstance(raw_reason, str) else ""
+        if not reason or len(reason) > MAX_REASON_LEN:
+            return self.send(400, {"error": f"reason must be a non-empty string of at most {MAX_REASON_LEN} characters"})
+        if not press.acquire(blocking=False):
+            return self.send(409, {"error": "another press is running"})
+        try:
+            line, rc = self.run_ops(["sh", "core/console_ops.sh", "freeze", "--state", st, "--reason", reason, "--by", who])
+            return self.send(200, {"state": st, "line": line, "exit": rc})
+        finally:
+            press.release()
 
     def intake(self, who):
         """A client's words (docs/adr/0090 §8): `make intake` with the text as

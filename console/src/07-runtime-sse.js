@@ -44,11 +44,12 @@ function render() {
   header();
   const {screen, arg} = route();
   for (const a of document.querySelectorAll("nav a")) a.classList.toggle("on", a.dataset.s === screen ||
-    ((screen === "ticket" || screen === "intake") && a.dataset.s === "kanban") || (screen === "adr" && a.dataset.s === "adrs") || (screen === "agents" && a.dataset.s === "thresholds"));
+    ((screen === "ticket" || screen === "intake") && a.dataset.s === "kanban") || (screen === "adr" && a.dataset.s === "adrs") || (screen === "agents" && a.dataset.s === "thresholds") || (screen === "dag" && a.dataset.s === "epics"));
   let body;
   if (screen !== "hive") stopHivePlay();
   if (screen === "ticket") body = screenTicket(arg);
   else if (screen === "hive") body = screenHive();
+  else if (screen === "epics" || screen === "dag") body = screenEpics();
   else if (screen === "intake") body = screenIntake(arg);
   else if (screen === "incidents") body = screenIncidents();
   else if (screen === "launch") body = screenLaunch();
@@ -64,12 +65,13 @@ function render() {
   const banners = [];
   if (con.read_error) banners.push(h("div", {cls: "banner err"}, "Stale: the last read failed (" + con.read_error + "); showing the last good logbook."));
   const mark = focusMark();
-  main.classList.toggle("wide", screen === "kanban" || screen === "network");
+  main.classList.toggle("wide", screen === "kanban" || screen === "network" || screen === "epics" || screen === "dag");
   if (screen !== "kanban") showBack(null);
   main.replaceChildren(...banners, ...body.filter(Boolean));
   if (screen === "kanban") drawBoard();
   if (screen === "adrs") drawAdrs();
   if (screen === "request") { showCheck(); if (!lastCheck && draftFields.title) scheduleCheck(); }
+  if (screen === "launch" && con && con.mode === "live" && !liveCharts && !liveChartsLoading) fetchLiveCharts(false);
   refocus(mark);
 }
 // The logbook is fetched with its ETag: an unchanged one costs no body and
@@ -176,7 +178,157 @@ async function tick() {
     ticking = false;
   }
 }
+
+// --- Cmd+K / Ctrl+K command palette (docs/adr/0125 §3) ---------------------
+let cmdOpener = null, cmdSelected = 0;
+function cmdPaletteEntries() {
+  const items = [];
+  const screens = [
+    ["Overview", "#overview", "screen home your turn"],
+    ["Hive Control Center", "#hive", "screen agents roles wizard"],
+    ["Epics & Dependency DAG", "#epics", "screen dag graph depends_on"],
+    ["Kanban Board", "#kanban", "screen cards board"],
+    ["Network Inspector", "#network", "screen gates patch diff"],
+    ["This week's tickets", "#tickets", "screen list"],
+    ["Specs", "#specs", "screen criteria"],
+    ["New request", "#request", "screen draft"],
+    ["ADRs Explorer", "#adrs", "screen architecture decisions"],
+    ["Incidents & post mortems", "#incidents", "screen postmortem"],
+    ["Go-for-launch & Live Charts", "#launch", "screen canary release charts"],
+    ["Thresholds", "#thresholds", "screen policy provenance"],
+    ["Agents", "#agents", "screen roles"],
+  ];
+  for (const [label, hash, kw] of screens) {
+    items.push({group: "Screen", label: label, meta: hash, search: (label + " " + kw + " " + hash).toLowerCase(),
+      disabled: false, run: () => { location.hash = hash; if (typeof render === "function") render(); }});
+  }
+  const perms = opsPermissions();
+  items.push({group: "Action", label: "Watch once (make watch ONCE=1)", meta: "POST", search: "action watch once runner tower",
+    disabled: !perms.canOps, run: () => { watchOnce(); }});
+  items.push({group: "Action", label: "Freeze releases (set release-freeze on)", meta: "POST", search: "action freeze release flag on",
+    disabled: !perms.canPrivileged, run: () => { openOpsDialog("freeze", {state: "on"}, cmdOpener); }});
+  items.push({group: "Action", label: "Unfreeze releases (set release-freeze off)", meta: "POST", search: "action unfreeze release flag off",
+    disabled: !perms.canPrivileged, run: () => { openOpsDialog("freeze", {state: "off"}, cmdOpener); }});
+  items.push({group: "Action", label: "Emergency rollback", meta: "POST", search: "action rollback kill switch emergency",
+    disabled: !perms.canPrivileged, run: () => { openOpsDialog("rollback", {}, cmdOpener); }});
+
+  if (book) {
+    for (const t of ticketsList()) {
+      const name = named(t);
+      const id = String(t.id || "");
+      items.push({group: "Ticket", label: name, meta: t.state || "", search: ("ticket " + id + " " + name + " " + (t.state || "") + " " + (t.feature || "")).toLowerCase(),
+        disabled: false, run: () => { location.hash = "#ticket/" + encodeURIComponent(id); if (typeof render === "function") render(); }});
+      if (t.state === "opened") {
+        items.push({group: "Action", label: "Assign ticket " + id, meta: "opened", search: ("assign " + id + " " + name).toLowerCase(),
+          disabled: !perms.canOps, run: () => { assignTicket(id); }});
+      }
+      if (isResumableTicket(t)) {
+        items.push({group: "Action", label: "Resume stranded ticket " + id, meta: "resume", search: ("resume stranded " + id + " " + name).toLowerCase(),
+          disabled: !perms.canOps, run: () => { resumeTicket(id); }});
+      }
+    }
+    for (const a of adrItems()) {
+      items.push({group: "ADR", label: a.title || ("ADR " + a.number), meta: a.status || a.number,
+        search: ("adr " + a.number + " " + (a.title || "") + " " + (a.status || "") + " " + (a.files || []).join(" ")).toLowerCase(),
+        disabled: false, run: () => { location.hash = "#adr/" + encodeURIComponent(a.number); if (typeof render === "function") render(); }});
+    }
+    for (const k of (Array.isArray(book.intakes) ? book.intakes : [])) {
+      items.push({group: "Intake", label: "Intake " + k.id, meta: k.state || "",
+        search: ("intake " + k.id + " " + (k.state || "")).toLowerCase(),
+        disabled: false, run: () => { location.hash = "#intake/" + encodeURIComponent(k.id); if (typeof render === "function") render(); }});
+    }
+  }
+  return items;
+}
+function filterCmdPalette(q) {
+  const words = String(q || "").trim().toLowerCase().split(/\s+/).filter(Boolean);
+  const all = cmdPaletteEntries();
+  if (!words.length) return all.slice(0, CMD_PALETTE_MAX_RESULTS);
+  return all.filter((it) => words.every((w) => it.search.includes(w))).slice(0, CMD_PALETTE_MAX_RESULTS);
+}
+function closeCmdPalette() {
+  const d = document.getElementById("cmd-palette");
+  if (!d) return;
+  if (d.open && typeof d.close === "function") d.close(); else d.open = false;
+  d.replaceChildren();
+  const back = cmdOpener;
+  cmdOpener = null;
+  if (back && back.isConnected && typeof back.focus === "function") back.focus();
+}
+function openCmdPalette(opener) {
+  const d = document.getElementById("cmd-palette");
+  if (!d) return;
+  cmdOpener = opener || null;
+  cmdSelected = 0;
+  let matches = filterCmdPalette("");
+  const input = h("input", {type: "search", id: "cmd-k-input", cls: "cmd-search",
+    placeholder: "Jump to screen, ticket, ADR, intake, or operator action…", "aria-label": "Filter commands"});
+  const list = h("ul", {cls: "cmd-results", id: "cmd-k-results", role: "listbox"});
+  function drawList() {
+    if (cmdSelected >= matches.length) cmdSelected = Math.max(0, matches.length - 1);
+    if (!matches.length) {
+      list.replaceChildren(h("li", {cls: "muted", style: "padding:8px"}, "No matching screen, ticket, ADR, or action."));
+      return;
+    }
+    list.replaceChildren(...matches.map((it, idx) => h("li", {},
+      h("button", {type: "button", cls: "cmd-item-btn", role: "option", "data-idx": String(idx),
+        "aria-selected": String(idx === cmdSelected), disabled: it.disabled,
+        onclick: () => { if (it.disabled) return; closeCmdPalette(); it.run(); }},
+        h("span", {}, h("span", {cls: "cmd-group"}, it.group), " ", it.label),
+        h("span", {cls: "muted mono"}, it.disabled ? "disabled" : it.meta)))));
+  }
+  input.addEventListener("input", () => {
+    matches = filterCmdPalette(input.value);
+    cmdSelected = 0;
+    drawList();
+  });
+  input.addEventListener("keydown", (e) => {
+    if (e.isComposing || e.keyCode === 229) return;
+    if (e.key === "ArrowDown" && matches.length) {
+      e.preventDefault();
+      cmdSelected = (cmdSelected + 1) % matches.length;
+      drawList();
+    } else if (e.key === "ArrowUp" && matches.length) {
+      e.preventDefault();
+      cmdSelected = (cmdSelected - 1 + matches.length) % matches.length;
+      drawList();
+    } else if (e.key === "Enter" && matches.length) {
+      e.preventDefault();
+      const chosen = matches[cmdSelected];
+      if (chosen && !chosen.disabled) { closeCmdPalette(); chosen.run(); }
+    }
+  });
+  drawList();
+  d.replaceChildren(
+    h("div", {cls: "back-top"},
+      h("h2", {id: "cmd-palette-title", style: "flex:1;margin:0"}, "Command Palette"),
+      h("button", {type: "button", cls: "close", onclick: closeCmdPalette}, "Close (Esc)")),
+    input,
+    list);
+  if (!d.open) { if (typeof d.showModal === "function") d.showModal(); else d.open = true; }
+  input.focus();
+}
+(function () {
+  const btn = document.getElementById("cmd-k-btn");
+  if (btn && typeof btn.addEventListener === "function") {
+    btn.addEventListener("click", (e) => openCmdPalette(e.currentTarget));
+  }
+  const d = document.getElementById("cmd-palette");
+  if (d && typeof d.addEventListener === "function") {
+    d.addEventListener("cancel", (e) => { if (typeof e.preventDefault === "function") e.preventDefault(); closeCmdPalette(); });
+    if (!(typeof HTMLDialogElement !== "undefined" && HTMLDialogElement.prototype && "closedBy" in HTMLDialogElement.prototype)) {
+      d.addEventListener("click", (e) => { if (e.target === d) closeCmdPalette(); });
+    }
+  }
+})();
 window.addEventListener("hashchange", () => { render(); });
+window.addEventListener("keydown", (e) => {
+  if (e.isComposing || e.keyCode === 229) return;
+  if ((e.metaKey || e.ctrlKey) && !e.altKey && String(e.key || "").toLowerCase() === "k") {
+    e.preventDefault();
+    openCmdPalette(document.activeElement);
+  }
+});
 window.addEventListener("pagehide", stopEventStream);
 load().then(() => { render(); syncEventStream(); });
 // A replay holds the poll: it sends no request until it ends (docs/adr/0071 §3).

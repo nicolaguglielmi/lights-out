@@ -14,6 +14,7 @@
     <span class="brand">lights-out console</span>
     <span class="meta" id="who">reading…</span>
     <span class="meta" id="fresh"></span>
+    <button type="button" id="cmd-k-btn" class="cmd-k-btn" aria-haspopup="dialog" aria-keyshortcuts="Meta+k Control+k" title="Command Palette (Cmd+K / Ctrl+K)">Commands <kbd>Cmd+K</kbd></button>
     <label class="meta theme">Theme <select id="theme" aria-label="Theme">
       <option value="system">system</option><option value="light">light</option><option value="dark">dark</option>
     </select></label>
@@ -21,6 +22,7 @@
   <nav id="nav">
     <a href="#overview" data-s="overview">Overview</a>
     <a href="#hive" data-s="hive">Hive</a>
+    <a href="#epics" data-s="epics">Epics</a>
     <a href="#kanban" data-s="kanban">Kanban</a>
     <a href="#network" data-s="network">Network</a>
     <a href="#tickets" data-s="tickets">This week's tickets</a>
@@ -42,6 +44,10 @@
 <dialog id="launch-confirm" aria-labelledby="lc-title"></dialog>
 <!-- Interactive onboarding command generator (docs/adr/0111): uses native buttons, never stores secrets. -->
 <dialog id="onboard-wizard" closedby="any" aria-labelledby="wizard-title"></dialog>
+<!-- Command Palette (docs/adr/0125): keyboard-first jump across screens, tickets, ADRs, and operator actions. -->
+<dialog id="cmd-palette" closedby="any" aria-labelledby="cmd-palette-title"></dialog>
+<!-- Operator confirmation dialog (docs/adr/0125): reason-audited emergency rollback and release-freeze actions. -->
+<dialog id="ops-dialog" closedby="any" aria-labelledby="ops-dialog-title"></dialog>
 <div id="announce" aria-live="polite"></div>
 <!-- The tower's transition table, as board/index.html embeds it (docs/adr/
      0035), with who runs each step and the bands the columns sit under

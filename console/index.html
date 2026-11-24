@@ -500,6 +500,59 @@ dialog#onboard-wizard::backdrop { background: var(--scrim); }
 .wiz-field .muted { font-size: 12px; }
 dialog#onboard-wizard select, dialog#onboard-wizard input[type="text"] { width: 100%; min-height: 36px; padding: 6px 8px; }
 #wizard-output { max-height: 280px; overflow: auto; }
+/* Control-Plane Web Workstation (docs/adr/0125). */
+.cmd-k-btn { min-height: 28px; padding: 3px 10px; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--ink); font-size: 13px; display: inline-flex; align-items: center; gap: 6px; cursor: pointer; }
+.cmd-k-btn:hover { border-color: var(--accent); color: var(--accent); }
+.cmd-k-btn kbd { font: 600 11px ui-monospace, SFMono-Regular, Menlo, monospace; padding: 1px 5px; border: 1px solid var(--line); border-radius: 4px; background: var(--panel); color: var(--muted); }
+dialog#cmd-palette, dialog#ops-dialog { padding: 16px 20px; border: 0; border-radius: 12px; width: min(680px, calc(100vw - 32px)); max-height: calc(100vh - 48px); background: var(--panel); color: var(--ink); box-shadow: 0 12px 40px var(--shadow); overflow-y: auto; }
+dialog#cmd-palette::backdrop, dialog#ops-dialog::backdrop { background: var(--scrim); }
+@media (max-width: 720px) {
+  dialog#cmd-palette, dialog#ops-dialog { width: 100%; height: 100%; max-width: 100%; max-height: 100%; margin: 0; border-radius: 0; }
+}
+.cmd-search { width: 100%; min-height: 40px; padding: 8px 12px; margin: 10px 0; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); color: var(--ink); font-size: 15px; }
+.cmd-results { list-style: none; margin: 0; padding: 0; max-height: 360px; overflow-y: auto; display: flex; flex-direction: column; gap: 4px; }
+.cmd-item-btn { width: 100%; text-align: left; min-height: 38px; padding: 8px 10px; border: 1px solid transparent; border-radius: 8px; background: transparent; color: var(--ink); display: flex; align-items: center; justify-content: space-between; gap: 10px; cursor: pointer; }
+.cmd-item-btn:hover, .cmd-item-btn[aria-selected="true"] { background: var(--bg); border-color: var(--accent); }
+.cmd-item-btn[disabled] { opacity: .55; cursor: not-allowed; }
+.cmd-group { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); }
+.ops-bar { display: flex; flex-direction: column; gap: 10px; }
+.ops-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.ops-actions button { min-height: 36px; padding: 6px 12px; font-size: 13px; cursor: pointer; }
+.ops-actions button.go { background: var(--go); color: var(--panel); border-color: transparent; }
+.ops-actions button.nogo { background: var(--nogo); color: var(--panel); border-color: transparent; }
+.ops-actions button.warn { background: var(--wait-bg); color: var(--wait); border-color: var(--wait); }
+.ops-reason-input { width: 100%; min-height: 38px; padding: 8px 10px; margin: 8px 0; border: 1px solid var(--line); border-radius: 6px; background: var(--bg); color: var(--ink); }
+.dag-wrap { overflow-x: auto; }
+#epics-dag { display: block; width: 100%; min-width: 540px; height: auto; }
+@media (min-width: 721px) { #epics-dag { min-width: 0; } }
+#epics-dag text { font: 600 12px system-ui, -apple-system, "Segoe UI", sans-serif; fill: var(--ink); }
+#epics-dag .dag-sub { font: 400 10.5px ui-monospace, SFMono-Regular, Menlo, monospace; fill: var(--muted); }
+#epics-dag .dag-node rect { fill: var(--panel); stroke: var(--line); stroke-width: 1.75; }
+#epics-dag .dag-node[data-turn="you"] rect { stroke: var(--accent); stroke-width: 2.25; }
+#epics-dag .dag-node[data-turn="done"] rect { fill: var(--go-bg); stroke: var(--go); }
+#epics-dag .dag-node[data-turn="stopped"] rect { fill: var(--wait-bg); stroke: var(--wait); }
+#epics-dag .dag-node[data-verdict="NO-GO"] rect,
+#epics-dag .dag-node[data-verdict="stranded"] rect { fill: var(--nogo-bg); stroke: var(--nogo); }
+#epics-dag .dag-edge { fill: none; stroke: var(--muted); stroke-width: 1.5; }
+pre.diff-view { margin: 8px 0 0; padding: 10px 12px; border: 1px solid var(--line); border-radius: 8px; background: var(--bg); overflow-x: auto; font: 12.5px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; }
+.diff-line { display: inline-block; min-width: 100%; }
+.diff-add { background: var(--go-bg); color: var(--go); }
+.diff-del { background: var(--nogo-bg); color: var(--nogo); }
+.diff-hunk { color: var(--accent); font-weight: 600; }
+.diff-meta { color: var(--muted); font-weight: 600; }
+.charts-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px; }
+.chart-card { border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; background: var(--bg); }
+svg.slo-chart, svg.ts-chart { display: block; width: 100%; height: auto; }
+svg.slo-chart text, svg.ts-chart text { font: 11px system-ui, -apple-system, "Segoe UI", sans-serif; fill: var(--muted); }
+.adr-filters { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 0; }
+.adr-chip-btn { min-height: 30px; padding: 4px 10px; border: 1px solid var(--line); border-radius: 999px; background: var(--bg); color: var(--ink); font-size: 12.5px; cursor: pointer; }
+.adr-chip-btn[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); background: var(--panel); font-weight: 700; }
+@media (prefers-reduced-motion: reduce) {
+  .cmd-k-btn, .cmd-item-btn, .ops-actions button, .adr-chip-btn { transition: none; }
+}
+@media (forced-colors: active) {
+  .cmd-item-btn[aria-selected="true"], .adr-chip-btn[aria-pressed="true"] { outline: 2px solid Highlight; }
+}
 </style>
 <script>
 // The theme before the first paint (docs/adr/0059 §2): the browser's choice,
@@ -517,6 +570,7 @@ dialog#onboard-wizard select, dialog#onboard-wizard input[type="text"] { width: 
     <span class="brand">lights-out console</span>
     <span class="meta" id="who">reading…</span>
     <span class="meta" id="fresh"></span>
+    <button type="button" id="cmd-k-btn" class="cmd-k-btn" aria-haspopup="dialog" aria-keyshortcuts="Meta+k Control+k" title="Command Palette (Cmd+K / Ctrl+K)">Commands <kbd>Cmd+K</kbd></button>
     <label class="meta theme">Theme <select id="theme" aria-label="Theme">
       <option value="system">system</option><option value="light">light</option><option value="dark">dark</option>
     </select></label>
@@ -524,6 +578,7 @@ dialog#onboard-wizard select, dialog#onboard-wizard input[type="text"] { width: 
   <nav id="nav">
     <a href="#overview" data-s="overview">Overview</a>
     <a href="#hive" data-s="hive">Hive</a>
+    <a href="#epics" data-s="epics">Epics</a>
     <a href="#kanban" data-s="kanban">Kanban</a>
     <a href="#network" data-s="network">Network</a>
     <a href="#tickets" data-s="tickets">This week's tickets</a>
@@ -545,6 +600,10 @@ dialog#onboard-wizard select, dialog#onboard-wizard input[type="text"] { width: 
 <dialog id="launch-confirm" aria-labelledby="lc-title"></dialog>
 <!-- Interactive onboarding command generator (docs/adr/0111): uses native buttons, never stores secrets. -->
 <dialog id="onboard-wizard" closedby="any" aria-labelledby="wizard-title"></dialog>
+<!-- Command Palette (docs/adr/0125): keyboard-first jump across screens, tickets, ADRs, and operator actions. -->
+<dialog id="cmd-palette" closedby="any" aria-labelledby="cmd-palette-title"></dialog>
+<!-- Operator confirmation dialog (docs/adr/0125): reason-audited emergency rollback and release-freeze actions. -->
+<dialog id="ops-dialog" closedby="any" aria-labelledby="ops-dialog-title"></dialog>
 <div id="announce" aria-live="polite"></div>
 <!-- The tower's transition table, as board/index.html embeds it (docs/adr/
      0035), with who runs each step and the bands the columns sit under
@@ -982,6 +1041,238 @@ function flowDetail(t, id) {
         n.line ? h("span", {cls: "flow-why", id: pre + i, role: "tooltip"}, n.line) : null);
     }));
 }
+
+// --- workstation ops, diff highlighter & gate/mutant helpers (docs/adr/0125) ---
+const CMD_PALETTE_MAX_RESULTS = 40;
+const DIFF_RENDER_MAX_LINES = 2000;
+const OPS_REASON_MAX_LEN = 512;
+let opsNotice = null;
+let liveCharts = null, liveChartsLoading = false;
+
+function announceMsg(msg) {
+  const ann = document.getElementById("announce");
+  if (ann) ann.textContent = String(msg || "");
+}
+function isResumableTicket(t) {
+  if (!t || typeof t !== "object") return false;
+  if (t.outcome && t.outcome.verdict === "stranded") return true;
+  if (t.stranded) return true;
+  const hist = Array.isArray(t.history) ? t.history : [];
+  const last = hist.length ? hist[hist.length - 1] : null;
+  return Boolean(last && last.error);
+}
+function opsPermissions() {
+  const mode = con && con.mode;
+  const auth = con && con.auth;
+  const isLive = Boolean(mode === "live" && auth !== "public");
+  const reason = mode !== "live" ? "Snapshot mode: operator actions disabled."
+    : auth === "public" ? "Public mode: operator actions disabled."
+    : !con.can_launch ? (con.reason || "Launch privilege required for rollback or freeze.")
+    : busy ? "Another operator command is running." : null;
+  return {
+    isLive: isLive,
+    canOps: isLive && !busy,
+    canPrivileged: Boolean(isLive && con.can_launch && !busy),
+    reason: reason,
+  };
+}
+async function _runOpsFetch(label, runFetch) {
+  if (busy || !opsPermissions().isLive) return null;
+  busy = true;
+  if (typeof render === "function") render();
+  try {
+    const r = await runFetch();
+    const body = await r.json().catch(() => ({}));
+    const ok = Boolean(r.ok && (body.exit === 0 || body.exit === undefined));
+    const line = body.line || body.error || r.statusText || (label + " finished");
+    opsNotice = {action: label, ok: ok, line: line, at: new Date().toISOString()};
+    announceMsg(line);
+    if (con && con.mode === "live" && typeof load === "function") await load();
+    return opsNotice;
+  } catch (e) {
+    const msg = label + " failed: " + e;
+    opsNotice = {action: label, ok: false, line: msg, at: new Date().toISOString()};
+    announceMsg(msg);
+    return opsNotice;
+  } finally {
+    busy = false;
+    if (typeof render === "function") render();
+  }
+}
+function assignTicket(ticketId) {
+  return _runOpsFetch("assign " + ticketId, () =>
+    fetch("/v1/assign", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({ticket: ticketId})}));
+}
+function resumeTicket(ticketId) {
+  return _runOpsFetch("resume " + ticketId, () =>
+    fetch("/v1/resume", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({ticket: ticketId})}));
+}
+function watchOnce() {
+  return _runOpsFetch("watch-once", () =>
+    fetch("/v1/watch-once", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({})}));
+}
+function rollbackRelease(reason) {
+  return _runOpsFetch("rollback", () =>
+    fetch("/v1/rollback", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({reason: reason})}));
+}
+function toggleFreeze(state, reason) {
+  return _runOpsFetch("freeze " + state, () =>
+    fetch("/v1/freeze", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({state: state, reason: reason})}));
+}
+async function fetchLiveCharts(force) {
+  if (!con || con.mode !== "live") return null;
+  if (liveChartsLoading && !force) return liveCharts;
+  liveChartsLoading = true;
+  try {
+    const r = await fetch("/v1/charts.json");
+    const body = await r.json().catch(() => ({ok: false, error: "invalid charts response"}));
+    liveCharts = body && typeof body === "object" ? body : {ok: false, error: "empty charts payload"};
+  } catch (e) {
+    liveCharts = {ok: false, error: "failed to load live charts: " + e};
+  } finally {
+    liveChartsLoading = false;
+    if (typeof render === "function") render();
+  }
+  return liveCharts;
+}
+let opsOpener = null;
+function closeOpsDialog() {
+  const d = document.getElementById("ops-dialog");
+  if (!d) return;
+  if (d.open && typeof d.close === "function") d.close(); else d.open = false;
+  d.replaceChildren();
+  const back = opsOpener;
+  opsOpener = null;
+  if (back && back.isConnected && typeof back.focus === "function") back.focus();
+}
+function openOpsDialog(kind, opts, opener) {
+  const d = document.getElementById("ops-dialog");
+  if (!d) return;
+  const p = opsPermissions();
+  if (!p.canPrivileged) return;
+  const st = (opts && opts.state) === "off" ? "off" : "on";
+  const isRollback = kind === "rollback";
+  opsOpener = opener || null;
+  const note = h("p", {cls: "nogo", style: "display:none"});
+  const input = h("input", {type: "text", id: "ops-reason-input", cls: "ops-reason-input", maxlength: String(OPS_REASON_MAX_LEN),
+    placeholder: isRollback ? "Reason for emergency rollback (required, audited)" : "Reason for release-freeze " + st + " (required, audited)",
+    "aria-label": "Audit reason"});
+  function submit() {
+    const reason = input.value.replace(/\s+/g, " ").trim();
+    if (!reason) { note.textContent = "A non-empty reason is required for the audit log."; note.style.display = "block"; input.focus(); return; }
+    closeOpsDialog();
+    if (isRollback) rollbackRelease(reason);
+    else toggleFreeze(st, reason);
+  }
+  input.addEventListener("keydown", (e) => {
+    if (e.isComposing || e.keyCode === 229) return;
+    if (e.key === "Enter") { e.preventDefault(); submit(); }
+  });
+  const titleText = isRollback ? "Confirm Emergency Rollback" : "Confirm Release Freeze: " + st.toUpperCase();
+  const bodyCopy = isRollback
+    ? "Engages WORKLOAD_KILL_SWITCH (if configured), executes DELIVERY rollback, and writes an audit record."
+    : "Sets the release-freeze flag to " + st + " via the FLAGS port and writes an audit record.";
+  d.replaceChildren(
+    h("div", {cls: "back-top"},
+      h("h2", {id: "ops-dialog-title", style: "flex:1;margin:0"}, titleText),
+      h("button", {type: "button", cls: "close", onclick: closeOpsDialog}, "Close (Esc)")),
+    h("p", {cls: "muted"}, bodyCopy),
+    h("label", {for: "ops-reason-input"}, "Reason (required, max " + OPS_REASON_MAX_LEN + " chars)"),
+    input,
+    note,
+    h("div", {cls: "buttons"},
+      h("button", {type: "button", id: "ops-dialog-confirm", cls: isRollback ? "nogo" : "warn", onclick: submit},
+        isRollback ? "Execute rollback" : "Set freeze " + st),
+      h("button", {type: "button", onclick: closeOpsDialog}, "Cancel")));
+  if (!d.open) { if (typeof d.showModal === "function") d.showModal(); else d.open = true; }
+  input.focus();
+}
+(function () {
+  const d = document.getElementById("ops-dialog");
+  if (!d || typeof d.addEventListener !== "function") return;
+  d.addEventListener("cancel", (e) => { if (typeof e.preventDefault === "function") e.preventDefault(); closeOpsDialog(); });
+  if (!(typeof HTMLDialogElement !== "undefined" && HTMLDialogElement.prototype && "closedBy" in HTMLDialogElement.prototype)) {
+    d.addEventListener("click", (e) => { if (e.target === d) closeOpsDialog(); });
+  }
+})();
+function opsBar(scopeId) {
+  const p = opsPermissions();
+  return h("div", {cls: "ops-bar", id: scopeId + "-ops-bar"},
+    h("div", {cls: "ops-actions"},
+      h("button", {type: "button", id: scopeId + "-watch-btn", disabled: !p.canOps, onclick: watchOnce}, "Watch once"),
+      h("button", {type: "button", id: scopeId + "-freeze-on-btn", cls: "warn", disabled: !p.canPrivileged,
+        onclick: (e) => openOpsDialog("freeze", {state: "on"}, e.currentTarget)}, "Freeze releases"),
+      h("button", {type: "button", id: scopeId + "-freeze-off-btn", disabled: !p.canPrivileged,
+        onclick: (e) => openOpsDialog("freeze", {state: "off"}, e.currentTarget)}, "Unfreeze releases"),
+      h("button", {type: "button", id: scopeId + "-rollback-btn", cls: "nogo", disabled: !p.canPrivileged,
+        onclick: (e) => openOpsDialog("rollback", {}, e.currentTarget)}, "Emergency rollback")),
+    p.reason ? h("p", {cls: "muted ops-status", style: "margin:0"}, p.reason) : null,
+    opsNotice ? h("p", {cls: "ops-status mono " + (opsNotice.ok ? "go" : "nogo"), style: "margin:0"},
+      opsNotice.action + ": " + opsNotice.line) : null);
+}
+function diffLineClass(line) {
+  if (line.startsWith("+++") || line.startsWith("---") || line.startsWith("diff --git") || line.startsWith("index ")) return "diff-meta";
+  if (line.startsWith("@@")) return "diff-hunk";
+  if (line.startsWith("+")) return "diff-add";
+  if (line.startsWith("-")) return "diff-del";
+  return "";
+}
+function renderPatchPre(text) {
+  const raw = typeof text === "string" ? text : String(text || "");
+  const lines = raw.split("\n");
+  if (lines.length > DIFF_RENDER_MAX_LINES) return h("pre", {cls: "diff-view"}, raw);
+  const children = [];
+  for (let i = 0; i < lines.length; i++) {
+    const ln = lines[i];
+    const kind = diffLineClass(ln);
+    children.push(kind ? h("span", {cls: "diff-line " + kind}, ln) : ln);
+    if (i < lines.length - 1) children.push("\n");
+  }
+  return h("pre", {cls: "diff-view"}, children);
+}
+function gateExplorerPanel(t) {
+  const whys = [];
+  if (t.ci && t.ci.why) whys.push(t.ci.why);
+  for (const r of (Array.isArray(t.rework) ? t.rework : [])) {
+    if (r && r.why && !whys.includes(r.why)) whys.push(r.why);
+  }
+  const tasks = Array.isArray(t.tasks) ? t.tasks : [];
+  const mutLines = [];
+  for (const w of whys) {
+    const details = Array.isArray(w.details) ? w.details : [];
+    const hit = w.gate === "mutation" || String(w.line || "").toLowerCase().includes("mutat");
+    if (hit) mutLines.push({attempt: w.attempt, line: w.line, details: details});
+  }
+  for (const tk of tasks) {
+    if (!tk || typeof tk !== "object") continue;
+    for (const g of (Array.isArray(tk.gates) ? tk.gates : [])) {
+      if (g && (g.gate === "mutation" || String(g.line || "").toLowerCase().includes("mutat"))) {
+        mutLines.push({attempt: tk.attempt, line: g.line, details: Array.isArray(g.details) ? g.details : []});
+      }
+    }
+  }
+  if (!whys.length && !mutLines.length && !tasks.length) return null;
+  const blocks = [];
+  if (mutLines.length) {
+    blocks.push(h("div", {cls: "mutant-box"},
+      h("h3", {}, "Mutation Gate Findings"),
+      mutLines.map((m) => h("div", {cls: "panel"},
+        h("p", {cls: "mono", style: "margin:0 0 6px"}, "attempt " + shown(m.attempt) + ": " + shown(m.line)),
+        m.details.length ? h("ul", {}, m.details.map((d) => h("li", {cls: "mono"}, d))) : null))));
+  }
+  if (whys.length) {
+    blocks.push(h("div", {},
+      h("h3", {}, "Gate Rejections & SAST Explorer"),
+      whys.map((w) => h("div", {cls: "panel"},
+        h("p", {cls: "mono", style: "margin:0 0 6px"}, chip("NO-GO"), " attempt " + shown(w.attempt) + " · gate " + shown(w.gate) + ": " + shown(w.line)),
+        Array.isArray(w.details) && w.details.length ? h("ul", {}, w.details.map((d) => h("li", {cls: "mono"}, d))) : null,
+        Array.isArray(w.sast) && w.sast.length ? h("table", {},
+          h("tr", {}, ["Rule", "File", "Line"].map((c) => h("th", {}, c))),
+          w.sast.map((f) => h("tr", {}, h("td", {cls: "mono"}, f.rule), h("td", {cls: "mono"}, f.file), h("td", {cls: "mono"}, String(f.line))))) : null))));
+  }
+  return blocks.length ? h("div", {cls: "panel", id: "gate-mutant-explorer"},
+    h("h2", {}, "Gate, SAST & Mutant Explorer"), ...blocks) : null;
+}
 // --- the role matrix (docs/adr/0086 §2) ---------------------------------------
 // One row per role, from the logbook's `roles`: what the profile configures,
 // the last run's tokens against the role's TOKEN_BUDGET, and its state in the
@@ -1136,6 +1427,13 @@ function screenOverview() {
         h("td", {}, d.docs_ticket_state ? h("a", {href: "#ticket/" + encodeURIComponent(d.docs_ticket)}, d.docs_ticket) : d.docs_ticket),
         h("td", {}, shown(d.docs_ticket_state) === "—" ? "not opened by the tower" : d.docs_ticket_state))))
       : h("p", {cls: "muted"}, "No merge has left docs to realign.")));
+  out.push(h("h2", {}, "Workstation Controls"),
+    h("div", {cls: "panel", id: "overview-ops"},
+      opsBar("overview"),
+      h("p", {cls: "muted", style: "margin:0"}, "Quick navigation: ",
+        h("a", {href: "#epics"}, "Epics & Dependency DAG"), " · ",
+        h("a", {href: "#adrs"}, "ADR Explorer"), " · ",
+        h("a", {href: "#launch"}, "Canary & Live Charts"), " · Press Cmd+K / Ctrl+K for Command Palette.")));
   out.push(journeyPanel());
   return out;
 }
@@ -1413,9 +1711,18 @@ function screenTicket(id) {
       h("td", {}, rowDetail(r)), h("td", {cls: "mono at"}, shown(r.at)), h("td", {cls: "muted"}, r.record)));
   });
   const w = now(t);
+  const perms = opsPermissions();
+  const tasks = Array.isArray(t.tasks) ? t.tasks : [];
+  const patches = tasks.filter((tk) => tk && tk.patch && (typeof tk.patch === "string" || typeof tk.patch.text === "string"));
   return [back, h("h1", {}, named(t)),
     h("div", {cls: "panel", id: "ticket-now"},
       h("div", {cls: "nowbox", "data-turn": w.turn}, nowLine(t)),
+      h("div", {cls: "ops-actions", style: "margin:8px 0"},
+        t.state === "opened" ? h("button", {type: "button", id: "ticket-assign-btn", cls: "go", disabled: !perms.canOps,
+          onclick: () => assignTicket(t.id)}, "Assign ticket") : null,
+        isResumableTicket(t) ? h("button", {type: "button", id: "ticket-resume-btn", cls: "warn", disabled: !perms.canOps,
+          onclick: () => resumeTicket(t.id)}, "Resume stranded step") : null,
+        h("a", {href: "#network/" + encodeURIComponent(t.id)}, "Inspect in Network →")),
       stageStrip(t, "stages"),
       flowDetail(t, "flow"),
       liveLine(t),
@@ -1428,6 +1735,12 @@ function screenTicket(id) {
     t.spec && (t.spec.criteria || []).length ? h("div", {cls: "panel"}, h("h2", {}, "The spec's criteria (" + shown(t.spec.by) + ")"),
       h("ol", {}, t.spec.criteria.map((c) => h("li", {}, c)))) : null,
     t.adrs !== undefined ? h("div", {cls: "panel"}, h("h2", {}, "ADRs that govern its perimeter"), adrLinks(t.adrs)) : null,
+    gateExplorerPanel(t),
+    patches.length ? h("div", {cls: "panel", id: "ticket-patches"},
+      h("h2", {}, "PR Unified Patches"),
+      patches.map((tk, idx) => h("details", {cls: "ticket-patch", open: idx === 0},
+        h("summary", {}, "Attempt " + shown(tk.attempt) + (tk.worker ? " · " + shown(tk.worker) : "")),
+        renderPatchPre(typeof tk.patch === "string" ? tk.patch : tk.patch.text)))) : null,
     h("h2", {}, "History"),
     h("div", {cls: "panel"}, h("table", {}, h("tr", {}, ["Step", "State", "Attempt", "At", "Error"].map((c) => h("th", {}, c))),
       t.history.map((e) => h("tr", {}, h("td", {}, e.step), h("td", {}, e.state), h("td", {}, shown(e.attempt)), h("td", {cls: "mono at"}, shown(e.at)), h("td", {cls: "mono"}, shown(e.error))))))];
@@ -1602,11 +1915,108 @@ function canaryPanel(rec) {
           h("td", {cls: "mono at"}, shown(run.started_at)), h("td", {cls: "canary-left"}, timeLeft(run)), h("td", {}, chip("pending"))) : null),
       rec.verdict === "in-progress" && !run ? h("p", {cls: "muted"}, "Staging: deploying the canary before any traffic.") : null));
 }
+function svgEl(tag, attrs, ...kids) {
+  const NS = "http://www.w3.org/2000/svg";
+  const el = document.createElementNS(NS, tag);
+  for (const [k, v] of Object.entries(attrs || {})) {
+    if (v === null || v === undefined || v === false) continue;
+    el.setAttribute(k === "cls" ? "class" : k, String(v));
+  }
+  for (const kid of kids.flat(Infinity)) {
+    if (kid === null || kid === undefined || kid === false) continue;
+    el.append(kid instanceof Node ? kid : document.createTextNode(String(kid)));
+  }
+  return el;
+}
+function sloDeltaChart(rec) {
+  const stages = Array.isArray(rec && rec.stages) ? rec.stages : [];
+  if (!stages.length) return h("p", {cls: "muted"}, "No canary stages verified yet.");
+  const metrics = ["error_rate", "latency_p95"];
+  const cards = metrics.map((metric) => {
+    const pts = stages.map((st) => {
+      const m = (Array.isArray(st.slo) ? st.slo : []).find((x) => x.query === metric);
+      return {pct: st.pct, delta: m && typeof m.delta === "number" ? m.delta : null, max: m && typeof m.max_delta === "number" ? m.max_delta : null};
+    }).filter((p) => p.delta !== null);
+    if (!pts.length) return h("div", {cls: "chart-card"}, h("h3", {}, metric), h("p", {cls: "muted"}, "No samples."));
+    const W = 280, H = 110, padL = 32, padB = 22, padT = 14, padR = 10;
+    const maxVal = Math.max(0.0001, ...pts.map((p) => Math.max(Math.abs(p.delta), p.max || 0)));
+    const bw = Math.max(18, Math.floor((W - padL - padR) / Math.max(1, pts.length) * 0.6));
+    const stepX = (W - padL - padR) / Math.max(1, pts.length);
+    const bars = pts.map((p, idx) => {
+      const x = padL + idx * stepX + (stepX - bw) / 2;
+      const ratio = Math.min(1, Math.max(0, Math.abs(p.delta) / maxVal));
+      const bh = Math.max(3, ratio * (H - padT - padB));
+      const y = H - padB - bh;
+      const ok = p.max === null || p.delta <= p.max;
+      return [svgEl("rect", {x: x.toFixed(1), y: y.toFixed(1), width: bw, height: bh.toFixed(1), rx: 3,
+          fill: ok ? "var(--go)" : "var(--nogo)"}),
+        svgEl("text", {x: (x + bw / 2).toFixed(1), y: H - 6, "text-anchor": "middle"}, p.pct + "%")];
+    });
+    const maxLimit = pts[0].max;
+    const limitY = maxLimit !== null ? H - padB - Math.min(1, maxLimit / maxVal) * (H - padT - padB) : null;
+    const svg = svgEl("svg", {cls: "slo-chart", viewBox: "0 0 " + W + " " + H, role: "img", "aria-label": "Canary " + metric + " delta by stage"},
+      svgEl("line", {x1: padL, y1: H - padB, x2: W - padR, y2: H - padB, stroke: "var(--line)"}),
+      limitY !== null ? svgEl("line", {x1: padL, y1: limitY.toFixed(1), x2: W - padR, y2: limitY.toFixed(1), stroke: "var(--wait)", "stroke-dasharray": "4 3"}) : null,
+      ...bars);
+    return h("div", {cls: "chart-card"},
+      h("h3", {style: "margin:0 0 6px"}, metric + " delta"),
+      svg,
+      h("p", {cls: "mono muted", style: "margin:4px 0 0"}, pts.map((p) => p.pct + "%: " + p.delta).join(" · ") + (maxLimit !== null ? " (max " + maxLimit + ")" : "")));
+  });
+  return h("div", {cls: "charts-grid"}, cards);
+}
+function timeSeriesSvg(series) {
+  const W = 420, H = 140, padL = 36, padR = 12, padT = 14, padB = 24;
+  const allPts = series.flatMap((s) => (Array.isArray(s.points) ? s.points : []).map((pt) => ({t: Number(pt[0]), v: Number(pt[1])}))).filter((p) => Number.isFinite(p.t) && Number.isFinite(p.v));
+  if (!allPts.length) return h("p", {cls: "muted"}, "No time-series data points returned.");
+  const minT = Math.min(...allPts.map((p) => p.t)), maxT = Math.max(...allPts.map((p) => p.t));
+  const minV = Math.min(0, ...allPts.map((p) => p.v)), maxV = Math.max(minV + 0.0001, ...allPts.map((p) => p.v));
+  const spanT = Math.max(1, maxT - minT), spanV = Math.max(0.0001, maxV - minV);
+  const colors = ["var(--accent)", "var(--go)", "var(--wait)", "var(--nogo)"];
+  const paths = series.slice(0, 8).map((s, idx) => {
+    const pts = (Array.isArray(s.points) ? s.points : []).map((pt) => {
+      const x = padL + ((Number(pt[0]) - minT) / spanT) * (W - padL - padR);
+      const y = H - padB - ((Number(pt[1]) - minV) / spanV) * (H - padT - padB);
+      return x.toFixed(1) + "," + y.toFixed(1);
+    });
+    return pts.length ? svgEl("polyline", {fill: "none", stroke: colors[idx % colors.length], "stroke-width": 2, points: pts.join(" ")}) : null;
+  }).filter(Boolean);
+  const svg = svgEl("svg", {cls: "ts-chart", viewBox: "0 0 " + W + " " + H, role: "img", "aria-label": "Live CHARTS time-series"},
+    svgEl("line", {x1: padL, y1: H - padB, x2: W - padR, y2: H - padB, stroke: "var(--line)"}),
+    svgEl("line", {x1: padL, y1: padT, x2: padL, y2: H - padB, stroke: "var(--line)"}),
+    svgEl("text", {x: 4, y: padT + 4}, maxV.toFixed(2)),
+    svgEl("text", {x: 4, y: H - padB}, minV.toFixed(2)),
+    ...paths);
+  return h("div", {}, svg, h("ul", {cls: "muted", style: "margin:6px 0 0;padding-left:18px"},
+    series.slice(0, 8).map((s) => {
+      const pts = Array.isArray(s.points) ? s.points : [];
+      const last = pts.length ? pts[pts.length - 1][1] : null;
+      return h("li", {cls: "mono"}, shown(s.name) + ": " + (last === null ? "—" : String(last)) + " (" + pts.length + " pts)");
+    })));
+}
+function liveChartsPanel(rec) {
+  const isLive = con && con.mode === "live";
+  let liveBody;
+  if (!isLive) liveBody = h("p", {cls: "muted"}, "Snapshot mode: no live charts.");
+  else if (liveChartsLoading && !liveCharts) liveBody = h("p", {cls: "muted"}, "Loading live time-series from CHARTS port…");
+  else if (!liveCharts) liveBody = h("p", {cls: "muted"}, "Click Refresh charts to query /v1/charts.json.");
+  else if (!liveCharts.ok) liveBody = h("p", {cls: "muted mono"}, shown(liveCharts.error));
+  else liveBody = timeSeriesSvg(Array.isArray(liveCharts.series) ? liveCharts.series : []);
+  return h("section", {id: "canary-charts", cls: "panel"},
+    h("h2", {}, "Canary SLO & Live Time-Series Charts"),
+    sloDeltaChart(rec),
+    h("div", {cls: "chart-card", style: "margin-top:12px"},
+      h("div", {cls: "ops-actions", style: "justify-content:space-between;margin-bottom:6px"},
+        h("h3", {style: "margin:0"}, "CHARTS Port Series"),
+        isLive ? h("button", {type: "button", id: "charts-refresh-btn", onclick: () => fetchLiveCharts(true)}, liveChartsLoading ? "Refreshing…" : "Refresh charts") : null),
+      liveBody));
+}
 function screenLaunch() {
   const L = book.launch, rec = L.record;
   const out = [h("h1", {}, "Go-for-launch"),
     h("p", {cls: "lede"}, "The one human decision before 100% of traffic. The same check and the same script as ./go promote."),
-    canaryPanel(rec)];
+    canaryPanel(rec),
+    liveChartsPanel(rec)];
   if (rec && !unread(rec)) {
     // The ticket this release carries (docs/adr/0063 §3): its release.version is the record's.
     const carried = ticketsList().find((x) => x.release && x.release.version && x.release.version === rec.version);
@@ -1642,6 +2052,7 @@ function screenLaunch() {
       h("button", {cls: "nogo", id: "launch-nogo", onclick: (e) => openLaunch("NO-GO", e.currentTarget), disabled: !(can && L.pressable)}, "NO-GO — roll back")),
     busy ? h("p", {cls: "muted"}, "core/promote.sh is running…") : null,
     lastLine ? h("pre", {}, lastLine) : null));
+  out.push(h("h2", {}, "Workstation Controls"), h("div", {cls: "panel", id: "launch-ops"}, opsBar("launch")));
   return out;
 }
 
@@ -1821,26 +2232,138 @@ function screenRequest() {
   return out;
 }
 
-// --- ADR search (docs/adr/0059 §3) ----------------------------------------
+// --- Epics & Dependency DAG (docs/adr/0125) -------------------------------
+function buildDagModel() {
+  const all = ticketsList();
+  const byId = Object.fromEntries(all.map((t) => [t.id, t]));
+  const edges = [];
+  const depsOf = {};
+  const blocksOf = {};
+  for (const t of all) {
+    const rawDeps = [];
+    if (Array.isArray(t.depends_on)) rawDeps.push(...t.depends_on);
+    if (t.wait && Array.isArray(t.wait.holders)) rawDeps.push(...t.wait.holders);
+    const deps = [...new Set(rawDeps.filter((d) => typeof d === "string" && d && d !== t.id && byId[d]))];
+    depsOf[t.id] = deps;
+    for (const d of deps) {
+      edges.push([d, t.id]);
+      (blocksOf[d] = blocksOf[d] || []).push(t.id);
+    }
+  }
+  const memo = {};
+  function depthOf(id, seen) {
+    if (id in memo) return memo[id];
+    if (seen.has(id)) return 0;
+    const nextSeen = new Set(seen); nextSeen.add(id);
+    let maxD = 0;
+    for (const d of (depsOf[id] || [])) maxD = Math.max(maxD, depthOf(d, nextSeen) + 1);
+    memo[id] = maxD;
+    return maxD;
+  }
+  for (const t of all) depthOf(t.id, new Set());
+  return {tickets: all, byId: byId, edges: edges, depsOf: depsOf, blocksOf: blocksOf, depth: memo};
+}
+function screenEpics() {
+  const out = [h("h1", {}, "Epics & Dependency DAG"),
+    h("p", {cls: "lede"}, "Epic cohorts and depends_on / wait-holder dependency edges across tickets. Works seamlessly across historical and multi-epic logbooks.")];
+  if (unread(book.tickets)) return out.concat(h("div", {cls: "panel"}, err(book.tickets)));
+  const model = buildDagModel();
+  if (!model.tickets.length) return out.concat(h("div", {cls: "panel"}, h("p", {cls: "muted"}, "No tickets in this logbook yet.")));
+  const epics = Array.isArray(book.epics) && book.epics.length ? book.epics : null;
+  if (epics) {
+    out.push(h("div", {cls: "panel", id: "epics-summary"},
+      h("h2", {}, "Epics"),
+      h("table", {},
+        h("tr", {}, ["Epic", "Title", "State", "Tickets"].map((c) => h("th", {}, c))),
+        epics.map((ep) => h("tr", {},
+          h("td", {cls: "mono"}, shown(ep.id)),
+          h("td", {}, shown(ep.title)),
+          h("td", {}, chip(shown(ep.state))),
+          h("td", {}, Array.isArray(ep.tickets) ? ep.tickets.map((id, i) => [i ? ", " : null, h("a", {href: "#ticket/" + encodeURIComponent(id)}, id)]) : "—"))))));
+  }
+  const byCol = {};
+  if (model.edges.length) {
+    for (const t of model.tickets) (byCol[model.depth[t.id] || 0] = byCol[model.depth[t.id] || 0] || []).push(t);
+  } else {
+    const groups = [...new Set(model.tickets.map((t) => String(t.epic || t.feature || "default")))];
+    for (const t of model.tickets) {
+      const col = groups.indexOf(String(t.epic || t.feature || "default"));
+      (byCol[col] = byCol[col] || []).push(t);
+    }
+  }
+  const cols = Object.keys(byCol).map(Number).sort((a, b) => a - b);
+  const maxRows = Math.max(1, ...cols.map((c) => byCol[c].length));
+  const nodeW = 190, nodeH = 58, gapX = 56, gapY = 20, pad = 20;
+  const W = Math.max(540, pad * 2 + cols.length * nodeW + Math.max(0, cols.length - 1) * gapX);
+  const H = Math.max(140, pad * 2 + maxRows * nodeH + Math.max(0, maxRows - 1) * gapY);
+  const pos = {};
+  cols.forEach((c, ci) => {
+    byCol[c].forEach((t, ri) => {
+      pos[t.id] = {x: pad + ci * (nodeW + gapX), y: pad + ri * (nodeH + gapY)};
+    });
+  });
+  const marker = svgEl("defs", {},
+    svgEl("marker", {id: "dag-arrow", viewBox: "0 0 10 10", refX: "9", refY: "5", markerWidth: "6", markerHeight: "6", orient: "auto-start-reverse"},
+      svgEl("path", {d: "M 0 1 L 10 5 L 0 9 z", fill: "var(--muted)"})));
+  const edgeEls = model.edges.map(([fromId, toId]) => {
+    const a = pos[fromId], b = pos[toId];
+    if (!a || !b) return null;
+    const x1 = a.x + nodeW, y1 = a.y + nodeH / 2, x2 = b.x, y2 = b.y + nodeH / 2;
+    const mx = (x1 + x2) / 2;
+    return svgEl("path", {cls: "dag-edge", d: "M" + x1 + " " + y1 + " C" + mx + " " + y1 + " " + mx + " " + y2 + " " + x2 + " " + y2,
+      "marker-end": "url(#dag-arrow)"});
+  }).filter(Boolean);
+  const nodeEls = model.tickets.map((t) => {
+    const p = pos[t.id], w = now(t), v = (t.outcome && t.outcome.verdict) || "";
+    const label = named(t).slice(0, 24);
+    const link = svgEl("a", {href: "#ticket/" + encodeURIComponent(t.id)});
+    const grp = svgEl("g", {cls: "dag-node", "data-ticket": t.id, "data-turn": w.turn, "data-verdict": v},
+      svgEl("rect", {x: p.x, y: p.y, width: nodeW, height: nodeH, rx: 8}),
+      svgEl("text", {x: p.x + 10, y: p.y + 22}, label),
+      svgEl("text", {cls: "dag-sub", x: p.x + 10, y: p.y + 42}, t.state + (t.epic || t.feature ? " · " + (t.epic || t.feature) : "")));
+    link.append(grp);
+    return link;
+  });
+  const svg = svgEl("svg", {id: "epics-dag", viewBox: "0 0 " + W + " " + H, role: "img", "aria-label": "Ticket dependency graph"}, marker, ...edgeEls, ...nodeEls);
+  out.push(h("div", {cls: "panel dag-wrap"}, h("h2", {}, "Dependency Graph"), svg));
+  out.push(h("div", {cls: "panel"},
+    h("h2", {}, "Dependency Matrix"),
+    h("table", {id: "epics-matrix"},
+      h("tr", {}, ["Ticket", "Epic / Feature", "State", "Depends on", "Blocks"].map((c) => h("th", {}, c))),
+      model.tickets.map((t) => h("tr", {},
+        h("td", {}, h("a", {href: "#ticket/" + encodeURIComponent(t.id)}, named(t))),
+        h("td", {}, shown(t.epic || t.feature)),
+        h("td", {}, t.state),
+        h("td", {cls: "mono"}, (model.depsOf[t.id] || []).length ? model.depsOf[t.id].map((id, i) => [i ? ", " : null, h("a", {href: "#ticket/" + encodeURIComponent(id)}, id)]) : "—"),
+        h("td", {cls: "mono"}, (model.blocksOf[t.id] || []).length ? model.blocksOf[t.id].map((id, i) => [i ? ", " : null, h("a", {href: "#ticket/" + encodeURIComponent(id)}, id)]) : "—"))))));
+  return out;
+}
+
+// --- ADR search (docs/adr/0059 §3 & docs/adr/0125) -------------------------
 // The ADRs are the logbook's, read from the project map: the page searches
 // and links them, it computes no relation of its own.
 function adrItems() { return book.adrs && Array.isArray(book.adrs.items) ? book.adrs.items : []; }
-function adrSearch(q) {
+function adrSearch(q, filter) {
   const text = q.trim();
-  if (!text) return adrItems();
-  const num = text.match(/^(?:adr\s*)?0*(\d{1,4})$/i);
-  const want = num ? num[1].padStart(4, "0") : null;
-  const words = text.toLowerCase().split(/\s+/);
-  const hits = [];
-  for (const a of adrItems()) {
-    const hay = (a.number + " " + a.title + " " + a.status + " " + a.text).toLowerCase();
-    const byNumber = a.number === want;
-    const byFile = a.files.some((f) => f === text || f.endsWith("/" + text) || (text.includes("/") && f.startsWith(text.replace(/\/$/, "") + "/")));
-    const byTitle = words.every((w) => a.title.toLowerCase().includes(w));
-    if (byNumber || byFile || words.every((w) => hay.includes(w)))
-      hits.push([byNumber ? 0 : byFile ? 1 : byTitle ? 2 : 3, a]);
-  }
-  return hits.sort((x, y) => x[0] - y[0] || x[1].number.localeCompare(y[1].number)).map(([, a]) => a);
+  const base = !text ? adrItems() : (() => {
+    const num = text.match(/^(?:adr\s*)?0*(\d{1,4})$/i);
+    const want = num ? num[1].padStart(4, "0") : null;
+    const words = text.toLowerCase().split(/\s+/);
+    const hits = [];
+    for (const a of adrItems()) {
+      const hay = (a.number + " " + a.title + " " + a.status + " " + a.text).toLowerCase();
+      const byNumber = a.number === want;
+      const byFile = a.files.some((f) => f === text || f.endsWith("/" + text) || (text.includes("/") && f.startsWith(text.replace(/\/$/, "") + "/")));
+      const byTitle = words.every((w) => a.title.toLowerCase().includes(w));
+      if (byNumber || byFile || words.every((w) => hay.includes(w)))
+        hits.push([byNumber ? 0 : byFile ? 1 : byTitle ? 2 : 3, a]);
+    }
+    return hits.sort((x, y) => x[0] - y[0] || x[1].number.localeCompare(y[1].number)).map(([, a]) => a);
+  })();
+  if (!filter || filter === "all") return base;
+  if (filter === "with-files") return base.filter((a) => Array.isArray(a.files) && a.files.length > 0);
+  if (filter === "with-tickets") return base.filter((a) => Array.isArray(a.tickets) && a.tickets.length > 0);
+  return base.filter((a) => String(a.status || "").toLowerCase().includes(filter));
 }
 function snippet(a, q) {
   const w = q.trim().toLowerCase().split(/\s+/)[0];
@@ -1864,7 +2387,8 @@ function drawAdrs() {
   const area = document.getElementById("adr-results");
   if (!area) return;
   const q = route().query.q || "";
-  const found = adrSearch(q);
+  const f = route().query.f || "all";
+  const found = adrSearch(q, f);
   area.replaceChildren(h("p", {cls: "muted"}, found.length + " of " + adrItems().length + " ADRs"), ...found.map((a) => adrRow(a, q)));
 }
 function screenAdrs() {
@@ -1873,18 +2397,33 @@ function screenAdrs() {
   if (unread(book.adrs)) return out.concat(h("div", {cls: "panel"}, err(book.adrs)));
   if (!book.adrs) return out.concat(h("div", {cls: "panel"}, h("p", {cls: "muted"}, "This logbook has no adrs (written before 1.2).")));
   const q = route().query.q || "";
+  const f = route().query.f || "all";
+  const filters = [["all", "All"], ["accepted", "Accepted"], ["proposed", "Proposed"], ["with-files", "With files"], ["with-tickets", "With tickets"]];
   out.push(h("div", {cls: "controls"},
     h("input", {type: "search", id: "adr-q", value: q, placeholder: "0055, kanban, proposed, core/spec.py", "aria-label": "Search the ADRs",
-      oninput: (e) => { history.replaceState(null, "", viewHash("adrs", {q: e.target.value}, ["q"])); drawAdrs(); }}),
-    h("span", {}, "map built at ", h("span", {cls: "mono"}, shown(book.adrs.map_sha).slice(0, 12)))),
+      oninput: (e) => { history.replaceState(null, "", viewHash("adrs", {q: e.target.value, f: route().query.f || ""}, ["q", "f"])); drawAdrs(); }}),
+    h("span", {}, "map built at ", h("span", {cls: "mono"}, shown(book.adrs.map_sha).slice(0, 12))),
+    h("div", {cls: "adr-filters", role: "group", "aria-label": "Filter ADRs"},
+      filters.map(([key, label]) => h("button", {type: "button", cls: "adr-chip-btn", "data-filter": key, "aria-pressed": String(f === key),
+        onclick: () => { history.replaceState(null, "", viewHash("adrs", {q: route().query.q || "", f: key === "all" ? "" : key}, ["q", "f"])); render(); }}, label)))),
     h("div", {cls: "panel", id: "adr-results"}));
   return out;
 }
 function screenAdr(n) {
   const a = adrItems().find((x) => x.number === n);
   if (!a) return [h("h1", {}, "ADR " + n), h("div", {cls: "panel"}, unread(book.adrs) ? err(book.adrs) : "This ADR is not in the project map.")];
+  const byTicket = Object.fromEntries(ticketsList().map((t) => [t.id, t]));
+  const sections = String(a.text || "").split("\n").filter((ln) => /^#{1,3}\s+/.test(ln));
   return [h("h1", {}, a.title), h("p", {cls: "lede"}, h("a", {href: "#adrs"}, "← every ADR"), " · ", h("code", {}, a.path)),
-    h("div", {cls: "panel"}, adrRow(a, "")), h("div", {cls: "panel"}, h("pre", {}, a.text))];
+    h("div", {cls: "panel"}, adrRow(a, "")),
+    h("div", {cls: "panel", id: "adr-link-explorer"},
+      h("h2", {}, "Link & Scope Inspector"),
+      dl([["Sections", sections.length ? sections.join(" · ") : "none"],
+        ["Governed files", Array.isArray(a.files) && a.files.length ? h("span", {cls: "mono"}, a.files.join(", ")) : "none"],
+        ["Linked tickets", Array.isArray(a.tickets) && a.tickets.length ? h("span", {}, a.tickets.map((id, i) => [i ? " · " : null,
+          byTicket[id] ? [h("a", {href: "#ticket/" + encodeURIComponent(id)}, named(byTicket[id])), " (", byTicket[id].state, ")"] : id])) : "none"],
+        ["Related ADRs", Array.isArray(a.adrs) && a.adrs.length ? h("span", {}, a.adrs.map((num, i) => [i ? ", " : null, h("a", {href: "#adr/" + encodeURIComponent(num)}, "ADR " + num)])) : "none"]])),
+    h("div", {cls: "panel"}, h("pre", {}, a.text))];
 }
 // --- kanban (docs/adr/0055 §7, docs/adr/0059 §1) -------------------------
 // The columns and the order inside them are the logbook's (`kanban`): the
@@ -2608,7 +3147,8 @@ function screenNetwork(arg) {
         : netFact("li", i))),
       e.patch || e.withheld ? h("details", Object.assign({cls: "net-patch", "data-truncated": e.patch ? String(e.patch.truncated === true) : "false"},
         e.attempt === v.attempt ? {open: true} : {}),
-        h("summary", {}, "The patch of attempt " + e.attempt), h("pre", {}, e.patch ? e.patch.text : e.withheld)) : null)));
+        h("summary", {}, "The patch of attempt " + e.attempt),
+        e.patch ? renderPatchPre(e.patch.text) : h("pre", {}, e.withheld)) : null)));
   const rows = [];
   for (const f of v.files) {
     if (f.kind === "file" && !shown(f)) continue;
@@ -2637,6 +3177,7 @@ function screenNetwork(arg) {
           : h("a", {href: "#network/" + encodeURIComponent(tid) + (k === ns[ns.length - 1] ? "" : "?attempt=" + k)}, String(k))])) : null,
         graph, facts),
       h("div", {cls: "panel"}, h("h2", {}, "Attempts, newest first"), stream)),
+    gateExplorerPanel(t),
     h("div", {cls: "panel"}, h("h2", {}, "Files by perimeter"), h("table", {cls: "net-files"}, rows)));
   // The live mark (docs/adr/0071 §3): a fact the last logbook added.
   const now = Date.now();
@@ -3275,11 +3816,12 @@ function render() {
   header();
   const {screen, arg} = route();
   for (const a of document.querySelectorAll("nav a")) a.classList.toggle("on", a.dataset.s === screen ||
-    ((screen === "ticket" || screen === "intake") && a.dataset.s === "kanban") || (screen === "adr" && a.dataset.s === "adrs") || (screen === "agents" && a.dataset.s === "thresholds"));
+    ((screen === "ticket" || screen === "intake") && a.dataset.s === "kanban") || (screen === "adr" && a.dataset.s === "adrs") || (screen === "agents" && a.dataset.s === "thresholds") || (screen === "dag" && a.dataset.s === "epics"));
   let body;
   if (screen !== "hive") stopHivePlay();
   if (screen === "ticket") body = screenTicket(arg);
   else if (screen === "hive") body = screenHive();
+  else if (screen === "epics" || screen === "dag") body = screenEpics();
   else if (screen === "intake") body = screenIntake(arg);
   else if (screen === "incidents") body = screenIncidents();
   else if (screen === "launch") body = screenLaunch();
@@ -3295,12 +3837,13 @@ function render() {
   const banners = [];
   if (con.read_error) banners.push(h("div", {cls: "banner err"}, "Stale: the last read failed (" + con.read_error + "); showing the last good logbook."));
   const mark = focusMark();
-  main.classList.toggle("wide", screen === "kanban" || screen === "network");
+  main.classList.toggle("wide", screen === "kanban" || screen === "network" || screen === "epics" || screen === "dag");
   if (screen !== "kanban") showBack(null);
   main.replaceChildren(...banners, ...body.filter(Boolean));
   if (screen === "kanban") drawBoard();
   if (screen === "adrs") drawAdrs();
   if (screen === "request") { showCheck(); if (!lastCheck && draftFields.title) scheduleCheck(); }
+  if (screen === "launch" && con && con.mode === "live" && !liveCharts && !liveChartsLoading) fetchLiveCharts(false);
   refocus(mark);
 }
 // The logbook is fetched with its ETag: an unchanged one costs no body and
@@ -3407,7 +3950,157 @@ async function tick() {
     ticking = false;
   }
 }
+
+// --- Cmd+K / Ctrl+K command palette (docs/adr/0125 §3) ---------------------
+let cmdOpener = null, cmdSelected = 0;
+function cmdPaletteEntries() {
+  const items = [];
+  const screens = [
+    ["Overview", "#overview", "screen home your turn"],
+    ["Hive Control Center", "#hive", "screen agents roles wizard"],
+    ["Epics & Dependency DAG", "#epics", "screen dag graph depends_on"],
+    ["Kanban Board", "#kanban", "screen cards board"],
+    ["Network Inspector", "#network", "screen gates patch diff"],
+    ["This week's tickets", "#tickets", "screen list"],
+    ["Specs", "#specs", "screen criteria"],
+    ["New request", "#request", "screen draft"],
+    ["ADRs Explorer", "#adrs", "screen architecture decisions"],
+    ["Incidents & post mortems", "#incidents", "screen postmortem"],
+    ["Go-for-launch & Live Charts", "#launch", "screen canary release charts"],
+    ["Thresholds", "#thresholds", "screen policy provenance"],
+    ["Agents", "#agents", "screen roles"],
+  ];
+  for (const [label, hash, kw] of screens) {
+    items.push({group: "Screen", label: label, meta: hash, search: (label + " " + kw + " " + hash).toLowerCase(),
+      disabled: false, run: () => { location.hash = hash; if (typeof render === "function") render(); }});
+  }
+  const perms = opsPermissions();
+  items.push({group: "Action", label: "Watch once (make watch ONCE=1)", meta: "POST", search: "action watch once runner tower",
+    disabled: !perms.canOps, run: () => { watchOnce(); }});
+  items.push({group: "Action", label: "Freeze releases (set release-freeze on)", meta: "POST", search: "action freeze release flag on",
+    disabled: !perms.canPrivileged, run: () => { openOpsDialog("freeze", {state: "on"}, cmdOpener); }});
+  items.push({group: "Action", label: "Unfreeze releases (set release-freeze off)", meta: "POST", search: "action unfreeze release flag off",
+    disabled: !perms.canPrivileged, run: () => { openOpsDialog("freeze", {state: "off"}, cmdOpener); }});
+  items.push({group: "Action", label: "Emergency rollback", meta: "POST", search: "action rollback kill switch emergency",
+    disabled: !perms.canPrivileged, run: () => { openOpsDialog("rollback", {}, cmdOpener); }});
+
+  if (book) {
+    for (const t of ticketsList()) {
+      const name = named(t);
+      const id = String(t.id || "");
+      items.push({group: "Ticket", label: name, meta: t.state || "", search: ("ticket " + id + " " + name + " " + (t.state || "") + " " + (t.feature || "")).toLowerCase(),
+        disabled: false, run: () => { location.hash = "#ticket/" + encodeURIComponent(id); if (typeof render === "function") render(); }});
+      if (t.state === "opened") {
+        items.push({group: "Action", label: "Assign ticket " + id, meta: "opened", search: ("assign " + id + " " + name).toLowerCase(),
+          disabled: !perms.canOps, run: () => { assignTicket(id); }});
+      }
+      if (isResumableTicket(t)) {
+        items.push({group: "Action", label: "Resume stranded ticket " + id, meta: "resume", search: ("resume stranded " + id + " " + name).toLowerCase(),
+          disabled: !perms.canOps, run: () => { resumeTicket(id); }});
+      }
+    }
+    for (const a of adrItems()) {
+      items.push({group: "ADR", label: a.title || ("ADR " + a.number), meta: a.status || a.number,
+        search: ("adr " + a.number + " " + (a.title || "") + " " + (a.status || "") + " " + (a.files || []).join(" ")).toLowerCase(),
+        disabled: false, run: () => { location.hash = "#adr/" + encodeURIComponent(a.number); if (typeof render === "function") render(); }});
+    }
+    for (const k of (Array.isArray(book.intakes) ? book.intakes : [])) {
+      items.push({group: "Intake", label: "Intake " + k.id, meta: k.state || "",
+        search: ("intake " + k.id + " " + (k.state || "")).toLowerCase(),
+        disabled: false, run: () => { location.hash = "#intake/" + encodeURIComponent(k.id); if (typeof render === "function") render(); }});
+    }
+  }
+  return items;
+}
+function filterCmdPalette(q) {
+  const words = String(q || "").trim().toLowerCase().split(/\s+/).filter(Boolean);
+  const all = cmdPaletteEntries();
+  if (!words.length) return all.slice(0, CMD_PALETTE_MAX_RESULTS);
+  return all.filter((it) => words.every((w) => it.search.includes(w))).slice(0, CMD_PALETTE_MAX_RESULTS);
+}
+function closeCmdPalette() {
+  const d = document.getElementById("cmd-palette");
+  if (!d) return;
+  if (d.open && typeof d.close === "function") d.close(); else d.open = false;
+  d.replaceChildren();
+  const back = cmdOpener;
+  cmdOpener = null;
+  if (back && back.isConnected && typeof back.focus === "function") back.focus();
+}
+function openCmdPalette(opener) {
+  const d = document.getElementById("cmd-palette");
+  if (!d) return;
+  cmdOpener = opener || null;
+  cmdSelected = 0;
+  let matches = filterCmdPalette("");
+  const input = h("input", {type: "search", id: "cmd-k-input", cls: "cmd-search",
+    placeholder: "Jump to screen, ticket, ADR, intake, or operator action…", "aria-label": "Filter commands"});
+  const list = h("ul", {cls: "cmd-results", id: "cmd-k-results", role: "listbox"});
+  function drawList() {
+    if (cmdSelected >= matches.length) cmdSelected = Math.max(0, matches.length - 1);
+    if (!matches.length) {
+      list.replaceChildren(h("li", {cls: "muted", style: "padding:8px"}, "No matching screen, ticket, ADR, or action."));
+      return;
+    }
+    list.replaceChildren(...matches.map((it, idx) => h("li", {},
+      h("button", {type: "button", cls: "cmd-item-btn", role: "option", "data-idx": String(idx),
+        "aria-selected": String(idx === cmdSelected), disabled: it.disabled,
+        onclick: () => { if (it.disabled) return; closeCmdPalette(); it.run(); }},
+        h("span", {}, h("span", {cls: "cmd-group"}, it.group), " ", it.label),
+        h("span", {cls: "muted mono"}, it.disabled ? "disabled" : it.meta)))));
+  }
+  input.addEventListener("input", () => {
+    matches = filterCmdPalette(input.value);
+    cmdSelected = 0;
+    drawList();
+  });
+  input.addEventListener("keydown", (e) => {
+    if (e.isComposing || e.keyCode === 229) return;
+    if (e.key === "ArrowDown" && matches.length) {
+      e.preventDefault();
+      cmdSelected = (cmdSelected + 1) % matches.length;
+      drawList();
+    } else if (e.key === "ArrowUp" && matches.length) {
+      e.preventDefault();
+      cmdSelected = (cmdSelected - 1 + matches.length) % matches.length;
+      drawList();
+    } else if (e.key === "Enter" && matches.length) {
+      e.preventDefault();
+      const chosen = matches[cmdSelected];
+      if (chosen && !chosen.disabled) { closeCmdPalette(); chosen.run(); }
+    }
+  });
+  drawList();
+  d.replaceChildren(
+    h("div", {cls: "back-top"},
+      h("h2", {id: "cmd-palette-title", style: "flex:1;margin:0"}, "Command Palette"),
+      h("button", {type: "button", cls: "close", onclick: closeCmdPalette}, "Close (Esc)")),
+    input,
+    list);
+  if (!d.open) { if (typeof d.showModal === "function") d.showModal(); else d.open = true; }
+  input.focus();
+}
+(function () {
+  const btn = document.getElementById("cmd-k-btn");
+  if (btn && typeof btn.addEventListener === "function") {
+    btn.addEventListener("click", (e) => openCmdPalette(e.currentTarget));
+  }
+  const d = document.getElementById("cmd-palette");
+  if (d && typeof d.addEventListener === "function") {
+    d.addEventListener("cancel", (e) => { if (typeof e.preventDefault === "function") e.preventDefault(); closeCmdPalette(); });
+    if (!(typeof HTMLDialogElement !== "undefined" && HTMLDialogElement.prototype && "closedBy" in HTMLDialogElement.prototype)) {
+      d.addEventListener("click", (e) => { if (e.target === d) closeCmdPalette(); });
+    }
+  }
+})();
 window.addEventListener("hashchange", () => { render(); });
+window.addEventListener("keydown", (e) => {
+  if (e.isComposing || e.keyCode === 229) return;
+  if ((e.metaKey || e.ctrlKey) && !e.altKey && String(e.key || "").toLowerCase() === "k") {
+    e.preventDefault();
+    openCmdPalette(document.activeElement);
+  }
+});
 window.addEventListener("pagehide", stopEventStream);
 load().then(() => { render(); syncEventStream(); });
 // A replay holds the poll: it sends no request until it ends (docs/adr/0071 §3).
