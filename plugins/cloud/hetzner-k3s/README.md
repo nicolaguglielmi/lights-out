@@ -14,6 +14,12 @@ Stage Terraform and OIDC templates into `.crew/cloud/hetzner-k3s/`:
 
 Review `infra/main.tf`, `infra/variables.tf`, and `infra/outputs.tf`, set your allowed API CIDRs, OIDC issuer (or Vault OIDC broker), and monthly EUR budget cap, then apply with Terraform.
 
+## SLO modes & Cloud E2E bridge
+
+- **Proxy SLO mode (default, `SLO_MODE=proxy`)**: point `SLO_PROMQL=plugins/cloud/hetzner-k3s/slo-ingress.promql` at Ingress-Nginx controller metrics (`nginx_ingress_controller_requests` and `nginx_ingress_controller_request_duration_seconds_bucket` mapped to `envoy_cluster_name` via `label_replace`); requires no app `/metrics` or `target_info`.
+- **OTel SLO mode (`SLO_MODE=otel`)**: point `SLO_PROMQL=plugins/cloud/hetzner-k3s/slo.promql` at app-emitted OpenTelemetry HTTP metrics with `target_info`.
+- **Remote Registry & Flags**: pair with `REGISTRY=oci-registry` (`OCI_REGISTRY_REPO=ghcr.io/<owner>/<service>`, see [oci-registry](../../../adapters/oci-registry/README.md)) and daemonless `FLAGS=flags-file` ([flags-file](../../../adapters/flags-file/README.md)) or `FLAGS=flags-http` ([flags-http](../../../adapters/flags-http/README.md)). See [ADR 0107](../../../docs/adr/0107-cloud-registry-flags-and-proxy-slos.md).
+
 ## Required environment variables
 
 - `HETZNER_CLUSTER` (cluster identifier in your Hetzner Cloud project)

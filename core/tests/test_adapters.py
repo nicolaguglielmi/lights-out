@@ -162,7 +162,7 @@ class AdmitTest(AdaptersCase):
         self.assertIn("EVENT_BUS=outside/json-files", self.refusal(env))
 
     def test_a_port_without_a_suite_is_refused(self):
-        for port in ("TRACKER", "ORCHESTRATOR", "METRICS", "FLAGS", "REGISTRY"):
+        for port in ("TRACKER", "ORCHESTRATOR", "METRICS"):
             env = dict(self.env, STATE_STORE="sqlite", **{port: "outside/json-files"})
             line = self.refusal(env)
             self.assertIn(f"{port}=outside/json-files", line)
@@ -171,7 +171,8 @@ class AdmitTest(AdaptersCase):
     def test_every_port_with_a_suite_can_be_admitted(self):
         suites = {"CODE_HOST": "codehost-conformance", "DELIVERY": "delivery-conformance",
                   "STATE_STORE": "statestore-conformance", "EVENT_BUS": "eventbus-conformance",
-                  "AGENT_HARNESS": "harness-conformance"}
+                  "AGENT_HARNESS": "harness-conformance", "REGISTRY": "registry-conformance",
+                  "FLAGS": "flags-conformance"}
         for port, suite in suites.items():
             env = dict(self.env, STATE_STORE="sqlite")
             env[port] = "outside/json-files"

@@ -19,6 +19,8 @@ PROVIDERS: dict[str, tuple[str, ...]] = {
     "hetzner-k3s": ("kubectl", "hcloud", "terraform", "jq", "curl"),
 }
 
+SLO_MODES = ("proxy", "otel")
+
 
 def _stage_templates(plugin_dir: Path, target_dir: Path) -> None:
     """Copy infra/ and ci/ templates from the plugin directory into target_dir."""
@@ -43,13 +45,18 @@ def _check_clis(clis: tuple[str, ...]) -> tuple[list[str], list[str]]:
 
 
 def main(argv: list[str] | None = None) -> int:
-    """Validate CLOUD, inspect CLI availability, stage infra/ci templates, and report."""
+    """Validate CLOUD and SLO_MODE, inspect CLI availability, stage infra/ci templates, and report."""
     parser = argparse.ArgumentParser(description="Stage a cloud Delivery plugin starter.")
     parser.add_argument("--cloud", default=os.environ.get("CLOUD", ""), help="Cloud plugin name")
     parser.add_argument(
         "--out",
         default=os.environ.get("CLOUD_SETUP_DIR", ".crew/cloud"),
         help="Output parent directory (default: .crew/cloud)",
+    )
+    parser.add_argument(
+        "--slo-mode",
+        default=os.environ.get("SLO_MODE", "proxy"),
+        help="SLO query mode: proxy (default, slo-ingress.promql) or otel (slo.promql)",
     )
     args = parser.parse_args(argv)
 
@@ -62,7 +69,13 @@ def main(argv: list[str] | None = None) -> int:
         print(f"NO-GO: cloud-setup — unknown CLOUD={cloud!r}; expected one of: {valid}")
         return 1
 
+    slo_mode = (args.slo_mode or "").strip()
+    if slo_mode not in SLO_MODES:
+        print(f"NO-GO: cloud-setup — invalid SLO_MODE={slo_mode!r}; expected one of: {', '.join(SLO_MODES)}")
+        return 1
+
     plugin_dir = PLUGINS_DIR / cloud
+    slo_file = plugin_dir / ("slo-ingress.promql" if slo_mode == "proxy" else "slo.promql")
     target_dir = Path(args.out) / cloud
     try:
         _stage_templates(plugin_dir, target_dir)
@@ -71,7 +84,7 @@ def main(argv: list[str] | None = None) -> int:
         return 1
 
     present, missing = _check_clis(PROVIDERS[cloud])
-    print(f"[cloud-setup] provider={cloud} staged={target_dir}", file=sys.stderr)
+    print(f"[cloud-setup] provider={cloud} slo_mode={slo_mode} slo_promql={slo_file} staged={target_dir}", file=sys.stderr)
     print(
         f"[cloud-setup] CLIs present: {', '.join(present) if present else 'none'}; "
         f"missing: {', '.join(missing) if missing else 'none'}",
@@ -80,11 +93,15 @@ def main(argv: list[str] | None = None) -> int:
     print("[cloud-setup] next steps (review Terraform + OIDC starter; never commit static keys):", file=sys.stderr)
     print(f"  1. Review {target_dir}/infra/main.tf, variables.tf, outputs.tf and apply with Terraform", file=sys.stderr)
     print(f"  2. Wire keyless OIDC workflow from {target_dir}/ci/github-oidc.yml or gitlab-oidc.yml", file=sys.stderr)
-    print(f"  3. Export ADAPTERS_PATH={PLUGINS_DIR} and provider env vars, then run:", file=sys.stderr)
+    print(f"  3. Export ADAPTERS_PATH={PLUGINS_DIR}, SLO_PROMQL={slo_file}, and provider env vars,", file=sys.stderr)
+    print("     plus remote Registry/Flags bridge:", file=sys.stderr)
+    print("       REGISTRY=oci-registry OCI_REGISTRY_REPO=<registry>/<repo>", file=sys.stderr)
+    print("       FLAGS=flags-file  (or FLAGS=flags-http FLAGS_URL=<ofrep-url>)", file=sys.stderr)
+    print("  4. Verify conformance against your cloud account:", file=sys.stderr)
     print(f"     ./go delivery-conformance DELIVERY=outside/{cloud} ADAPTERS_PATH={PLUGINS_DIR}", file=sys.stderr)
 
     print(
-        f"GO: cloud-setup — {cloud} staged in {target_dir}; "
+        f"GO: cloud-setup — {cloud} ({slo_mode} SLO) staged in {target_dir}; "
         f"run ./go delivery-conformance DELIVERY=outside/{cloud} ADAPTERS_PATH={PLUGINS_DIR}"
     )
     return 0
