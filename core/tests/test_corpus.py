@@ -65,6 +65,47 @@ class CorpusCatalogTest(unittest.TestCase):
             self.assertIn(req_neg, negatives)
             self.assertTrue(negatives[req_neg].expected_error_tokens)
 
+    def test_catalog_covers_extended_stacks_monorepo_and_stateful_plane(self) -> None:
+        shapes = corpus.default_shapes()
+        self.assertGreaterEqual(len(shapes), 22)
+        by_name = {s.name: s for s in shapes}
+
+        for req_pos in (
+            "rust-crate-lib",
+            "java-maven-lib",
+            "java-gradle-lib",
+            "javascript-pnpm-lib",
+            "typescript-yarn-lib",
+            "monorepo-npm-service",
+            "stateful-python-service",
+            "stateless-comment-only-service",
+        ):
+            self.assertIn(req_pos, by_name)
+            self.assertEqual(by_name[req_pos].kind, "positive")
+
+        self.assertEqual(by_name["rust-crate-lib"].expected_stack, "rust")
+        self.assertEqual(by_name["rust-crate-lib"].expected_lockfiles, "Cargo.lock")
+        self.assertEqual(by_name["java-maven-lib"].expected_stack, "java")
+        self.assertEqual(by_name["java-maven-lib"].expected_lockfiles, "pom.xml")
+        self.assertEqual(by_name["java-gradle-lib"].expected_stack, "java")
+        self.assertEqual(by_name["java-gradle-lib"].expected_lockfiles, "gradle.lockfile")
+        self.assertEqual(by_name["javascript-pnpm-lib"].expected_lockfiles, "pnpm-lock.yaml")
+        self.assertEqual(by_name["typescript-yarn-lib"].expected_lockfiles, "yarn.lock")
+        self.assertEqual(by_name["monorepo-npm-service"].init_service, "services/api")
+        self.assertEqual(by_name["monorepo-npm-service"].expected_test_root, "services/api/")
+        self.assertIn("crew-postgres", by_name["stateful-python-service"].expected_compose_substrings)
+        self.assertIn("crew-postgres", by_name["stateless-comment-only-service"].forbidden_compose_substrings)
+
+        for req_neg in (
+            "neg-rust-no-lock",
+            "neg-gradle-no-lock",
+            "neg-bun-binary-lockb",
+            "neg-monorepo-ambiguous",
+        ):
+            self.assertIn(req_neg, by_name)
+            self.assertEqual(by_name[req_neg].kind, "negative")
+            self.assertTrue(by_name[req_neg].expected_error_tokens)
+
 
 class CorpusRunTest(unittest.TestCase):
     def test_run_with_contract_subdir_and_callback_writes_report(self) -> None:
@@ -223,6 +264,47 @@ class CorpusFailureDetectionTest(unittest.TestCase):
         self.assertEqual((passed, total), (0, 1))
         self.assertEqual(details[0]["status"], "FAIL")
         self.assertTrue(any("planted contract violation" in err for err in details[0]["errors"]))
+
+    def test_detects_missing_or_forbidden_stateful_compose_hints(self) -> None:
+        base = next(s for s in corpus.default_shapes() if s.name == "stateless-comment-only-service")
+        wrong_expect = corpus.Shape(
+            name="broken-expects-postgres",
+            kind="positive",
+            expected_stack=base.expected_stack,
+            expected_has_plane=True,
+            expected_port=base.expected_port,
+            expected_compose_substrings=("crew-postgres",),
+            files=base.files,
+        )
+        passed, total, details = corpus.run(
+            contract_rel=".contract",
+            stacks_dir=STACKS_DIR,
+            report_path=None,
+            verify_light=False,
+            shapes=[wrong_expect],
+        )
+        self.assertEqual((passed, total), (0, 1))
+        self.assertIn("crew-postgres", "; ".join(details[0]["errors"]))
+
+        stateful = next(s for s in corpus.default_shapes() if s.name == "stateful-python-service")
+        wrong_forbid = corpus.Shape(
+            name="broken-forbids-postgres",
+            kind="positive",
+            expected_stack=stateful.expected_stack,
+            expected_has_plane=True,
+            expected_port=stateful.expected_port,
+            forbidden_compose_substrings=("crew-postgres",),
+            files=stateful.files,
+        )
+        passed2, total2, details2 = corpus.run(
+            contract_rel=".contract",
+            stacks_dir=STACKS_DIR,
+            report_path=None,
+            verify_light=False,
+            shapes=[wrong_forbid],
+        )
+        self.assertEqual((passed2, total2), (0, 1))
+        self.assertIn("crew-postgres", "; ".join(details2[0]["errors"]))
 
 
 if __name__ == "__main__":

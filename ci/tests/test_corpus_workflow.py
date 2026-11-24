@@ -56,7 +56,25 @@ class CorpusCheckContractTest(unittest.TestCase):
             self.assertEqual(report["schema"], "lights-out.corpus/1")
             self.assertEqual(report["contract_rel"], ".lights-out")
             self.assertEqual(report["passed"], report["total"])
-            self.assertGreaterEqual(report["total"], 8)
+            self.assertGreaterEqual(report["total"], 22)
+            self.assertLess(report["duration_ms"], 10000)
+            by_name = {item["name"]: item for item in report["shapes"]}
+            for required in (
+                "rust-crate-lib",
+                "java-maven-lib",
+                "java-gradle-lib",
+                "javascript-pnpm-lib",
+                "typescript-yarn-lib",
+                "monorepo-npm-service",
+                "stateful-python-service",
+                "stateless-comment-only-service",
+                "neg-rust-no-lock",
+                "neg-gradle-no-lock",
+                "neg-bun-binary-lockb",
+                "neg-monorepo-ambiguous",
+            ):
+                self.assertIn(required, by_name)
+                self.assertEqual(by_name[required]["status"], "PASS")
 
     def test_planted_broken_contract_fails_workloads_and_nogo(self) -> None:
         base = next(s for s in core_corpus.default_shapes() if s.name == "python-uv-lib")
