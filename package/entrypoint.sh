@@ -31,7 +31,23 @@
 #   promote [GO_FOR_LAUNCH=GO|NO-GO REASON=] go-for-launch brief and human promotion gate
 #   console                                  serve the console on CONSOLE_PUBLISH:CONSOLE_PORT
 #   evidence VERSION=<v>                     build, sign and verify release evidence pack
+#   map [MAP_FILE=]                          build the project map of /repo
+#   network [TICKET= ATTEMPT=]               one ticket's agent network in text
+#   scoreboard                               per provider and harness: first-attempt merges, reworks, cost
+#   auto-incident [RELEASE_RECORD=]          incident document from a rolled-back release record
+#   incident NAME= FROM= TO= [LOGS=]         incident document from the release record (TICKET= needs the plane)
+#   alert-webhook ALERT_FILE=<path>          normalize an alert JSON file under /repo
+#   try                                      draft the contract and judge the last commit, keep the draft
+#   watch [ONCE=1] [POLL_S=<sec>]            continuous tower orchestrator draining the event bus
+#   request TICKET=<id> [REQUEST_BY=]        start a ticket at requested
+#   resume TICKET=<id>                       request again the step a ticket failed
+#   audit TICKET=<id>                        rebuild the chain deploy to spec from the state store
+#   production-readiness                     GO only with a conformant delivery, metrics and a human gate
 #   version
+#
+# Grammar (docs/adr/0112): <domain> <verb> [--flag value | KEY=VALUE ...] with domains repo, ticket,
+# release, ops and config is the same command as its flat name; --flag value is KEY=VALUE. --json and
+# --jsonl wrap a non-gate command's one stdout line in the envelope of core/cli.py and exit 0, 1, 3 or 4.
 #
 # One stdout line in the gate output contract (CLAUDE.md), the make
 # target's own; the rest on stderr. make exits 2 when a recipe fails: the
@@ -41,15 +57,105 @@ image_root=${LIGHTS_OUT_IMAGE_ROOT:-/opt/lights-out}
 repo_dir=${LIGHTS_OUT_REPO_DIR:-/repo}
 cd "$image_root"
 
+lead=""
+while [ $# -gt 0 ]; do
+  case "$1" in --json|--jsonl) lead="$lead $1"; shift ;; *) break ;; esac
+done
 sub=${1:-help}
 [ $# -gt 0 ] && shift
 name=$sub
 # shellcheck source=ci/lib.sh disable=SC1091
 . ci/lib.sh
 
+member() {
+  case "$1" in ""|*[[:space:]]*) return 1 ;; esac
+  case " $2 " in *" $1 "*) return 0 ;; esac
+  return 1
+}
+
+verbs_of() {
+  case "$1" in
+    repo) echo "init try gates test-proof test-integrity doctor map corpus" ;;
+    ticket) echo "intake request answer intake-confirm assign resume network audit" ;;
+    release) echo "up down smoke deploy promote evidence production-readiness" ;;
+    ops) echo "watch alert-webhook triage auto-incident incident postmortem dora spend" ;;
+    config) echo "start next cloud-setup scoreboard agents" ;;
+  esac
+}
+
+# The keys beyond the 29 a command takes (docs/adr/0112 §2), same as the wrapper's.
+extra_keys_for() {
+  case "$1" in
+    request) echo "REQUEST_BY REQUEST_VIA" ;;
+    network) echo "ATTEMPT" ;;
+    watch) echo "ONCE POLL_S" ;;
+    alert-webhook) echo "ALERT_FILE" ;;
+    auto-incident) echo "RELEASE_RECORD" ;;
+    incident) echo "NAME FROM TO LOGS" ;;
+    map) echo "MAP_FILE" ;;
+    cloud-setup) echo "SLO_MODE" ;;
+  esac
+}
+
+native_flag() {
+  case "$1:$2" in
+    start:--preset|start:--provider|start:--harness|start:--delivery|start:--profile|start:--ticket-budget-usd|start:--day-budget-usd|start:--mode|next:--mode) return 0 ;;
+  esac
+  return 1
+}
+
+# <domain> <verb> is the flat command (docs/adr/0112 §1); release is a domain only when a verb follows.
+case "$sub" in
+  repo|ticket|release|ops|config)
+    if [ "$sub" != release ] || { [ $# -gt 0 ] && member "$1" "$(verbs_of release)"; }; then
+      domain=$sub
+      # shellcheck disable=SC2034 # consumed by nogo in sourced ci/lib.sh
+      name=lights-out
+      verb=${1:-}
+      case "$verb" in ""|-*) nogo "$domain needs a verb: $(verbs_of "$domain")" ;; esac
+      member "$verb" "$(verbs_of "$domain")" || nogo "unknown $domain verb '$verb'; one of: $(verbs_of "$domain")"
+      shift
+      case "$domain:$verb" in
+        release:deploy) sub=release ;;
+        repo:corpus|config:agents) nogo "$domain $verb needs a clone of lights-out, not the image: run ./go $verb" ;;
+        *) sub=$verb ;;
+      esac
+      # shellcheck disable=SC2034 # consumed by nogo in sourced ci/lib.sh
+      name=$sub
+    fi ;;
+esac
+
+# --json / --jsonl on a non-gate command: run it again, capture its stdout, and wrap that
+# in the envelope of core/cli.py (docs/adr/0112 §4); its exit code is the taxonomy's.
+for f in $lead; do set -- "$@" "$f"; done
+json_cmds="triage postmortem dora spend cloud-setup network scoreboard auto-incident incident alert-webhook intake answer intake-confirm assign up down smoke release promote evidence watch request resume audit"
+json_mode=""
+if [ -z "${LIGHTS_OUT_JSON_INNER:-}" ] && member "$sub" "$json_cmds"; then
+  nargs=$#
+  i=0
+  while [ "$i" -lt "$nargs" ]; do
+    a=$1
+    shift
+    i=$((i + 1))
+    case "$a" in
+      --json|--jsonl)
+        [ -z "$json_mode" ] || [ "$json_mode" = "$a" ] || nogo "--json and --jsonl are mutually exclusive"
+        json_mode=$a ;;
+      *) set -- "$@" "$a" ;;
+    esac
+  done
+fi
+if [ -n "$json_mode" ]; then
+  rc=0
+  inner=$(LIGHTS_OUT_JSON_INNER=1 sh "$0" "$sub" "$@") || rc=$?
+  rc_env=0
+  if [ -n "$inner" ]; then printf '%s\n' "$inner"; fi | python3 core/cli.py envelope "$json_mode" --command "$sub" --rc "$rc" -- "$@" || rc_env=$?
+  exit "$rc_env"
+fi
+
 case "$sub" in
   init|gates|test-proof|test-integrity) ;;
-  triage|postmortem|next|dora|spend|cloud-setup|start|intake|answer|intake-confirm|assign|up|down|smoke|release|promote|console|evidence)
+  triage|postmortem|next|dora|spend|cloud-setup|map|network|scoreboard|auto-incident|incident|alert-webhook|start|intake|answer|intake-confirm|assign|up|down|smoke|release|promote|console|evidence|try|watch|request|resume|audit|production-readiness)
     # The gates image has no ADK, compose, cosign, or full platform runtime (docs/adr/0057 §3, 0105).
     [ "${LIGHTS_OUT_FLAVOUR:-full}" != gates ] \
       || nogo "this is the gates image; $sub runs in ghcr.io/nicolaguglielmi/lights-out:${LIGHTS_OUT_VERSION:-<version>} (LIGHTS_OUT_IMAGE)" ;;
@@ -60,7 +166,7 @@ case "$sub" in
     sed -n 's/^#   //p' "$0" >&2
     # shellcheck disable=SC2034 # consumed by nogo in sourced ci/lib.sh
     name=lights-out
-    nogo "unknown command '$sub'; one of: init gates test-proof test-integrity triage postmortem version next dora spend cloud-setup start intake answer intake-confirm assign up down smoke release promote console evidence" ;;
+    nogo "unknown command '$sub'; one of: init gates test-proof test-integrity triage postmortem version next dora spend cloud-setup map network scoreboard auto-incident incident alert-webhook start intake answer intake-confirm assign up down smoke release promote console evidence try watch request resume audit production-readiness; or a domain (repo ticket release ops config) and a verb" ;;
 esac
 
 host_out=${LIGHTS_OUT_HOST_OUT:-/out}
@@ -79,6 +185,40 @@ has_model_provider=0
 provider_val=""
 reason_val=""
 
+# POSIX flags to KEY=VALUE (docs/adr/0112 §2); the flags a command owns pass through untouched.
+nargs=$#
+i=0
+while [ "$i" -lt "$nargs" ]; do
+  a=$1
+  shift
+  i=$((i + 1))
+  case "$a" in
+    --json|--jsonl|--engine|--non-interactive) set -- "$@" "$a" ;;
+    --staged) set -- "$@" STAGED=1 ;;
+    --once) set -- "$@" ONCE=1 ;;
+    --*=*)
+      name=${a%%=*}
+      if native_flag "$sub" "$name"; then
+        set -- "$@" "$a"
+      else
+        name=${name#--}
+        set -- "$@" "$(printf '%s' "$name" | tr 'a-z-' 'A-Z_')=${a#*=}"
+      fi ;;
+    --*)
+      [ "$i" -lt "$nargs" ] || nogo "'$a' requires a value"
+      v=$1
+      shift
+      i=$((i + 1))
+      if native_flag "$sub" "$a"; then
+        set -- "$@" "$a" "$v"
+      else
+        name=${a#--}
+        set -- "$@" "$(printf '%s' "$name" | tr 'a-z-' 'A-Z_')=$v"
+      fi ;;
+    *) set -- "$@" "$a" ;;
+  esac
+done
+
 nargs=$#
 i=0
 while [ "$i" -lt "$nargs" ]; do
@@ -90,6 +230,8 @@ while [ "$i" -lt "$nargs" ]; do
     ALERT=/*|INCIDENT=/*) ;;
     ALERT=*) a="ALERT=$repo_dir/${a#ALERT=}" ;;
     INCIDENT=*) a="INCIDENT=$repo_dir/${a#INCIDENT=}" ;;
+    "ALERT_FILE="/*) ;;
+    "ALERT_FILE="*) a="ALERT_FILE=$repo_dir/${a#ALERT_FILE=}" ;;
     DECISIONS=@/*) ;;
     DECISIONS=@*)
       dpath=${a#DECISIONS=@}
@@ -136,7 +278,9 @@ while [ "$i" -lt "$nargs" ]; do
     BASE=*|HEAD=*|JUDGED=*|MODEL=*|TICKET=*|TEXT=*|ANSWER=*|DECISIONS=*|VERSION=*|CANARY_VERSION=*|CANARY_TAG=*|GO_FOR_LAUNCH=*|CLOUD=*|CODE_HOST=*|ADAPTERS_PATH=*|WINDOW_DAYS=*) ;;
     --json)
       case "$sub" in start|next) cli_args="$cli_args${cli_args:+$cli_sep}$a"; continue ;; esac
-      nogo "'$a' is only valid with start or next" ;;
+      nogo "'$a' is not offered for $sub: a gate keeps its one-line GO/NO-GO contract, and start and next keep their native --json (docs/adr/0112 §5)" ;;
+    --jsonl)
+      nogo "'$a' is not offered for $sub: a gate keeps its one-line GO/NO-GO contract, and start and next keep their native --json (docs/adr/0112 §5)" ;;
     --mode=*)
       case "$sub" in start|next) cli_args="$cli_args${cli_args:+$cli_sep}$a"; continue ;; esac
       nogo "'$a' is only valid with start or next" ;;
@@ -169,7 +313,10 @@ while [ "$i" -lt "$nargs" ]; do
           continue ;;
         *) nogo "'$a' is only valid with init, gates, test-proof, or test-integrity" ;;
       esac ;;
-    *) nogo "'$a' is not an argument lights-out takes; one of BASE= HEAD= JUDGED= STAGED= ALERT= INCIDENT= PROFILE= MODEL_PROVIDER= MODEL= TICKET= TEXT= ANSWER= DECISIONS= VERSION= CANARY_VERSION= CANARY_TAG= GO_FOR_LAUNCH= REASON= MODE= PRESET= CLOUD= DELIVERY= CODE_HOST= AGENT_HARNESS= PROVIDER= ADAPTERS_PATH= WINDOW_DAYS= SPEND_BUDGET_TICKET_USD= SPEND_BUDGET_DAY_USD=" ;;
+    [A-Z]*=*)
+      member "${a%%=*}" "$(extra_keys_for "$sub")" \
+        || nogo "'${a%%=*}=' is not an argument lights-out takes; one of BASE= HEAD= JUDGED= STAGED= ALERT= INCIDENT= PROFILE= MODEL_PROVIDER= MODEL= TICKET= TEXT= ANSWER= DECISIONS= VERSION= CANARY_VERSION= CANARY_TAG= GO_FOR_LAUNCH= REASON= MODE= PRESET= CLOUD= DELIVERY= CODE_HOST= AGENT_HARNESS= PROVIDER= ADAPTERS_PATH= WINDOW_DAYS= SPEND_BUDGET_TICKET_USD= SPEND_BUDGET_DAY_USD= $(extra_keys_for "$sub")" ;;
+    *) nogo "'${a%%=*}' is not an argument lights-out takes; one of BASE= HEAD= JUDGED= STAGED= ALERT= INCIDENT= PROFILE= MODEL_PROVIDER= MODEL= TICKET= TEXT= ANSWER= DECISIONS= VERSION= CANARY_VERSION= CANARY_TAG= GO_FOR_LAUNCH= REASON= MODE= PRESET= CLOUD= DELIVERY= CODE_HOST= AGENT_HARNESS= PROVIDER= ADAPTERS_PATH= WINDOW_DAYS= SPEND_BUDGET_TICKET_USD= SPEND_BUDGET_DAY_USD= $(extra_keys_for "$sub")" ;;
   esac
   set -- "$@" "$a"
 done
@@ -300,9 +447,9 @@ if [ -n "${LIGHTS_OUT_PLATFORM_DIR:-}" ]; then
         run_make "$sub" WORKLOAD=.attached ATTACHED=.attached "$@"
       else
         case "$sub" in
-          start)
+          start|try)
             run_make "$sub" WORKLOAD=.attached ATTACHED=.attached "$@" ;;
-          down|console|promote|evidence)
+          down|console|promote|evidence|production-readiness|incident)
             run_make "$sub" ATTACHED=/tmp/lights-out/no-attached WORKLOAD=app "$@" ;;
           *)
             nogo "the repository has no .lights-out/workload.env committed; lights-out init drafts one" ;;
@@ -315,20 +462,20 @@ fi
 # mounted from $out/crew. cloud-setup skips attach; next/dora/spend attach
 # $repo_dir when available.
 case "$sub" in
-  cloud-setup)
-    run_make cloud-setup "$@" ;;
-  next|dora|spend)
+  cloud-setup|scoreboard|auto-incident|incident|alert-webhook)
+    run_make "$sub" "$@" ;;
+  next|dora|spend|map|network)
     attached=/tmp/lights-out/attached
     mkdir -p /tmp/lights-out
     if sh core/await-head.sh "$repo_dir" 15; then
       rm -rf "$attached"
       sh core/attach.sh "$repo_dir" "$attached" || nogo "could not clone the repository (see above)"
-      if [ "$sub" = next ] || [ -f "$attached/.lights-out/workload.env" ]; then
+      if member "$sub" "next map" || [ -f "$attached/.lights-out/workload.env" ]; then
         run_make "$sub" WORKLOAD="$attached" ATTACHED="$attached" "$@"
       fi
       run_make "$sub" WORKLOAD=app ATTACHED=/tmp/lights-out/no-attached "$@"
     else
-      [ "$sub" != next ] || nogo "the current directory is not a git repository with a commit"
+      ! member "$sub" "next map" || nogo "the current directory is not a git repository with a commit"
       run_make "$sub" WORKLOAD=app ATTACHED=/tmp/lights-out/no-attached "$@"
     fi ;;
 esac
