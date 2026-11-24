@@ -12,6 +12,12 @@ Stage Terraform and OIDC templates into `.crew/cloud/aws-ecs-codedeploy/`:
 ./go cloud-setup CLOUD=aws-ecs-codedeploy
 ```
 
+## SLO modes & Cloud E2E bridge
+
+- **Proxy SLO mode (default, `SLO_MODE=proxy`)**: point `SLO_PROMQL=plugins/cloud/aws-ecs-codedeploy/slo-ingress.promql` at ECS Service Connect / Envoy proxy upstream stats (`envoy_cluster_upstream_rq_*` grouped by `envoy_cluster_name`); requires no app `/metrics` or `target_info`.
+- **OTel SLO mode (`SLO_MODE=otel`)**: point `SLO_PROMQL=plugins/cloud/aws-ecs-codedeploy/slo.promql` at app-emitted OpenTelemetry HTTP metrics with `target_info`.
+- **Remote Registry & Flags**: pair with `REGISTRY=oci-registry` (`OCI_REGISTRY_REPO=<account>.dkr.ecr.<region>.amazonaws.com/<service>`, see [oci-registry](../../../adapters/oci-registry/README.md)) and daemonless `FLAGS=flags-file` ([flags-file](../../../adapters/flags-file/README.md)) or `FLAGS=flags-http` ([flags-http](../../../adapters/flags-http/README.md)). See [ADR 0107](../../../docs/adr/0107-cloud-registry-flags-and-proxy-slos.md).
+
 ## Required environment variables
 
 - `AWS_REGION` (or `AWS_DEFAULT_REGION`)

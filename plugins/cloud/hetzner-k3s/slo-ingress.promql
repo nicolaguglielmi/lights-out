@@ -1,0 +1,8 @@
+# name: traffic
+sum by (envoy_cluster_name) (label_replace(rate(nginx_ingress_controller_requests[1m]), "envoy_cluster_name", "$1", "exported_service", ".*-(stable|canary)$"))
+
+# name: error_rate
+sum by (envoy_cluster_name) (label_replace(rate(nginx_ingress_controller_requests{status=~"5.."}[1m]), "envoy_cluster_name", "$1", "exported_service", ".*-(stable|canary)$")) / sum by (envoy_cluster_name) (label_replace(rate(nginx_ingress_controller_requests[1m]), "envoy_cluster_name", "$1", "exported_service", ".*-(stable|canary)$"))
+
+# name: latency_p95
+histogram_quantile(0.95, sum by (envoy_cluster_name, le) (label_replace(rate(nginx_ingress_controller_request_duration_seconds_bucket[1m]), "envoy_cluster_name", "$1", "exported_service", ".*-(stable|canary)$")))

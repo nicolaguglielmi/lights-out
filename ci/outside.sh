@@ -282,6 +282,141 @@ ln -s /etc/hostname "$ext/file-codehost-linked/extra.sh"
 m help CODE_HOST=outside/file-codehost-linked
 refused "codehost symlink in tree" "CODE_HOST=outside/file-codehost-linked is refused" "symlink"
 
+# --- a3: REGISTRY=outside/file-registry & FLAGS=outside/file-flags (ADR 0107) ---
+cp -R fixtures/outside-adapters/file-registry "$ext/file-registry"
+export FILE_REGISTRY_DIR="$tmp/file-registry-state"
+rg_var="REGISTRY=outside/file-registry"
+
+m help "$rg_var"
+refused "registry no proof" "$rg_var is refused" "registry-conformance GO" "./go registry-conformance $rg_var"
+[ ! -e "$root/adapters/outside/file-registry" ] || nogo "a3: no proof linked file-registry anyway"
+
+cp -R fixtures/outside-adapters/file-registry "$ext/file-registry-tamper"
+before_reg=$(cat "$reg")
+(cd "$root" && REGISTRY=outside/file-registry-tamper ADAPTERS_PATH="$ext" ADAPTERS_REGISTER="$reg" python3 core/adapters.py trial REGISTRY) \
+  || nogo "a3: trial file-registry-tamper failed"
+printf '\n' >> "$ext/file-registry-tamper/verify.sh"
+tamper_rc=0
+(cd "$root" && REGISTRY=outside/file-registry-tamper ADAPTERS_PATH="$ext" ADAPTERS_REGISTER="$reg" python3 core/adapters.py register REGISTRY registry-conformance >/dev/null 2>&1) || tamper_rc=$?
+[ "$tamper_rc" -ne 0 ] || nogo "a3: register accepted registry tree mutated during trial"
+(cd "$root" && ADAPTERS_REGISTER="$reg" python3 core/adapters.py untrial REGISTRY) >/dev/null 2>&1 || true
+[ "$(cat "$reg")" = "$before_reg" ] || nogo "a3: mutated registry trial wrote to register"
+[ ! -e "$tmp/trial-REGISTRY" ] || nogo "a3: untrial left trial-REGISTRY behind"
+
+cp -R fixtures/outside-adapters/file-registry "$ext/file-registry-broken"
+cat > "$ext/file-registry-broken/verify.sh" <<'EOF'
+#!/bin/sh
+printf 'outside/file-registry:%s\n' "${1:-x}"
+EOF
+chmod +x "$ext/file-registry-broken/verify.sh"
+(cd "$root" && REGISTRY=outside/file-registry-broken ADAPTERS_PATH="$ext" ADAPTERS_REGISTER="$reg" python3 core/adapters.py trial REGISTRY) \
+  || nogo "a3: trial file-registry-broken failed"
+broken_rc=0
+broken_out=$(cd "$root" && REGISTRY=outside/file-registry-broken ADAPTERS_PATH="$ext" ADAPTERS_REGISTER="$reg" ADAPTERS_TRIAL=REGISTRY CONFORMANCE=1 sh gates/registry-conformance.sh 2>/dev/null) || broken_rc=$?
+[ "$broken_rc" -ne 0 ] || nogo "a3: broken registry passed registry-conformance: [$broken_out]"
+case "$broken_out" in "NO-GO: registry-conformance — "*) ;; *) nogo "a3: broken registry printed [$broken_out]" ;; esac
+(cd "$root" && ADAPTERS_REGISTER="$reg" python3 core/adapters.py untrial REGISTRY) >/dev/null 2>&1 || true
+[ "$(cat "$reg")" = "$before_reg" ] || nogo "a3: broken registry wrote to register"
+
+(cd "$root" && REGISTRY=outside/file-registry ADAPTERS_PATH="$ext" ADAPTERS_REGISTER="$reg" python3 core/adapters.py trial REGISTRY) \
+  || nogo "a3: trial REGISTRY failed"
+m help "$rg_var"
+refused "registry on trial without ADAPTERS_TRIAL" "$rg_var is refused"
+m help "$rg_var" ADAPTERS_TRIAL=REGISTRY
+admitted "file-registry during trial with ADAPTERS_TRIAL=REGISTRY"
+reg_out=$(cd "$root" && REGISTRY=outside/file-registry ADAPTERS_PATH="$ext" ADAPTERS_REGISTER="$reg" ADAPTERS_TRIAL=REGISTRY CONFORMANCE=1 sh gates/registry-conformance.sh 2>/dev/null) \
+  || nogo "a3: registry-conformance failed on outside/file-registry: [$reg_out]"
+case "$reg_out" in "GO: registry-conformance — "*) ;; *) nogo "a3: registry-conformance printed [$reg_out]" ;; esac
+
+rg_digest=$(python3 core/adapters.py hash "$ext/file-registry")
+(cd "$root" && REGISTRY=outside/file-registry ADAPTERS_PATH="$ext" ADAPTERS_REGISTER="$reg" python3 core/adapters.py register REGISTRY registry-conformance) \
+  || nogo "a3: register REGISTRY failed"
+[ ! -e "$tmp/trial-REGISTRY" ] || nogo "a3: register REGISTRY left trial-REGISTRY behind"
+awk -F'\t' -v d="$rg_digest" '$1 == "REGISTRY" && $2 == "file-registry" && $3 == d && index($4, "registry-conformance@") == 1 { f = 1 } END { exit !f }' "$reg" 2>/dev/null \
+  || nogo "a3: register REGISTRY wrote no line for sha256 $rg_digest"
+
+rm -f "$root/adapters/outside/file-registry"
+m help "$rg_var"
+admitted "file-registry after register"
+[ -L "$root/adapters/outside/file-registry" ] || nogo "a3: admitted REGISTRY not linked"
+[ "$(readlink "$root/adapters/outside/file-registry")" = "$ext/file-registry" ] || nogo "a3: REGISTRY link mismatch"
+
+printf '\n' >> "$ext/file-registry/verify.sh"
+m help "$rg_var"
+refused "registry one changed byte" "$rg_var is refused"
+
+cp -R fixtures/outside-adapters/file-registry "$ext/file-registry-linked"
+ln -s /etc/hostname "$ext/file-registry-linked/extra.sh"
+m help REGISTRY=outside/file-registry-linked
+refused "registry symlink in tree" "REGISTRY=outside/file-registry-linked is refused" "symlink"
+
+cp -R fixtures/outside-adapters/file-flags "$ext/file-flags"
+export FILE_FLAGS_DIR="$tmp/file-flags-state"
+fl_var="FLAGS=outside/file-flags"
+
+m help "$fl_var"
+refused "flags no proof" "$fl_var is refused" "flags-conformance GO" "./go flags-conformance $fl_var"
+[ ! -e "$root/adapters/outside/file-flags" ] || nogo "a3: no proof linked file-flags anyway"
+
+cp -R fixtures/outside-adapters/file-flags "$ext/file-flags-tamper"
+before_reg=$(cat "$reg")
+(cd "$root" && FLAGS=outside/file-flags-tamper ADAPTERS_PATH="$ext" ADAPTERS_REGISTER="$reg" python3 core/adapters.py trial FLAGS) \
+  || nogo "a3: trial file-flags-tamper failed"
+printf '\n' >> "$ext/file-flags-tamper/evaluate.sh"
+tamper_rc=0
+(cd "$root" && FLAGS=outside/file-flags-tamper ADAPTERS_PATH="$ext" ADAPTERS_REGISTER="$reg" python3 core/adapters.py register FLAGS flags-conformance >/dev/null 2>&1) || tamper_rc=$?
+[ "$tamper_rc" -ne 0 ] || nogo "a3: register accepted flags tree mutated during trial"
+(cd "$root" && ADAPTERS_REGISTER="$reg" python3 core/adapters.py untrial FLAGS) >/dev/null 2>&1 || true
+[ "$(cat "$reg")" = "$before_reg" ] || nogo "a3: mutated flags trial wrote to register"
+[ ! -e "$tmp/trial-FLAGS" ] || nogo "a3: untrial left trial-FLAGS behind"
+
+cp -R fixtures/outside-adapters/file-flags "$ext/file-flags-broken"
+cat > "$ext/file-flags-broken/evaluate.sh" <<'EOF'
+#!/bin/sh
+printf 'false\n'
+EOF
+chmod +x "$ext/file-flags-broken/evaluate.sh"
+(cd "$root" && FLAGS=outside/file-flags-broken ADAPTERS_PATH="$ext" ADAPTERS_REGISTER="$reg" python3 core/adapters.py trial FLAGS) \
+  || nogo "a3: trial file-flags-broken failed"
+broken_rc=0
+broken_out=$(cd "$root" && FLAGS=outside/file-flags-broken ADAPTERS_PATH="$ext" ADAPTERS_REGISTER="$reg" ADAPTERS_TRIAL=FLAGS CONFORMANCE=1 sh gates/flags-conformance.sh 2>/dev/null) || broken_rc=$?
+[ "$broken_rc" -ne 0 ] || nogo "a3: broken flags passed flags-conformance: [$broken_out]"
+case "$broken_out" in "NO-GO: flags-conformance — "*) ;; *) nogo "a3: broken flags printed [$broken_out]" ;; esac
+(cd "$root" && ADAPTERS_REGISTER="$reg" python3 core/adapters.py untrial FLAGS) >/dev/null 2>&1 || true
+[ "$(cat "$reg")" = "$before_reg" ] || nogo "a3: broken flags wrote to register"
+
+(cd "$root" && FLAGS=outside/file-flags ADAPTERS_PATH="$ext" ADAPTERS_REGISTER="$reg" python3 core/adapters.py trial FLAGS) \
+  || nogo "a3: trial FLAGS failed"
+m help "$fl_var"
+refused "flags on trial without ADAPTERS_TRIAL" "$fl_var is refused"
+m help "$fl_var" ADAPTERS_TRIAL=FLAGS
+admitted "file-flags during trial with ADAPTERS_TRIAL=FLAGS"
+fl_out=$(cd "$root" && FLAGS=outside/file-flags ADAPTERS_PATH="$ext" ADAPTERS_REGISTER="$reg" ADAPTERS_TRIAL=FLAGS CONFORMANCE=1 sh gates/flags-conformance.sh 2>/dev/null) \
+  || nogo "a3: flags-conformance failed on outside/file-flags: [$fl_out]"
+case "$fl_out" in "GO: flags-conformance — "*) ;; *) nogo "a3: flags-conformance printed [$fl_out]" ;; esac
+
+fl_digest=$(python3 core/adapters.py hash "$ext/file-flags")
+(cd "$root" && FLAGS=outside/file-flags ADAPTERS_PATH="$ext" ADAPTERS_REGISTER="$reg" python3 core/adapters.py register FLAGS flags-conformance) \
+  || nogo "a3: register FLAGS failed"
+[ ! -e "$tmp/trial-FLAGS" ] || nogo "a3: register FLAGS left trial-FLAGS behind"
+awk -F'\t' -v d="$fl_digest" '$1 == "FLAGS" && $2 == "file-flags" && $3 == d && index($4, "flags-conformance@") == 1 { f = 1 } END { exit !f }' "$reg" 2>/dev/null \
+  || nogo "a3: register FLAGS wrote no line for sha256 $fl_digest"
+
+rm -f "$root/adapters/outside/file-flags"
+m help "$fl_var"
+admitted "file-flags after register"
+[ -L "$root/adapters/outside/file-flags" ] || nogo "a3: admitted FLAGS not linked"
+[ "$(readlink "$root/adapters/outside/file-flags")" = "$ext/file-flags" ] || nogo "a3: FLAGS link mismatch"
+
+printf '\n' >> "$ext/file-flags/evaluate.sh"
+m help "$fl_var"
+refused "flags one changed byte" "$fl_var is refused"
+
+cp -R fixtures/outside-adapters/file-flags "$ext/file-flags-linked"
+ln -s /etc/hostname "$ext/file-flags-linked/extra.sh"
+m help FLAGS=outside/file-flags-linked
+refused "flags symlink in tree" "FLAGS=outside/file-flags-linked is refused" "symlink"
+
 # --- b: a surface is never a judge (ADR 0058 §6, ADR 0095 §10) -------------------
 # The contexts the tower posts: the third argument of every status.sh call in core/.
 tower=$(awk '!/^[[:space:]]*#/ && /adapters\/\$CODE_HOST\/status\.sh"/ {
@@ -318,4 +453,4 @@ surfaces/gitlab-ci/.gitlab-ci.yml lights-out/gitlab-ci failed
 surfaces/circleci/config.yml lights-out/circleci failure
 EOF
 
-go_with "outside StateStore, Delivery and CodeHost refused, proven, admitted, refused again on one byte; the surfaces post under${contexts}, the tower under $(printf '%s' "$tower" | tr '\n' ' ' | sed 's/ $//')"
+go_with "outside StateStore, Delivery, CodeHost, Registry and Flags refused, proven, admitted, refused again on one byte; the surfaces post under${contexts}, the tower under $(printf '%s' "$tower" | tr '\n' ' ' | sed 's/ $//')"

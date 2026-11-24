@@ -15,17 +15,24 @@ Four external Delivery plugins implementing the `lights-out` Delivery port (`rea
 
 ## Quick start
 
-Stage the Terraform + OIDC starter files for a provider into `.crew/cloud/<provider>/` without touching your workload repository:
+Stage the Terraform + OIDC starter files for a provider into `.crew/cloud/<provider>/` without touching your workload repository (`SLO_MODE=proxy` is the default, selecting `slo-ingress.promql`; pass `SLO_MODE=otel` or `--slo-mode otel` for `slo.promql` when your app exports `/metrics` and `target_info`):
 
 ```sh
 ./go cloud-setup CLOUD=gcp-cloud-deploy
 ```
 
-Then provision infrastructure with Terraform, configure OIDC federation in your CI provider (`ci/github-oidc.yml` or `ci/gitlab-oidc.yml`), and verify conformance against your real cloud account:
+Then provision infrastructure with Terraform, configure OIDC federation in your CI provider (`ci/github-oidc.yml` or `ci/gitlab-oidc.yml`), pair with the remote Registry (`REGISTRY=oci-registry`, see [oci-registry](../../adapters/oci-registry/README.md)) and daemonless Flags (`FLAGS=flags-file` in [flags-file](../../adapters/flags-file/README.md) or `FLAGS=flags-http` in [flags-http](../../adapters/flags-http/README.md)), and verify conformance against your real cloud account:
 
 ```sh
 ./go delivery-conformance DELIVERY=outside/gcp-cloud-deploy ADAPTERS_PATH=/abs/path/to/plugins/cloud
+CONFORMANCE=1 REGISTRY=oci-registry sh gates/registry-conformance.sh
+CONFORMANCE=1 FLAGS=flags-file sh gates/flags-conformance.sh
 ```
+
+## SLO modes (`proxy` vs `otel`)
+
+- **Proxy / Ingress SLO mode (`slo-ingress.promql`, default)**: reads upstream proxy/ingress counters and latency buckets (`traffic`, `error_rate`, `latency_p95`) with no app `/metrics` or `target_info` required (ADR 0098, ADR 0107).
+- **OTel app SLO mode (`slo.promql`)**: queries app-emitted `http_server_request_duration_seconds_*` joined with `target_info{service_version=...}`.
 
 ## Security boundary
 
