@@ -75,7 +75,7 @@ One key, three values, in order of strictness:
 | Value | A record is required when | What satisfies it |
 |---|---|---|
 | `off` (default) | never | nothing to satisfy |
-| `high` | `classify()` says `level=high` | a new or updated valid record under `docs/adr/` or `adr/` in the range, or a commit message in the range naming `ADR-NNNN` or `ADR NNNN` |
+| `high` | `classify()` says `level=high` | a new or updated valid record under `docs/adr/` or `adr/` in the range, or a commit message in the range naming `ADR-NNNN` or `ADR NNNN` where every record so named exists at `head` as `docs/adr/NNNN-*.md` or `adr/NNNN-*.md` and is valid |
 | `structural` | `level=high`, or the range adds a package manifest, lockfile, container or compose manifest | a new or updated valid record under `docs/adr/` or `adr/` in the range itself |
 
 `core/policy.py` accepts it as an override with exactly those three values;
@@ -103,9 +103,13 @@ A standard range gate under the shell boundary (ADR 0084):
 `verdict core.gates.adr_check "$base" "$head" "$out_dir/effective-policy.env"`.
 One stdout line, `GO: adr-check` or `NO-GO: adr-check — <reason>`, details
 on stderr. GO when `RISK_REQUIRE_ADR=off`, when no record is required, or
-when the requirement is satisfied; NO-GO when a required record is missing,
-when a record in the range fails `validate_adr` (each defect on stderr), or
-when the range or policy cannot be read. Wiring it into the `GATES` list and
+when the requirement is satisfied. When a record is required, NO-GO when
+it is missing, when a record in the range fails `validate_adr` (each defect
+on stderr), or when a commit message names a record that does not exist at
+`head` or fails `validate_adr`. Records are judged only when one is
+required: a repository that has not opted in, or a range that needs none,
+is never held up by an old record's shape. NO-GO, too, when the range or
+the policy cannot be read. Wiring it into the `GATES` list and
 the entrypoints is the integrator's slice, not this one.
 
 ### 6. The roles
@@ -130,6 +134,9 @@ for one. Neither prompt names the gate or its tools (ADR 0020 §6).
   reproducible on a cold run, and it would put a model call inside a gate.
 - **Every number counts as a threshold.** Dates, ADR numbers, section
   references and versions would drown the real defects; §2 sets them aside.
+- **Taking a commit-message reference on trust.** A message naming a
+  record that was never written would pass; the reference is resolved
+  against the tree at `head` and the record it names must be valid.
 - **Commit-message references also satisfy `structural`.** Then
   `structural` would be no stricter than `high` for the paths both cover;
   the reference stays the `high` level's lighter path.

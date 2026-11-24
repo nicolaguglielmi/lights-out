@@ -6,10 +6,11 @@
 # carries one: off (the default) is GO; high asks a high-risk range for a
 # new or updated valid record under docs/adr/ or adr/, or a commit message
 # naming ADR-NNNN; structural asks a high-risk range, or one adding a
-# manifest or lockfile, for a valid record in the range itself. A record in
-# the range that lacks its Context, Decision or Alternatives, or states a
-# numeric threshold with no provenance, is a NO-GO with each defect on
-# stderr. require_range first (docs/adr/0015 §2); the judging is
+# manifest or lockfile, for a valid record in the range itself. When a
+# record is required, one in the range (or named by a commit message, which
+# must exist at HEAD) that lacks its Context, Decision or Alternatives, or
+# states a numeric threshold with no provenance, is a NO-GO with each
+# defect on stderr. require_range first (docs/adr/0015 §2); the judging is
 # core/gates/adr_check.py over core/adr_gov.py (docs/adr/0084).
 set -eu
 name=adr-check

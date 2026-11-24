@@ -7,9 +7,10 @@ The workload's range base..head, judged by core/adr_gov.py against the
 effective policy's RISK_REQUIRE_ADR (docs/adr/0115 §3). GO when it is off,
 when no decision record is required, or when the requirement is met: a new
 or updated valid record in the range, or, at `high`, a commit message
-naming one. NO-GO when a required record is missing, when a record in the
-range is incomplete (each defect a detail), or when the range or the policy
-cannot be read.
+naming one that exists at head and is valid. When a record is required,
+NO-GO when it is missing, or when a record in the range or one a commit
+message names is missing or incomplete (each defect a detail); NO-GO also
+when the range or the policy cannot be read.
 """
 
 import os

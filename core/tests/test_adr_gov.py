@@ -379,8 +379,30 @@ class CheckRangeTests(unittest.TestCase):
         bare = Repo(self)
         first = bare.commit({"db/migrations/001.sql": "x\n"}, message="Start (ADR-0001)")
         got = adr_gov.check_range_adr(bare.dir, EMPTY_TREE, first, mode("high"))
-        self.assertTrue(got.go, got)
+        self.assertFalse(got.go, got)  # the message was read; the record it names is not there
+        self.assertTrue(any("ADR-0001" in d for d in got.details), got.details)
         self.assertFalse(adr_gov.check_range_adr(bare.dir, EMPTY_TREE, first, mode("structural")).go)
+
+    def test_reference_to_a_record_that_does_not_exist_is_no_go(self):
+        head = self.repo.commit({"db/migrations/002.sql": "x\n"}, message="Add table (ADR-9999)")
+        got = self.check(head, "high")
+        self.assertFalse(got.go)
+        self.assertTrue(any("ADR-9999" in d for d in got.details), got.details)
+
+    def test_reference_to_an_incomplete_record_is_no_go(self):
+        bad = VALID.replace("## Context\n\nWhy the choice is needed.\n", "")
+        self.repo.commit({"adr/0003-thin.md": bad})
+        base = self.repo.git("rev-parse", "HEAD")
+        head = self.repo.commit({"db/migrations/002.sql": "x\n"}, message="Add table, see ADR 0003")
+        got = self.check(head, "high", base=base)
+        self.assertFalse(got.go)
+        self.assertTrue(any("adr/0003-thin.md" in d and "Context" in d for d in got.details), got.details)
+
+    def test_every_referenced_record_must_resolve(self):
+        head = self.repo.commit({"db/migrations/002.sql": "x\n"}, message="ADR-0001 and ADR-0042")
+        got = self.check(head, "high")
+        self.assertFalse(got.go)
+        self.assertTrue(any("ADR-0042" in d for d in got.details), got.details)
 
     def test_missing_record_names_the_next_free_number(self):
         head = self.repo.commit({"db/migrations/002.sql": "x\n"})

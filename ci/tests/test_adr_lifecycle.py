@@ -89,11 +89,19 @@ class GateEndToEnd(unittest.TestCase):
         self.assertEqual(self.gate(head).stdout, "GO: adr-check\n")
 
     def test_high_with_commit_reference_is_go_structural_is_not(self):
+        self.base = self.repo.commit({"docs/adr/0002-a-table.md": RECORD})
         head = self.repo.commit({"db/migrations/001.sql": "x\n"}, message="Add a table (ADR-0002)")
         self.require("high")
         self.assertEqual(self.gate(head).returncode, 0)
         self.require("structural")
         self.assertEqual(self.gate(head).returncode, 1)
+
+    def test_high_with_reference_to_a_missing_record_is_no_go(self):
+        self.require("high")
+        head = self.repo.commit({"db/migrations/001.sql": "x\n"}, message="Add a table (ADR-9999)")
+        got = self.gate(head)
+        self.assertEqual(got.returncode, 1, got.stdout)
+        self.assertIn("ADR-9999", got.stderr)
 
     def test_structural_new_lockfile_needs_a_record(self):
         self.require("structural")

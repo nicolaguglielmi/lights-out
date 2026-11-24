@@ -197,8 +197,11 @@ def _git(repo, *args):
 def check_range_adr(repo, base, head, policy):
     """Judge base..head of repo against RISK_REQUIRE_ADR (docs/adr/0115 §3).
 
-    Returns Verdict(go, reason, details). Raises ValueError when git cannot
-    read the range.
+    Records are judged only when one is required. At `high`, a commit
+    message naming ADR-NNNN satisfies it only if every record so named
+    exists at head under docs/adr/ or adr/ and is valid. Returns
+    Verdict(go, reason, details). Raises ValueError when git cannot read
+    the range.
     """
     mode = policy.get("RISK_REQUIRE_ADR") or "off"
     if mode not in MODES:
@@ -231,6 +234,18 @@ def check_range_adr(repo, base, head, policy):
             messages = _git(repo, "log", "--format=%B", f"{base}..{head}")
         refs = sorted(set(_REFERENCE.findall(messages)))
         if refs:
+            listed = _git(repo, "ls-tree", "-r", "--name-only", head, "--", "docs/adr/", "adr/").splitlines()
+            problems = []
+            for ref in refs:
+                found = [p for p in listed if _RECORD_PATH.match(p) and os.path.basename(p).startswith(f"{ref}-")]
+                if not found:
+                    problems.append(f"commit message names ADR-{ref}, but no docs/adr/ or adr/{ref}-*.md exists "
+                                    f"at {head}")
+                for path in found:
+                    problems += [f"ADR-{ref} {path}: {d}" for d in validate_adr(_git(repo, "show", f"{head}:{path}"))]
+            if problems:
+                return Verdict(False, "RISK_REQUIRE_ADR=high: a referenced decision record is missing or incomplete",
+                               problems)
             return Verdict(True, "RISK_REQUIRE_ADR=high: referenced by commit message as "
                                  + " ".join(f"ADR-{ref}" for ref in refs), [])
     triggers = [path for signal in result["signals"] if result["level"] == "high" for path in signal["paths"]]
