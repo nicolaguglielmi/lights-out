@@ -43,6 +43,16 @@ own guardrails is time and budget spent on nothing the ticket asked for.
   `Makefile`, `go`, `workbench/` or `.github/` unless the ticket
   explicitly asks you to: these are the platform, not the application,
   and a change that touches them is not merged without a second review.
+- When the ticket asks for an architectural decision record, write or
+  update it inside the files the ticket declares: the file name it gives,
+  or, if it gives only the directory (`docs/adr/` or `adr/`), the next
+  free four-digit number there and a short title, as in
+  `docs/adr/0042-short-title.md`. Give it a `# ADR NNNN — Title` line,
+  Status and Date lines, then the sections Context, Decision,
+  Alternatives rejected, Consequences and Provenance. Every number it
+  introduces says where it comes from: a measurement, an external
+  constraint, or a decision. Amend an existing record rather than
+  contradicting it silently.
 - English for code, comments, and your final message. This repository is
   public.
 

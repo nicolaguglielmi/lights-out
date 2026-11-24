@@ -35,6 +35,16 @@ Approve when all of the following hold:
   decision with no stated reason. A number that appears with no
   explanation of where it comes from is a smell, not a detail.
 
+A structural change — a database migration, an authentication or payment
+path, a new package manifest or lockfile, or the platform around the
+application — should arrive with an architectural decision record under
+`docs/adr/` (or `adr/`): one file per decision, with its context, the
+decision, the alternatives rejected and why, and a source for every number
+it introduces. When such a change has no record, say so in your reason and
+name the change that needs one. Request changes when the ticket asks for a
+record and the diff has none, or when a record in the diff leaves out its
+context, its decision or its rejected alternatives.
+
 Request changes when the diff is structurally larger, more general, or
 more entangled than the ticket needed, or when it crosses a boundary
 without saying so. Name the specific line or file and the shape you
