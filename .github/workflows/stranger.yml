@@ -229,9 +229,10 @@ jobs:
             .crew/codespace-times.txt
           if-no-files-found: ignore
 
-  # README "On your repository, without cloning lights-out", as far as it
-  # works with no published image: ./go package from a clone, the wrapper
-  # on workloads/minimal copied into a fresh repository, with podman.
+  # README "Gates on your repository", as far as it works with no published
+  # image: ./go package-gates, the wheel built from the clone and installed
+  # via uv tool install (putting both lights-out and lights-out-gates on
+  # PATH, ADR 0099), then workloads/minimal copied into a fresh repository.
   package:
     runs-on: ubuntu-latest
     needs: plan
@@ -263,12 +264,29 @@ jobs:
           echo "./go package-gates: $(( $(date +%s) - s ))s, exit $rc" >> "$TIMES"
           podman image ls localhost/lights-out-gates
           exit "$rc"
-      - name: The wrapper on your PATH (README)
+      - name: uv at the workbench's pin
+        working-directory: lights-out
         run: |
-          mkdir -p "$HOME/.local/bin"
-          cp lights-out/lights-out "$HOME/.local/bin/lights-out"
-          chmod +x "$HOME/.local/bin/lights-out"
-          echo "$HOME/.local/bin" >> "$GITHUB_PATH"
+          set -eu
+          v=$(sed -n 's/^ARG UV_VERSION=//p' workbench/Containerfile)
+          sha=$(sed -n 's/^ARG UV_SHA256_AMD64=//p' workbench/Containerfile)
+          mkdir -p "$RUNNER_TEMP/bin"
+          sh workbench/fetch.sh "https://github.com/astral-sh/uv/releases/download/$v/uv-x86_64-unknown-linux-gnu.tar.gz" "$sha" "$RUNNER_TEMP/uv.tar.gz"
+          tar -xzf "$RUNNER_TEMP/uv.tar.gz" --strip-components=1 -C "$RUNNER_TEMP/bin"
+          echo "$RUNNER_TEMP/bin" >> "$GITHUB_PATH"
+      - name: Build wheel and install via uv tool install (lights-out and lights-out-gates)
+        working-directory: lights-out
+        run: |
+          set -eu
+          s=$(date +%s)
+          uv build --out-dir "$RUNNER_TEMP/dist"
+          uv tool install --from "$RUNNER_TEMP/dist"/lights_out_gates-*.whl lights-out-gates
+          bin_dir=$(uv tool dir --bin)
+          echo "$bin_dir" >> "$GITHUB_PATH"
+          PATH="$bin_dir:$PATH"
+          lights-out --version
+          lights-out-gates version
+          echo "uv tool install: $(( $(date +%s) - s ))s" >> "$TIMES"
       # workloads/minimal's tests read .lights-out/flags/flags.json, its own
       # data, so that stays; the rest of .lights-out/ (the contract and the
       # plane half) goes, so the repository is a stranger's: no contract yet.
@@ -310,7 +328,7 @@ jobs:
           rc=0; lights-out gates || rc=$?
           echo "lights-out gates (contract commit): $(( $(date +%s) - s ))s, exit $rc" >> "$TIMES"
           exit "$rc"
-      - name: lights-out gates on a code change
+      - name: lights-out gates and lights-out-gates --light on a code change
         working-directory: /home/runner/code/your-repo
         run: |
           set -eu
@@ -320,6 +338,10 @@ jobs:
           s=$(date +%s)
           rc=0; lights-out gates || rc=$?
           echo "lights-out gates (code change): $(( $(date +%s) - s ))s, exit $rc" >> "$TIMES"
+          [ "$rc" -eq 0 ] || exit "$rc"
+          s=$(date +%s)
+          rc=0; lights-out-gates --light || rc=$?
+          echo "lights-out-gates --light (code change): $(( $(date +%s) - s ))s, exit $rc" >> "$TIMES"
           exit "$rc"
       - if: always()
         name: Wall time of each step

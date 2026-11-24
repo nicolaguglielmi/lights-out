@@ -58,7 +58,7 @@ case "${1:-}" in
     done
     echo '```'
     echo
-    echo "**The light tier on PyPI**, [lights-out-gates $v](https://pypi.org/project/lights-out-gates/$v/), uploaded by trusted publishing: \`uvx lights-out-gates@$v --light\`."
+    echo "**One install on PyPI**, [lights-out-gates $v](https://pypi.org/project/lights-out-gates/$v/), uploaded by trusted publishing: \`uv tool install lights-out-gates==$v\` puts both \`lights-out\` (the container wrapper) and \`lights-out-gates\` on your PATH (or run the light tier without installing via \`uvx lights-out-gates@$v --light\`)."
     echo
     echo "**The two standalone Actions**, at the same version:"
     echo

@@ -316,14 +316,19 @@ jobs:
           whl=$(ls dist/lights_out_gates-"$VERSION"-py3-none-any.whl)
           ls dist/lights_out_gates-"$VERSION".tar.gz >/dev/null
           python3 -m zipfile -l "$whl" | awk '{print $1}' > "$RUNNER_TEMP/wheel.txt"
-          for f in lights_out/perimeter.sh lights_out/platform_policy/merge.env lights_out/__main__.py; do
+          for f in lights_out/perimeter.sh lights_out/platform_policy/merge.env lights_out/__main__.py "lights_out_gates-$VERSION.data/scripts/lights-out"; do
             awk -v f="$f" '$1 == f { found = 1 } END { exit !found }' "$RUNNER_TEMP/wheel.txt" || { echo "the wheel has no $f"; exit 1; }
           done
+          python3 -c 'import sys, zipfile; z = zipfile.ZipFile(sys.argv[1]); sys.exit(0 if z.read(sys.argv[2]) == open("lights-out", "rb").read() else 1)' "$whl" "lights_out_gates-$VERSION.data/scripts/lights-out" \
+            || { echo "the wheel's lights-out differs from ./lights-out"; exit 1; }
           ! awk '/(^|\/)tests\//' "$RUNNER_TEMP/wheel.txt" | awk 'END { exit !NR }' || { echo "the wheel ships tests/"; exit 1; }
           out=$(uv tool run --isolated --from "$whl" lights-out-gates version)
           echo "$out"
           case "$out" in "lights-out-gates $VERSION "*) ;; *) echo "the wheel's lights-out-gates version is not $VERSION"; exit 1 ;; esac
-          { echo "### dist"; echo '```'; ls -l dist; echo "$out"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          out_lo=$(uv tool run --isolated --from "$whl" lights-out --version)
+          echo "$out_lo"
+          case "$out_lo" in "lights-out $VERSION "*) ;; *) echo "the wheel's lights-out --version is not $VERSION"; exit 1 ;; esac
+          { echo "### dist"; echo '```'; ls -l dist; echo "$out"; echo "$out_lo"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
       - name: "A dry run: the upload the pypi job makes at the tag"
         if: github.event_name == 'workflow_dispatch'
         run: |

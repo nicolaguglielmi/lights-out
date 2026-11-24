@@ -206,7 +206,7 @@ cosign verify ghcr.io/nicolaguglielmi/lights-out-gates:0.8.1 \
 ```
 
   The identity matches a tag publish. A manual dispatch with `dry_run` off publishes `:sha-<commit>` with another identity, which this command does not accept. Tags are mutable: to pin, set `LIGHTS_OUT_IMAGE` to a digest. From a clone, `LIGHTS_OUT_IMAGE=localhost/lights-out-gates:dev` points the wrapper at a local build.
-- **The wrapper.** `lights-out`, version 0.8.1, a POSIX script at the repository root. The host needs podman or docker, and git. Download it by raw URL, or copy it from a clone onto your PATH.
+- **The wrapper.** `lights-out`, version 0.8.1, a POSIX script at the repository root. The host needs podman or docker, and git. `uv tool install lights-out-gates` installs both `lights-out` and `lights-out-gates` in one command ([ADR 0099](adr/0099-one-install-via-lights-out-gates.md); PyPI `0.8.1` carries `lights-out-gates` alone until the next release). Without Python, download `lights-out` by raw URL (`curl`), or copy it from a clone onto your PATH.
 
 ```sh
 lights-out init [HEAD=]              # draft (from HEAD, or that commit) to ~/.local/state/lights-out/<repo name>/.lights-out (LIGHTS_OUT_OUT moves it)
@@ -216,7 +216,7 @@ lights-out test-integrity            # test-weakening, then mutation on the chan
 lights-out triage ALERT=<file>       # the full image
 lights-out postmortem INCIDENT=<file>   # the full image
 lights-out doctor                    # engine, git, image, key: one line each
-lights-out version
+lights-out version                   # or --version
 ```
 
   `test-proof` and `test-integrity` each print one line named for itself. `init`, `gates`, `test-proof` and `test-integrity` run the gates image; `triage` and `postmortem` the full one; `LIGHTS_OUT_IMAGE` overrides the image for every command. Your repository is mounted read-only, and `init` never writes into it. Copy the draft with `cp -R <out>/.lights-out/. .lights-out/` (the `/.` matters). Keys are read from your environment by name, never from `.env`. The engine socket is never given to the image, so the gates work for `TOOLCHAIN_IMAGE=workbench` only; `compose:` and image forms get a NO-GO naming the socket, and are judged from a clone with `./go gates`. A range is judged by the contract at its base (`workload.env`, `policy.env`, `runners/`), so a change cannot loosen what judges it. At L0, `triage` and `postmortem` replay only lights-out's own recordings: on your alerts and incidents use `PROFILE=l1` and the key in your environment. The plane (`./go demo`, canary, rollback) stays the clone path.

@@ -1,8 +1,9 @@
 # SPDX-License-Identifier: Apache-2.0
 #
-# The lights-out Python package, `lights-out-gates` on PyPI (docs/adr/0061
-# and its amendment of 2026-11-09): the light tier of the gates,
-# `lights-out-gates --light`, standard library only. The import package
+# The lights-out Python package, `lights-out-gates` on PyPI (docs/adr/0061,
+# its amendment of 2026-11-09, and docs/adr/0099): one install ships both
+# the POSIX container wrapper (`lights-out`, via `script-files`) and the
+# containerless light tier (`lights-out-gates --light`, standard library only). The import package
 # `lights_out` is the directory core/ (package-dir: no file moves), its tests
 # not shipped; the platform policy rides along as lights_out.platform_policy.
 # workbench/pyproject.toml is the workbench's own pin and stays apart.
@@ -16,7 +17,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "lights-out-gates"
 version = "0.8.1"
-description = "The gates of lights-out that need only git and Python: one line, GO or NO-GO, no container."
+description = "One install for lights-out: the POSIX container wrapper (lights-out) and the containerless light tier (lights-out-gates)."
 readme = "README.md"
 license = "Apache-2.0"
 license-files = ["LICENSE", "NOTICE"]
@@ -32,6 +33,7 @@ lights-out-gates = "lights_out.__main__:gates_main"
 [tool.setuptools]
 package-dir = {"lights_out" = "core", "lights_out.platform_policy" = "policy"}
 packages = ["lights_out", "lights_out.platform_policy"]
+script-files = ["lights-out"]
 
 [tool.setuptools.package-data]
 "lights_out" = ["perimeter.sh"]

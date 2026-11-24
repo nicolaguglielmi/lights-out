@@ -15,7 +15,7 @@
 #   lights-out triage ALERT=<file>      an alert in, an incident out (PROFILE=l1 and a key on your alerts)
 #   lights-out postmortem INCIDENT=<file>   an incident document in, a post mortem and tickets out
 #   lights-out doctor                   engine, image, key: one line each, then GO or NO-GO
-#   lights-out version
+#   lights-out version                  wrapper version and images (or --version)
 #
 # init, gates, test-proof and test-integrity run the gates image,
 # ghcr.io/nicolaguglielmi/lights-out-gates; triage and postmortem the full
@@ -43,6 +43,7 @@ cmd=${1:-help}
 [ $# -gt 0 ] && shift
 case "$cmd" in
   init|gates|test-proof|test-integrity|triage|postmortem|doctor|version) ;;
+  --version) cmd=version ;;
   help|-h|--help) usage; exit 0 ;;
   *) die "unknown command '$cmd'; one of: init gates test-proof test-integrity triage postmortem doctor version" ;;
 esac
