@@ -36,6 +36,7 @@ Flagger moves a canary through its `stepWeights` on its own, one step per analys
   ```
   A metric with no data counts as a failed check in Flagger. A canary waiting at the closed gate with no traffic must not fail: write the query so that no traffic is 0 (`... or on() vector(0)`), as the example instance's `k8s/flagger/backend.yaml` does.
 - **`/healthz` answering `{"version": "..."}`** on `FLAGGER_HEALTH_PORT` (default 8000). The adapter reads it from a pod of the primary (`app.kubernetes.io/name=<name>-primary`) and of the canary (`<name>`), through the pod proxy.
+- **Metrics (declared limit, ADR 0098).** Unlike L0 `envoy-canary` (which reads `verify/slo.promql` from Envoy proxy stats), `adapters/flagger/slo.promql` and Flagger's `MetricTemplate` still query application `/metrics` and `target_info{service_version}` until a Kubernetes proxy/gateway adapter replaces them.
 - **The version.** `deploy.sh` sets the first container's image, the pod-template annotation `lights-out.dev/version`, and `lights-out.dev/deploy`, a stamp per deploy: Flagger ignores a template it has already seen, and the same version deployed again after a rollback must start a new analysis.
 - **The image.** `deploy.sh` receives a verified `repo@digest` and prefixes it with `FLAGGER_REGISTRY_HOST` (default `localhost:5050`).
 

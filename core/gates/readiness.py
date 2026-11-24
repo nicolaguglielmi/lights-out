@@ -11,7 +11,7 @@ otherwise one NO-GO naming every item that fails, `item (why)` joined by
               delivery suite on GO, docs/adr/0057 §9) whose HASH is the
               adapter's hash today: changed since it passed is not passed
   metrics     METRICS=promql with METRICS_URL set, and that endpoint answers
-              count(target_info) with at least one sample
+              the derived readiness query from active slo.promql with >= 1 sample
   secrets     the env file holds no value, other than empty or replace-me,
               for a key ending in _KEY, _TOKEN, _SECRET or _PASSWORD, or for
               METRICS_AUTH_HEADER
@@ -94,15 +94,51 @@ def delivery(env, records):
     return True, f"delivery {d}, conformance passed {at}"
 
 
+def _active_promql_path(env):
+    slo = (env.get("SLO_PROMQL") or os.environ.get("SLO_PROMQL") or "").strip()
+    if slo:
+        return slo
+    delivery = (env.get("DELIVERY") or os.environ.get("DELIVERY") or "").strip()
+    if delivery:
+        adapter_promql = os.path.join("adapters", delivery, "slo.promql")
+        if os.path.isfile(adapter_promql):
+            return adapter_promql
+    local_promql = os.path.join("verify", "slo.promql")
+    if os.path.isfile(local_promql):
+        return local_promql
+    return os.path.join(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), "verify", "slo.promql")
+
+
+def _readiness_query(env):
+    path = _active_promql_path(env)
+    with open(path, encoding="utf-8") as fh:
+        text = fh.read()
+    if re.search(r"\btarget_info\b", text):
+        return "target_info", "count(target_info)"
+    for block in text.split("\n\n"):
+        lines = [ln.strip() for ln in block.splitlines() if ln.strip()]
+        if lines and re.match(r"^#\s*name:\s*traffic\b", lines[0]):
+            qtext = " ".join(lines[1:])
+            m = re.search(r"\brate\s*\(\s*([a-zA-Z_:][a-zA-Z0-9_:]*)\s*(?:\{[^}]*\})?\s*\[", qtext)
+            if m:
+                metric_name = m.group(1)
+                return metric_name, f"count({metric_name})"
+    raise ValueError(f"cannot derive readiness query from {path}")
+
+
 def metrics(env, query):
     if env.get("METRICS", "") != "promql":
         return False, f"METRICS={env.get('METRICS', '')} is not promql on an endpoint you name"
     if not env.get("METRICS_URL"):
         return False, "METRICS_URL is not set"
-    n = samples(query("count(target_info)") or "")
+    try:
+        metric_name, expr = _readiness_query(env)
+    except (OSError, ValueError) as exc:
+        return False, str(exc)
+    n = samples(query(expr) or "")
     if n > 0:
-        return True, f"metrics from METRICS_URL, {n} target_info series"
-    return False, "METRICS_URL answers no target_info series, or does not answer"
+        return True, f"metrics from METRICS_URL, {n} {metric_name} series"
+    return False, f"METRICS_URL answers no {metric_name} series, or does not answer"
 
 
 def secrets(envfile):

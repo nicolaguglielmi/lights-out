@@ -149,13 +149,12 @@ jobs:
         run: |
           podman ps -a --format '{{.Names}} {{.Status}}' || true
           podman system df || true
-      # verify's judgement reads target_info joined on (job, instance): a
-      # 422 from Prometheus is two target_info series on one side.
+      # verify's judgement reads Envoy upstream cluster metrics (docs/adr/0098).
       - if: always()
-        name: Prometheus, target_info and the traffic query
+        name: Prometheus, Envoy clusters and the traffic query
         run: |
-          curl -sS -G localhost:9090/api/v1/query --data-urlencode 'query=target_info' | jq -c '.data.result[] | .metric' || true
-          curl -sS -G localhost:9090/api/v1/query --data-urlencode 'query=count by (job, instance) (target_info)' | jq -c '.data.result[]' || true
+          curl -sS -G localhost:9090/api/v1/query --data-urlencode 'query=envoy_cluster_upstream_rq_completed' | jq -c '.data.result[] | .metric' || true
+          curl -sS -G localhost:9090/api/v1/query --data-urlencode 'query=count by (job, instance, envoy_cluster_name) (envoy_cluster_upstream_rq_completed)' | jq -c '.data.result[]' || true
           q=$(sed -n '/^# name: traffic$/{n;p;}' lights-out/verify/slo.promql)
           curl -sS -G localhost:9090/api/v1/query --data-urlencode "query=$q" | jq -c . || true
           curl -sS -G localhost:9090/api/v1/targets | jq -c '.data.activeTargets[] | {job: .labels.job, instance: .labels.instance, health, lastError}' || true

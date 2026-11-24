@@ -328,7 +328,7 @@ const NODES = [
    what:"The registry adapter verifies the signature and prints the digest it verified. That digest, not the tag, is what gets deployed.",
    files:["adapters/zot/verify.sh","docs/adr/0025"], lines:["NO-GO: launchpad — unsigned image"]},
   {id:"staging", x:360, y:R2, w:160, t:"STAGING", s:"canary beside stable", s2:"record: in-progress", step:"release",
-   what:"The canary revision starts beside stable and must report its version on /healthz. From here the release record says in-progress until a verdict replaces it, so a run killed mid-flight never leaves an old held behind.",
+   what:"The canary revision starts beside stable, tagged by the container engine and checked against the workload's health probe. From here the release record says in-progress until a verdict replaces it, so a run killed mid-flight never leaves an old held behind.",
    files:["adapters/envoy-canary/deploy.sh","core/launchpad.sh","ticket 0008"], lines:["NO-GO: launchpad — staging: deploy did not become healthy → rolled back"]},
   {id:"c5", x:540, y:R2, w:160, t:"CANARY 5%", s:"verify/slo.sh", s2:"canary vs stable", step:"release",
    what:"Envoy sends 5% of real traffic to the canary through its admin API. After the stage window, verify/slo.sh runs the one PromQL file: error rate, p95 latency and traffic, canary against stable. The decision is a number against a threshold with a declared provenance.",

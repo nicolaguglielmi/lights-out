@@ -11,9 +11,10 @@ global:
   scrape_interval: 5s
 
 scrape_configs:
-  - job_name: backend
+  - job_name: envoy
+    metrics_path: /stats/prometheus
     static_configs:
-      - targets: ["backend:8000", "backend-canary:8000"]
+      - targets: ["envoy:9901"]
 
   # The local Kubernetes cluster's two revisions (docs/adr/0051 §4): the
   # stable and canary Services the argo-rollouts adapter drives, scraped

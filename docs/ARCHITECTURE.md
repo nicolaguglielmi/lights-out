@@ -56,7 +56,7 @@ Four integration levels, each a profile (`profiles/l0.env` … `profiles/l3.env`
 1. Picks an engine (`CONTAINER_ENGINE`, else podman, else docker)
 2. Builds or reuses the `workbench` image from `workbench/Containerfile`
 3. Runs `make <cmd>` inside it with the repo mounted at the same absolute path
-4. Passes the socket for targets that need it (`up`, `down`, `test`, `demo`, `release`, `demo-rollback`, `demo-seam`, `demo-hold`, `demo-launch`, `e2e`, `shell`, `gates`, `demo-gates`, `mutation-baseline`, `assign`, `demo-crew`, `record`, `triage`, `demo-triage`, `promote`, `record-evals`)
+4. Passes the socket for targets that need it (`up`, `down`, `test`, `demo`, `release`, `demo-rollback`, `demo-seam`, `demo-seam-plain`, `demo-hold`, `demo-launch`, `e2e`, `shell`, `gates`, `demo-gates`, `mutation-baseline`, `assign`, `demo-crew`, `record`, `triage`, `demo-triage`, `promote`, `record-evals`)
 5. Runs without the socket for targets that do not (`ci`, `engine-compat`)
 
 For `engine-compat` and `demo`, `./go` runs `ci/engine-compat.sh` on the host first.
@@ -119,7 +119,7 @@ Eight services in `compose.yaml`:
 | backend | implicit | Stable revision at port 8000 inside compose |
 | backend-canary | implicit | Canary revision (started on-demand by deploy); at port 8000 inside compose |
 | Gitea | 3000 | Rootless, sqlite; Actions off, no runner: the release step builds the merge itself ([ADR 0060](adr/0060-the-lean-plane.md)) |
-| Prometheus | 9090 | Scrapes both backends every 5 s; canary and stable tell apart by `service_version` label via `target_info` join |
+| Prometheus | 9090 | Scrapes Envoy admin `/stats/prometheus` every 5 s (`envoy_cluster_name` `stable` and `canary`), plus k8s targets when active |
 | Zot | 5050 | OCI registry, empty until a merged PR is built into an image (M5 at the earliest); 5000 is macOS AirPlay |
 | flagd | 8016 | OFREP; serves the active workload's `flags/flags.json` (`$WORKLOAD/flags/flags.json`, bind-mounted dynamically), the one bind mount |
 | Pub/Sub emulator | 8085 | Opt-in (`EVENT_BUS=pubsub-emulator`, compose profile `emulators`): event bus for the tower's step events (topic `tower`, subscription `tower-inproc`) |

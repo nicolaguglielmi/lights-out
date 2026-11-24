@@ -57,6 +57,7 @@ class ReadinessTest(unittest.TestCase):
         self.t = Tree(self)
         self.t.write("adapters/stagehand/rollback.sh", "echo rollback\n")
         self.t.write("adapters/stagehand/deploy.sh", "echo deploy\n")
+        self.t.write("verify/slo.promql", "# name: traffic\nsum by (service_version) (rate(http_server_request_duration_seconds_count[1m]) * on (job, instance) group_left (service_version) target_info)\n")
         self.t.write("prod.env", "APP_PORT=9000\nSERVICE_KEY=\nVCS_TOKEN=replace-me\n")
         self.record()
 

@@ -5,6 +5,8 @@
 # starts 100/0. adapters/envoy-canary/{shift,rollback}.sh move traffic
 # through POST /runtime_modify; file-based xDS is rejected (no inotify on
 # podman machine's virtiofs, docs/adr/0012 context).
+stats_flush_interval: 1s
+
 admin:
   address:
     socket_address: { address: 0.0.0.0, port_value: 9901 }

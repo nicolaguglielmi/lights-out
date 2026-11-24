@@ -442,7 +442,7 @@ Then the response is not 500 …
           </div>
           <div class="win">
             <div class="bar"><i></i><i></i><i></i><span>verify/slo.sh · verify/slo.promql</span><b class="a">example numbers</b></div>
-<pre><span class="ln m" style="--i:1"># name: error_rate</span><span class="ln m" style="--i:2">sum by (service_version) (rate(http_server_request_duration_seconds_count{http_response_status_code=~"5.."}[1m]) …</span><span class="ln r" style="--i:5">NO-GO: slo — error_rate canary(0.2.0)=1.000 stable(0.1.0)=0.000 delta=1.000 max=0.010</span><span class="ln r" style="--i:7">NO-GO: launchpad — 5%: … → rolled back</span><span class="ln m" style="--i:8">weight 0 · canary stopped · nobody paged</span></pre>
+<pre><span class="ln m" style="--i:1"># name: error_rate</span><span class="ln m" style="--i:2">sum by (envoy_cluster_name) (rate(envoy_cluster_upstream_rq_xx{envoy_response_code_class="5"}[1m])) …</span><span class="ln r" style="--i:5">NO-GO: slo — error_rate canary(0.2.0)=1.000 stable(0.1.0)=0.000 delta=1.000 max=0.010</span><span class="ln r" style="--i:7">NO-GO: launchpad — 5%: … → rolled back</span><span class="ln m" style="--i:8">weight 0 · canary stopped · nobody paged</span></pre>
           </div>
         </div>
 

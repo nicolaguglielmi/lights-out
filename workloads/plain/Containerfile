@@ -1,0 +1,10 @@
+# SPDX-License-Identifier: Apache-2.0
+FROM docker.io/library/python:3.13-slim-trixie@sha256:9d2e5553305c7c7b0097999bb17187c69b921ccd6bc9d40e4bb5ebe652c00285 AS runtime
+WORKDIR /app
+COPY plain ./plain
+EXPOSE 8000
+CMD ["python3", "-m", "plain.server"]
+
+FROM runtime AS test
+COPY tests ./tests
+CMD ["python3", "-m", "unittest", "discover", "-s", "tests", "-q"]
