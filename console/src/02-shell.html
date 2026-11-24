@@ -1,10 +1,14 @@
 <script>
-// The theme before the first paint (docs/adr/0059 §2): the browser's choice,
-// or the system's when there is none or storage is refused.
+// The theme and persona before the first paint (docs/adr/0059 §2, 0126): the
+// browser's choice, or the default when there is none or storage is refused.
 (function () {
-  let t = "system";
-  try { t = localStorage.getItem("lights-out.theme") || "system"; } catch (e) { /* storage refused */ }
+  let t = "system", p = "";
+  try {
+    t = localStorage.getItem("lights-out.theme") || "system";
+    p = localStorage.getItem("lights-out.persona") || "";
+  } catch (e) { /* storage refused */ }
   if (t === "light" || t === "dark") document.documentElement.dataset.theme = t;
+  document.documentElement.dataset.persona = p === "senior" ? "senior" : "junior";
 })();
 </script>
 </head>
@@ -14,34 +18,40 @@
     <span class="brand">lights-out console</span>
     <span class="meta" id="who">reading…</span>
     <span class="meta" id="fresh"></span>
+    <span class="status-pill" id="sse-pill" hidden></span>
+    <span class="status-pill" id="role-pill" hidden></span>
+    <div class="persona-switch" id="persona-switch" role="group" aria-label="Console experience mode">
+      <button type="button" id="persona-junior" aria-pressed="true" title="Guided workflow with plain-language guardrails">Guided</button>
+      <button type="button" id="persona-senior" aria-pressed="false" title="High-density fleet and telemetry cockpit">Cockpit</button>
+    </div>
     <button type="button" id="cmd-k-btn" class="cmd-k-btn" aria-haspopup="dialog" aria-keyshortcuts="Meta+k Control+k" title="Command Palette (Cmd+K / Ctrl+K)">Commands <kbd>Cmd+K</kbd></button>
     <label class="meta theme">Theme <select id="theme" aria-label="Theme">
       <option value="system">system</option><option value="light">light</option><option value="dark">dark</option>
     </select></label>
   </div>
   <nav id="nav">
-    <a href="#overview" data-s="overview">Overview</a>
-    <a href="#hive" data-s="hive">Hive</a>
-    <a href="#epics" data-s="epics">Epics</a>
-    <a href="#kanban" data-s="kanban">Kanban</a>
-    <a href="#network" data-s="network">Network</a>
-    <a href="#tickets" data-s="tickets">This week's tickets</a>
-    <a href="#specs" data-s="specs">Specs</a>
-    <a href="#request" data-s="request">New request</a>
-    <a href="#adrs" data-s="adrs">ADRs</a>
-    <a href="#incidents" data-s="incidents">Incidents and post mortems</a>
-    <a href="#launch" data-s="launch">Go-for-launch</a>
-    <a href="#thresholds" data-s="thresholds">Thresholds</a>
+    <a href="#overview" data-s="overview" data-tier="core">Overview</a>
+    <a href="#hive" data-s="hive" data-tier="core">Hive</a>
+    <a href="#epics" data-s="epics" data-tier="advanced">Epics</a>
+    <a href="#kanban" data-s="kanban" data-tier="core">Kanban</a>
+    <a href="#network" data-s="network" data-tier="advanced">Network</a>
+    <a href="#tickets" data-s="tickets" data-tier="advanced">This week's tickets</a>
+    <a href="#specs" data-s="specs" data-tier="core">Specs</a>
+    <a href="#request" data-s="request" data-tier="core">New request</a>
+    <a href="#adrs" data-s="adrs" data-tier="advanced">ADRs</a>
+    <a href="#incidents" data-s="incidents" data-tier="advanced">Incidents and post mortems</a>
+    <a href="#launch" data-s="launch" data-tier="core">Go-for-launch</a>
+    <a href="#thresholds" data-s="thresholds" data-tier="advanced">Thresholds</a>
   </nav>
 </header>
 <main id="main"><p class="muted">Reading the logbook…</p></main>
 <!-- The card's back (docs/adr/0068 §3), opened with showModal() over the
      board; and the region that announces a card the tower moved (§4). -->
-<dialog id="card-back" aria-label="A card's back"></dialog>
+<dialog id="card-back" closedby="any" aria-label="A card's back"></dialog>
 <!-- The why of a NO-GO (docs/adr/0078 §4): one panel, opened from any red gate. -->
-<dialog id="why" aria-labelledby="why-title"></dialog>
+<dialog id="why" closedby="any" aria-labelledby="why-title"></dialog>
 <!-- The human gate's confirmation (docs/adr/0079 §4): from a drop, a target or #launch's buttons. -->
-<dialog id="launch-confirm" aria-labelledby="lc-title"></dialog>
+<dialog id="launch-confirm" closedby="any" aria-labelledby="lc-title"></dialog>
 <!-- Interactive onboarding command generator (docs/adr/0111): uses native buttons, never stores secrets. -->
 <dialog id="onboard-wizard" closedby="any" aria-labelledby="wizard-title"></dialog>
 <!-- Command Palette (docs/adr/0125): keyboard-first jump across screens, tickets, ADRs, and operator actions. -->

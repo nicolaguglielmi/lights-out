@@ -340,10 +340,10 @@ function showBack(t) {
   else if (inside || !d.contains(document.activeElement)) { const c = d.querySelector("button.close"); if (c) c.focus(); }
 }
 (function () {
-  const d = document.getElementById("card-back");
-  d.addEventListener("cancel", (e) => { e.preventDefault(); const id = kanbanView().card; if (id) closeBack(id); });
-  // A click on the backdrop lands on the dialog itself: its content fills it.
-  d.addEventListener("click", (e) => { if (e.target === d) { const id = kanbanView().card; if (id) closeBack(id); } });
+  bindDialogLightDismiss(document.getElementById("card-back"), () => {
+    const id = kanbanView().card;
+    if (id) closeBack(id);
+  });
 })();
 function focusCard(id) {
   const el = document.querySelector('.card[data-id="' + CSS.escape(id) + '"]');

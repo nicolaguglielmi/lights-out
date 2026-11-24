@@ -49,7 +49,12 @@ const HIVE_STACKS = {
   "node-ts": {label: "Node.js / TypeScript (package.json + lockfile)", note: "Commit package-lock.json, pnpm-lock.yaml, or yarn.lock alongside package.json."},
   go: {label: "Go (go.mod + go.sum)", note: "Run go mod tidy and commit go.sum beside go.mod (uses --engine for Go container gates)."},
   rust: {label: "Rust (Cargo.toml + Cargo.lock)", note: "Run cargo generate-lockfile and commit Cargo.lock before init."},
-  java: {label: "Java / Kotlin (Maven pom.xml or Gradle)", note: "Ensure reproducible build wrapper (mvnw/gradlew) and test suite run cleanly."},
+  java: {label: "Java (Maven pom.xml or Gradle)", note: "Ensure reproducible build wrapper (mvnw/gradlew) and test suite run cleanly."},
+  kotlin: {label: "Kotlin (Gradle / Kotlin DSL + test task)", note: "Commit gradlew wrapper and verify gradle test passes offline or cached."},
+  dotnet: {label: ".NET / C# (.csproj / .sln)", note: "Commit solution/project files and packages.lock.json for deterministic restore."},
+  swift: {label: "Swift (Package.swift + Package.resolved)", note: "Commit Package.resolved alongside Package.swift before running init."},
+  php: {label: "PHP (composer.json + composer.lock)", note: "Commit composer.lock and phpunit configuration before running init."},
+  ruby: {label: "Ruby (Gemfile + Gemfile.lock)", note: "Commit Gemfile.lock and test runner setup before running init."},
 };
 const HIVE_PROVIDERS = {
   replay: {label: "Local replay (L0, zero API key)", harness: "replay", profile: "l0", envVar: ""},
@@ -79,7 +84,8 @@ function loadHiveMode() {
     const v = localStorage.getItem(HIVE_MODE_KEY);
     if (v === "junior" || v === "expert") return v;
   } catch (e) { /* storage refused */ }
-  return "junior";
+  return document.documentElement && document.documentElement.dataset && document.documentElement.dataset.persona === "senior"
+    ? "expert" : "junior";
 }
 function saveHiveMode(m) {
   try { localStorage.setItem(HIVE_MODE_KEY, m); } catch (e) { /* storage refused */ }
@@ -392,18 +398,7 @@ function closeWizard() {
 }
 
 (function initWizardDialog() {
-  const d = document.getElementById("onboard-wizard");
-  if (!d) return;
-  d.addEventListener("close", () => { d.returnValue = ""; });
-  d.addEventListener("cancel", (e) => { e.preventDefault(); closeWizard(); });
-  if (typeof HTMLDialogElement !== "undefined" && !("closedBy" in HTMLDialogElement.prototype)) {
-    d.addEventListener("click", (e) => {
-      if (e.target !== d) return;
-      const r = d.getBoundingClientRect();
-      if (r.top <= e.clientY && e.clientY <= r.top + r.height && r.left <= e.clientX && e.clientX <= r.left + r.width) return;
-      closeWizard();
-    });
-  }
+  bindDialogLightDismiss(document.getElementById("onboard-wizard"), closeWizard);
 })();
 
 function fillHiveNarration(box, snap, activePhase) {

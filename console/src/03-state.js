@@ -33,6 +33,53 @@ function dl(pairs) {
 function ticketsList() { return Array.isArray(book.tickets) ? book.tickets : []; }
 function releasesList() { return Array.isArray(book.releases) ? book.releases : []; }
 
+// --- adaptive persona & modal light-dismiss (docs/adr/0126) -----------------
+const PERSONA_KEY = "lights-out.persona";
+let memPersona = null;
+function personaMode() {
+  if (memPersona === "junior" || memPersona === "senior") return memPersona;
+  try {
+    const stored = localStorage.getItem(PERSONA_KEY);
+    if (stored === "junior" || stored === "senior") return stored;
+  } catch (e) { /* storage refused */ }
+  return con && con.default_persona === "senior" ? "senior" : "junior";
+}
+function setPersona(next, syncHive) {
+  const mode = next === "senior" ? "senior" : "junior";
+  memPersona = mode;
+  try { localStorage.setItem(PERSONA_KEY, mode); } catch (e) { /* storage refused */ }
+  if (document.documentElement && document.documentElement.dataset) {
+    document.documentElement.dataset.persona = mode;
+  }
+  if (syncHive && typeof hiveState === "object" && typeof saveHiveMode === "function") {
+    hiveState.mode = mode === "senior" ? "expert" : "junior";
+    saveHiveMode(hiveState.mode);
+  }
+  announceMsg("Console mode set to " + (mode === "senior" ? "Cockpit (senior)" : "Guided (junior)") + ".");
+  if (typeof render === "function") render();
+}
+function bindDialogLightDismiss(d, closeFn) {
+  if (!d || typeof d.addEventListener !== "function") return;
+  d.addEventListener("close", () => {
+    d.returnValue = "";
+    if (typeof closeFn === "function") closeFn();
+  });
+  d.addEventListener("cancel", (e) => {
+    if (typeof e.preventDefault === "function") e.preventDefault();
+    if (typeof closeFn === "function") closeFn();
+  });
+  if (!(typeof HTMLDialogElement !== "undefined" && HTMLDialogElement.prototype && "closedBy" in HTMLDialogElement.prototype)) {
+    d.addEventListener("click", (e) => {
+      if (e.target !== d) return;
+      if (typeof d.getBoundingClientRect === "function") {
+        const r = d.getBoundingClientRect();
+        if (r.width > 0 && r.height > 0 && r.top <= e.clientY && e.clientY <= r.top + r.height && r.left <= e.clientX && e.clientX <= r.left + r.width) return;
+      }
+      if (typeof closeFn === "function") closeFn();
+    });
+  }
+}
+
 // --- whose turn it is (docs/adr/0063 §2) ----------------------------------
 // One sentence per ticket from its state and the logbook's own fields,
 // through the tower's table embedded above: who has the ball and what it
@@ -165,9 +212,7 @@ function closeWhy() {
   if (back && back.isConnected) back.focus();
 }
 (function () {
-  const d = document.getElementById("why");
-  d.addEventListener("cancel", (e) => { e.preventDefault(); closeWhy(); });
-  d.addEventListener("click", (e) => { if (e.target === d) closeWhy(); });
+  bindDialogLightDismiss(document.getElementById("why"), closeWhy);
 })();
 
 // --- the card's face (docs/adr/0068 §2) -------------------------------------
@@ -365,6 +410,7 @@ function opsPermissions() {
 async function _runOpsFetch(label, runFetch) {
   if (busy || !opsPermissions().isLive) return null;
   busy = true;
+  if (document.body && typeof document.body.setAttribute === "function") document.body.setAttribute("aria-busy", "true");
   if (typeof render === "function") render();
   try {
     const r = await runFetch();
@@ -382,6 +428,7 @@ async function _runOpsFetch(label, runFetch) {
     return opsNotice;
   } finally {
     busy = false;
+    if (document.body && typeof document.body.removeAttribute === "function") document.body.removeAttribute("aria-busy");
     if (typeof render === "function") render();
   }
 }
@@ -474,12 +521,7 @@ function openOpsDialog(kind, opts, opener) {
   input.focus();
 }
 (function () {
-  const d = document.getElementById("ops-dialog");
-  if (!d || typeof d.addEventListener !== "function") return;
-  d.addEventListener("cancel", (e) => { if (typeof e.preventDefault === "function") e.preventDefault(); closeOpsDialog(); });
-  if (!(typeof HTMLDialogElement !== "undefined" && HTMLDialogElement.prototype && "closedBy" in HTMLDialogElement.prototype)) {
-    d.addEventListener("click", (e) => { if (e.target === d) closeOpsDialog(); });
-  }
+  bindDialogLightDismiss(document.getElementById("ops-dialog"), closeOpsDialog);
 })();
 function opsBar(scopeId) {
   const p = opsPermissions();

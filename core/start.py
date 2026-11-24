@@ -969,6 +969,7 @@ def run_start(
     plan_fields: dict[str, str] = {
         "START_PRESET": preset,
         "START_MODE": mode,
+        "CONSOLE_PERSONA": "junior" if mode == "junior" else "senior",
         "START_PROFILE": profile,
         "MODEL_PROVIDER": provider,
         "MODEL": str(pinfo.get("default_model") or ""),

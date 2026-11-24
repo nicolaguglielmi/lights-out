@@ -382,11 +382,14 @@ class Handler(BaseHTTPRequestHandler):
             return self.send(200, data, tag=tag)
         if path == "/v1/console.json":
             can, reason = _can_launch(who, decision.role)
+            raw_persona = (os.environ.get("CONSOLE_PERSONA") or "").strip().lower()
+            default_persona = raw_persona if raw_persona in ("junior", "senior") else "junior"
             return self.send(200, {
                 "mode": "snapshot" if CFG.snapshot else "live",
                 "auth": CFG.auth,
                 "identity": who if CFG.auth == "proxy" else "loopback" if CFG.auth == "loopback" else None,
                 "role": decision.role,
+                "default_persona": default_persona,
                 "can_launch": can,
                 "reason": reason,
                 "read_at": state["read_at"],

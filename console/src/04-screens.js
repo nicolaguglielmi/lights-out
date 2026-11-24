@@ -29,7 +29,8 @@ function rolesPanel() {
           h("td", {cls: "tokens"}, tokenCell(r.used, r.budget)),
           h("td", {cls: "state"}, r.error ? h("span", {cls: "unread"}, r.error) : r.line));
       }))];
-  return h("section", {id: "roles"}, h("h2", {}, "Who runs each role (ADR 0086)"), h("div", {cls: "panel"}, body));
+  return h("section", {id: "roles"}, h("h2", {}, "Who runs each role (ADR 0086)"),
+    h("div", {cls: "panel", tabindex: "0", role: "region", "aria-label": "Role configuration and token matrix"}, body));
 }
 
 // --- the run in flight (docs/adr/0087 §4-§5) ----------------------------------
@@ -108,6 +109,77 @@ function waitLine(w) {
   return "waiting since " + shown(w.since) + ", " + w.refusals + " refused assign" + (w.refusals > 1 ? "s" : "") +
     (w.holders.length ? "; held by " + w.holders.join(", ") : "; no open ticket holds its files: the base, or a missing perimeter (./go resume)");
 }
+function personaOverviewDeck(all, yours) {
+  const mode = typeof personaMode === "function" ? personaMode() : "junior";
+  const rec = book.launch && book.launch.record && !unread(book.launch.record) ? book.launch.record : null;
+  if (mode === "senior") {
+    const thList = Array.isArray(book.thresholds) ? book.thresholds : [];
+    const overCount = thList.filter((t) => t && t.overridden).length;
+    const dora = book.dora && !unread(book.dora) ? book.dora : null;
+    const doraMeasured = dora && dora.measures ? DORA_KEYS.filter((k) => dora.measures[k] && dora.measures[k].measured === true).length : 0;
+    const spend = book.spend && !unread(book.spend) ? book.spend : null;
+    const burnOver = spend && spend.burn ? spend.burn.over === true : false;
+    const canaryTxt = rec ? shown(rec.verdict) + (rec.held_at !== null && rec.held_at !== undefined ? " @" + rec.held_at + "%" : "") : "none";
+    const roleTxt = con && con.role ? String(con.role) : shown(con && con.auth);
+    return h("section", {id: "persona-deck", "data-persona-view": "senior"},
+      h("h2", {}, "Fleet & Telemetry Cockpit"),
+      h("div", {cls: "panel persona-panel"},
+        h("div", {cls: "persona-head"},
+          h("span", {cls: "muted"}, "Dense telemetry summary with shortcut navigation: Cmd+K command palette, / filter."),
+          h("div", {cls: "buttons", style: "margin:0"},
+            h("a", {href: "#epics"}, "Epics DAG →"),
+            h("a", {href: "#adrs"}, "ADRs →"),
+            h("a", {href: "#thresholds"}, "Thresholds →"))),
+        h("div", {cls: "cockpit-kpis"},
+          h("div", {cls: "cockpit-kpi"},
+            h("span", {cls: "kpi-label"}, "Tickets"),
+            h("span", {cls: "kpi-val"}, String(all.length) + " total"),
+            h("span", {cls: "kpi-sub"}, String(yours.length) + " waiting on human")),
+          h("div", {cls: "cockpit-kpi"},
+            h("span", {cls: "kpi-label"}, "Canary Plane"),
+            h("span", {cls: "kpi-val"}, canaryTxt),
+            h("span", {cls: "kpi-sub"}, rec ? shown(rec.version) : "no active rollout")),
+          h("div", {cls: "cockpit-kpi"},
+            h("span", {cls: "kpi-label"}, "DORA Four Keys"),
+            h("span", {cls: "kpi-val"}, dora ? String(doraMeasured) + "/4 measured" : "unavailable"),
+            h("span", {cls: "kpi-sub"}, "logbook window")),
+          h("div", {cls: "cockpit-kpi"},
+            h("span", {cls: "kpi-label"}, "Spend & Burn"),
+            h("span", {cls: "kpi-val"}, spend ? (burnOver ? "over day cap" : "within cap") : "unavailable"),
+            h("span", {cls: "kpi-sub"}, spend ? shown(spend.summary).slice(0, 48) : "no ledger")),
+          h("div", {cls: "cockpit-kpi"},
+            h("span", {cls: "kpi-label"}, "Policy Overrides"),
+            h("span", {cls: "kpi-val"}, String(overCount) + " override(s)"),
+            h("span", {cls: "kpi-sub"}, String(thList.length) + " declared bounds")),
+          h("div", {cls: "cockpit-kpi"},
+            h("span", {cls: "kpi-label"}, "Session & Access"),
+            h("span", {cls: "kpi-val"}, shown(con && con.mode) + " · " + roleTxt),
+            h("span", {cls: "kpi-sub"}, con && con.can_launch ? "can promote / rollback" : "operator read/assign")))));
+  }
+  const guidePrompt = yours.length
+    ? "You have " + yours.length + " item(s) waiting for a human decision right above in Waiting for you."
+    : !all.length
+      ? "Start by describing what you want built in New request, or configure your repository with the wizard."
+      : "No human decision is blocking right now — follow progress on Kanban or explore the 7 phases in Hive.";
+  return h("section", {id: "persona-deck", "data-persona-view": "junior"},
+    h("h2", {}, "Guided Workflow & Safety Guardrails"),
+    h("div", {cls: "panel persona-panel"},
+      h("p", {cls: "persona-prose"}, h("b", {}, "Next step: "), guidePrompt),
+      h("div", {cls: "buttons"},
+        h("a", {cls: "act primary", style: "margin:0", href: "#hive"}, "Open Animated Hive Walkthrough →"),
+        h("a", {href: "#request", style: "align-self:center"}, "Describe a new need →"),
+        h("button", {type: "button", id: "overview-wizard-btn", onclick: () => { if (typeof openWizard === "function") openWizard(); }}, "Repo Onboarding Wizard")),
+      h("div", {cls: "guardrail-grid"},
+        h("div", {cls: "guardrail-item"},
+          h("h3", {}, "Scoped Perimeters"),
+          h("p", {}, "Every ticket locks which files an AI worker can modify before any code edit begins.")),
+        h("div", {cls: "guardrail-item"},
+          h("h3", {}, "8 Deterministic Gates"),
+          h("p", {}, "Risk, secrets, test-weakening, dependencies, SAST, tests, mutation, and test-proof judge every PR.")),
+        h("div", {cls: "guardrail-item"},
+          h("h3", {}, "5% → 25% Canary & Rollback"),
+          h("p", {}, "Live releases verify error-rate and p95 latency SLOs and wait for human Go-for-launch at 25%.")))));
+}
 function screenOverview() {
   const out = [h("h1", {}, "Overview"),
     h("p", {cls: "lede"}, "What waits for a person first; then every ticket the tower holds, by where it is in the flow; the delivery measures and the spend; the files open tickets hold; the docs a merge left to realign. ",
@@ -122,6 +194,7 @@ function screenOverview() {
   out.push(h("h2", {}, "Waiting for you"), h("div", {cls: "panel", id: "your-turn"}, yours.length
     ? h("ul", {cls: "yours"}, yours.map((t) => h("li", {"data-id": t.id}, h("a", {href: "#ticket/" + encodeURIComponent(t.id)}, named(t)), h("br"), nowLine(t))))
     : h("p", {cls: "muted"}, "Nothing waits for a person: the tower or a role has the ball on every ticket.")));
+  out.push(personaOverviewDeck(all, yours));
   const states = ORDER.concat([...new Set(all.map((t) => t.state))].filter((st) => !ORDER.includes(st)));
   const inState = (st) => all.filter((t) => t.state === st);
   const bands = BANDS.concat([{band: "other", name: "Other", states: states.filter((st) => bandOf(st) === "other")}]);
@@ -306,8 +379,8 @@ function screenTickets() {
   const since = windowDays ? Date.now() - windowDays * 86400e3 : 0;
   const rows = ticketsList().filter((t) => !since || (t.updated_at && Date.parse(t.updated_at) >= since))
     .sort((a, b) => String(b.updated_at || "").localeCompare(String(a.updated_at || "")));
-  if (!rows.length) return out.concat(h("div", {cls: "panel"}, h("p", {cls: "muted"}, "No ticket touched in this window.")));
-  out.push(h("div", {cls: "panel"}, h("table", {},
+  if (!rows.length) return out.concat(h("div", {cls: "panel"}, h("p", {cls: "muted"}, "No ticket touched in this window. Switch the window selector to all or ", h("a", {href: "#request"}, "create a new request →"))));
+  out.push(h("div", {cls: "panel", tabindex: "0", role: "region", "aria-label": "This week's tickets table"}, h("table", {},
     h("tr", {}, ["Ticket", "Outcome", "Decided by", "Why, in one line", "State", "Attempts", "Last activity", "Cost"].map((c) => h("th", {}, c))),
     rows.map((t) => h("tr", {},
       h("td", {}, h("a", {href: "#ticket/" + encodeURIComponent(t.id)}, t.id), " ", t.title,
@@ -551,8 +624,8 @@ function openLaunch(answer, opener) {
 }
 function closeLaunch() {
   const d = document.getElementById("launch-confirm");
-  if (d.open) d.close();
-  d.replaceChildren();
+  if (d && d.open) d.close();
+  if (d) d.replaceChildren();
   const back = lc && lc.opener;
   lc = null;
   if (back && back.isConnected) back.focus();
@@ -594,9 +667,7 @@ function drawLaunch() {
     lastLine ? h("pre", {id: "lc-line"}, lastLine) : null].filter(Boolean));
 }
 (function () {
-  const d = document.getElementById("launch-confirm");
-  d.addEventListener("cancel", (e) => { e.preventDefault(); closeLaunch(); });
-  d.addEventListener("click", (e) => { if (e.target === d) closeLaunch(); });
+  bindDialogLightDismiss(document.getElementById("launch-confirm"), closeLaunch);
 })();
 // --- the live canary (docs/adr/0080 §5) ------------------------------------
 // The record's stages, one row each, with the numbers against the stable and
@@ -786,11 +857,12 @@ function screenThresholds() {
   const out = [h("h1", {}, "Thresholds"),
     h("p", {cls: "lede"}, "Every number that can stop a change, where it is set, and why it has that value.")];
   if (unread(book.thresholds)) out.push(h("div", {cls: "panel"}, err(book.thresholds)));
-  else out.push(h("div", {cls: "panel"}, h("table", {},
+  else out.push(h("div", {cls: "panel", tabindex: "0", role: "region", "aria-label": "Thresholds and provenance table"}, h("table", {},
     h("tr", {}, ["Key", "Value", "Judges", "Set in", "Provenance"].map((c) => h("th", {}, c))),
-    book.thresholds.map((t) => h("tr", {},
+    book.thresholds.map((t) => h("tr", {"data-overridden": t.overridden ? "true" : null},
       h("td", {cls: "mono"}, t.key), h("td", {cls: "mono"}, t.value), h("td", {}, t.judge),
-      h("td", {cls: "mono"}, t.file + (t.overridden ? " (overrides the platform)" : "")),
+      h("td", {cls: "mono"}, t.file + (t.overridden ? " (overrides the platform)" : ""),
+        t.overridden ? [" ", h("span", {cls: "chip pending"}, "override")] : null),
       h("td", {}, t.provenance ? h("span", {}, h("b", {}, t.provenance.kind + ": "), t.provenance.text) : h("span", {cls: "chip NO-GO"}, "undeclared")))))));
   // What the contract gives the agents (docs/adr/0073 §10): the lines `./go
   // agents` prints, verbatim; a logbook before 1.3 has none to show.
@@ -809,7 +881,7 @@ function screenSpecs() {
   const order = Array.isArray(book.kanban) ? book.kanban.flatMap((c) => c.tickets) : ticketsList().map((t) => t.id);
   const byId = Object.fromEntries(ticketsList().map((t) => [t.id, t]));
   const all = order.map((id) => byId[id]).filter(Boolean);
-  if (!all.length) return out.concat(h("div", {cls: "panel"}, h("p", {cls: "muted"}, "No ticket in the tower yet.")));
+  if (!all.length) return out.concat(h("div", {cls: "panel"}, h("p", {cls: "muted"}, "No ticket in the tower yet. ", h("a", {href: "#request"}, "Write a new request →"))));
   for (const t of all) {
     const spec = t.spec || {};
     const q = openQuestion(t);
@@ -993,7 +1065,7 @@ function screenEpics() {
     h("p", {cls: "lede"}, "Epic cohorts and depends_on / wait-holder dependency edges across tickets. Works seamlessly across historical and multi-epic logbooks.")];
   if (unread(book.tickets)) return out.concat(h("div", {cls: "panel"}, err(book.tickets)));
   const model = buildDagModel();
-  if (!model.tickets.length) return out.concat(h("div", {cls: "panel"}, h("p", {cls: "muted"}, "No tickets in this logbook yet.")));
+  if (!model.tickets.length) return out.concat(h("div", {cls: "panel"}, h("p", {cls: "muted"}, "No tickets in this logbook yet. ", h("a", {href: "#request"}, "Describe a need →"), " or configure epics with lights-out ticket epics.")));
   const epics = Array.isArray(book.epics) && book.epics.length ? book.epics : null;
   if (epics) {
     out.push(h("div", {cls: "panel", id: "epics-summary"},
@@ -1051,7 +1123,7 @@ function screenEpics() {
   });
   const svg = svgEl("svg", {id: "epics-dag", viewBox: "0 0 " + W + " " + H, role: "img", "aria-label": "Ticket dependency graph"}, marker, ...edgeEls, ...nodeEls);
   out.push(h("div", {cls: "panel dag-wrap"}, h("h2", {}, "Dependency Graph"), svg));
-  out.push(h("div", {cls: "panel"},
+  out.push(h("div", {cls: "panel", tabindex: "0", role: "region", "aria-label": "Ticket dependency matrix"},
     h("h2", {}, "Dependency Matrix"),
     h("table", {id: "epics-matrix"},
       h("tr", {}, ["Ticket", "Epic / Feature", "State", "Depends on", "Blocks"].map((c) => h("th", {}, c))),

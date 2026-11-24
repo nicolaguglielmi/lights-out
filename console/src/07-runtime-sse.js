@@ -19,6 +19,37 @@ function header() {
     con.mode === "snapshot" ? "snapshot of " + (src.commit || "?").slice(0, 12) + ", no plane behind it" : "live",
     con.identity ? "as " + con.identity : null].filter(Boolean).join(" · ");
   document.getElementById("fresh").textContent = con.mode === "live" ? "read at " + (con.read_at || "—") : "";
+  const sseEl = document.getElementById("sse-pill");
+  if (sseEl) {
+    sseEl.hidden = false;
+    if (con.mode !== "live") {
+      sseEl.setAttribute("data-live", "snapshot");
+      sseEl.textContent = "◼ snapshot";
+    } else if (sseState === "live") {
+      sseEl.setAttribute("data-live", "live");
+      sseEl.textContent = "● live stream";
+    } else {
+      sseEl.setAttribute("data-live", "fallback");
+      sseEl.textContent = "◌ 2s poll";
+    }
+  }
+  const roleEl = document.getElementById("role-pill");
+  if (roleEl) {
+    if (con.role) {
+      roleEl.hidden = false;
+      roleEl.textContent = "role: " + con.role;
+    } else {
+      roleEl.hidden = true;
+    }
+  }
+  const persona = typeof personaMode === "function" ? personaMode() : "junior";
+  if (document.documentElement && document.documentElement.dataset) {
+    document.documentElement.dataset.persona = persona;
+  }
+  const jBtn = document.getElementById("persona-junior");
+  const sBtn = document.getElementById("persona-senior");
+  if (jBtn) jBtn.setAttribute("aria-pressed", String(persona === "junior"));
+  if (sBtn) sBtn.setAttribute("aria-pressed", String(persona === "senior"));
 }
 // Which element had the focus, and where its caret was, so a redraw can
 // give them back.
@@ -203,6 +234,12 @@ function cmdPaletteEntries() {
       disabled: false, run: () => { location.hash = hash; if (typeof render === "function") render(); }});
   }
   const perms = opsPermissions();
+  items.push({group: "Mode", label: "Switch to Guided Mode (Junior)", meta: "persona", search: "mode persona junior guided walkthrough",
+    disabled: false, run: () => { if (typeof setPersona === "function") setPersona("junior", true); }});
+  items.push({group: "Mode", label: "Switch to Fleet Cockpit (Senior)", meta: "persona", search: "mode persona senior cockpit telemetry",
+    disabled: false, run: () => { if (typeof setPersona === "function") setPersona("senior", true); }});
+  items.push({group: "Mode", label: "Open Interactive Repo Wizard", meta: "wizard", search: "wizard onboard repo init setup",
+    disabled: false, run: () => { if (typeof openWizard === "function") openWizard(); }});
   items.push({group: "Action", label: "Watch once (make watch ONCE=1)", meta: "POST", search: "action watch once runner tower",
     disabled: !perms.canOps, run: () => { watchOnce(); }});
   items.push({group: "Action", label: "Freeze releases (set release-freeze on)", meta: "POST", search: "action freeze release flag on",
@@ -296,6 +333,9 @@ function openCmdPalette(opener) {
       e.preventDefault();
       const chosen = matches[cmdSelected];
       if (chosen && !chosen.disabled) { closeCmdPalette(); chosen.run(); }
+    } else if (e.key === "Escape") {
+      e.preventDefault();
+      closeCmdPalette();
     }
   });
   drawList();
@@ -309,17 +349,19 @@ function openCmdPalette(opener) {
   input.focus();
 }
 (function () {
+  const jBtn = document.getElementById("persona-junior");
+  const sBtn = document.getElementById("persona-senior");
+  if (jBtn && typeof jBtn.addEventListener === "function") {
+    jBtn.addEventListener("click", () => { if (typeof setPersona === "function") setPersona("junior", true); });
+  }
+  if (sBtn && typeof sBtn.addEventListener === "function") {
+    sBtn.addEventListener("click", () => { if (typeof setPersona === "function") setPersona("senior", true); });
+  }
   const btn = document.getElementById("cmd-k-btn");
   if (btn && typeof btn.addEventListener === "function") {
     btn.addEventListener("click", (e) => openCmdPalette(e.currentTarget));
   }
-  const d = document.getElementById("cmd-palette");
-  if (d && typeof d.addEventListener === "function") {
-    d.addEventListener("cancel", (e) => { if (typeof e.preventDefault === "function") e.preventDefault(); closeCmdPalette(); });
-    if (!(typeof HTMLDialogElement !== "undefined" && HTMLDialogElement.prototype && "closedBy" in HTMLDialogElement.prototype)) {
-      d.addEventListener("click", (e) => { if (e.target === d) closeCmdPalette(); });
-    }
-  }
+  bindDialogLightDismiss(document.getElementById("cmd-palette"), closeCmdPalette);
 })();
 window.addEventListener("hashchange", () => { render(); });
 window.addEventListener("keydown", (e) => {
