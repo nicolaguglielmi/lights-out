@@ -32,6 +32,7 @@ import json
 import os
 import re
 
+from .. import oidc_rbac
 from . import NoGo, main, proc, say
 
 SECRET = re.compile(r"^([A-Za-z0-9_]*(_KEY|_TOKEN|_SECRET|_PASSWORD)|METRICS_AUTH_HEADER)=")
@@ -164,11 +165,48 @@ def human_gate(env, envfile):
     auth = env.get("CONSOLE_AUTH") or "loopback"
     if auth != "proxy":
         return False, f"CONSOLE_AUTH={auth}, not proxy: nobody named presses"
-    if not env.get("CONSOLE_IDENTITY_HEADER"):
+    verify_jwt = (env.get("CONSOLE_VERIFY_JWT") or "").strip()
+    jwks_url = (env.get("CONSOLE_JWKS_URL") or "").strip()
+    jwks_file = (env.get("CONSOLE_JWKS_FILE") or "").strip()
+    jwt_secret = (env.get("CONSOLE_JWT_SECRET") or "").strip()
+    rbac = (env.get("CONSOLE_RBAC") or "").strip()
+    oidc_active = (
+        verify_jwt.lower() in ("on", "1", "true", "yes")
+        or bool(jwks_url)
+        or bool(jwks_file)
+        or rbac.lower() == "strict"
+    )
+    if not env.get("CONSOLE_IDENTITY_HEADER") and not (oidc_active and env.get("CONSOLE_JWT_HEADER")):
         return False, "CONSOLE_AUTH=proxy without CONSOLE_IDENTITY_HEADER"
     if not launchers.replace(" ", "").replace(",", ""):
         return False, "CONSOLE_LAUNCHERS names nobody"
-    return True, f"launchers {launchers}"
+    if verify_jwt and verify_jwt.lower() not in ("on", "off", "1", "0", "true", "false", "yes", "no"):
+        return False, f"CONSOLE_VERIFY_JWT={verify_jwt} is not on or off"
+    if rbac and rbac.lower() not in ("legacy", "strict"):
+        return False, f"CONSOLE_RBAC={rbac} is not legacy or strict"
+    if not oidc_active:
+        return True, f"launchers {launchers}"
+    if verify_jwt and verify_jwt.lower() in ("off", "0", "false", "no"):
+        return False, "CONSOLE_VERIFY_JWT is off while OIDC JWKS or CONSOLE_RBAC=strict is active"
+    issuer = (env.get("CONSOLE_JWT_ISSUER") or "").strip()
+    if not issuer:
+        return False, "CONSOLE_JWT_ISSUER is not set"
+    audience = (env.get("CONSOLE_JWT_AUDIENCE") or "").strip()
+    if not audience:
+        return False, "CONSOLE_JWT_AUDIENCE is not set"
+    has_secret = bool(jwt_secret and jwt_secret != "replace-me")
+    if not (jwks_url or jwks_file or has_secret):
+        return False, "no JWT key source (set CONSOLE_JWKS_URL, CONSOLE_JWKS_FILE or CONSOLE_JWT_SECRET)"
+    if jwks_url:
+        ok, why = oidc_rbac.validate_jwks_url(jwks_url)
+        if not ok:
+            return False, f"unsafe CONSOLE_JWKS_URL ({why})"
+    if env.get("CONSOLE_ROLE_MAP"):
+        try:
+            oidc_rbac.parse_role_map(env.get("CONSOLE_ROLE_MAP"))
+        except oidc_rbac.RbacConfigError as exc:
+            return False, str(exc)
+    return True, f"launchers {launchers}, oidc issuer {issuer}"
 
 
 def judge(argv, env=None, query=query_promql):
