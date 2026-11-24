@@ -425,11 +425,23 @@ done
 if env | grep -q "^CORPUS_FULL="; then port_flags="$port_flags -e CORPUS_FULL"; fi
 
 # Adapters outside the repository (docs/adr/0058 §1): ADAPTERS_PATH, from
-# this environment, else .env, else the profile, is mounted read-only at
+# this environment, else .env, else .crew/start-plan.env (for non-excluded
+# commands, docs/adr/0108), else the profile, is mounted read-only at
 # its own path, where make finds it and core/adapters.py links from it.
+skip_plan=""
+case "$cmd" in
+  demo|demo-*|ci|ci-*|e2e|corpus|init|try|gates|test-proof|test-integrity|mutation-baseline|attached) skip_plan=1 ;;
+esac
+effective_profile=${PROFILE:-}
+if [ -z "$effective_profile" ] && [ -z "$skip_plan" ] && [ -f "$here/.crew/start-plan.env" ]; then
+  effective_profile=$(awk -F= '/^START_PROFILE=/ { sub(/^START_PROFILE=/, ""); v = $0 } END { print v }' "$here/.crew/start-plan.env")
+fi
+[ -n "$effective_profile" ] || effective_profile=l0
+
 adapters_path=${ADAPTERS_PATH:-}
-for f in "$here/.env" "$here/profiles/${PROFILE:-l0}.env"; do
+for f in "$here/.env" "$here/.crew/start-plan.env" "$here/profiles/${effective_profile}.env"; do
   [ -z "$adapters_path" ] && [ -f "$f" ] || continue
+  [ -n "$skip_plan" ] && [ "$f" = "$here/.crew/start-plan.env" ] && continue
   adapters_path=$(awk -F= '/^ADAPTERS_PATH=/ { sub(/^ADAPTERS_PATH=/, ""); v = $0 } END { print v }' "$f")
 done
 if [ -n "$adapters_path" ]; then
@@ -437,12 +449,15 @@ if [ -n "$adapters_path" ]; then
   [ -d "$adapters_path" ] || die "ADAPTERS_PATH=$adapters_path is not a directory"
   port_flags="$port_flags -e ADAPTERS_PATH=$adapters_path -v $adapters_path:$adapters_path:ro$(printf '%s' "$label" | tr ':' ',')"
 fi
+if [ -n "${PROFILE:-}" ]; then
+  port_flags="$port_flags -e PROFILE"
+fi
 
 # shellcheck disable=SC2086 # flag strings are deliberately word-split
 runc() {
   ${run_exec:-} "$engine" run --rm --init $tty \
     -v "$here:$here$label" -w "$here" \
-    -e PROFILE="${PROFILE:-l0}" -e CONTAINER_ENGINE="$engine" -e WORKBENCH_IMAGE="$image" \
+    -e CONTAINER_ENGINE="$engine" -e WORKBENCH_IMAGE="$image" \
     -e LIGHTS_OUT_T0="$LIGHTS_OUT_T0" -e LIGHTS_OUT_FIRST_RUN="$first_run" -e LIGHTS_OUT_CI="${CI:-}" \
     $engine_flags $socket_flags $port_flags \
     "$image" "$@"

@@ -520,6 +520,130 @@ class StartWizardTest(unittest.TestCase):
             self.assertIn("MODEL_PROVIDER=replay", plan)
             self.assertIn("never enter secret", err.lower())
 
+    def test_start_persists_make_consumable_plan_budgets_and_cloud_adapters_path(self) -> None:
+        with tempfile.TemporaryDirectory() as td:
+            ws = _make_workspace(Path(td))
+            _write(ws["root"] / ".env", "SYNTH_ALPHA_TOKEN=alpha-tok-ok\n")
+            res = _run_cli(
+                ws,
+                "start",
+                "--non-interactive",
+                "--preset",
+                "strict",
+                "--provider",
+                "alpha",
+                "--harness",
+                "alpha-cli",
+                "--delivery",
+                "cloud-ship",
+                "--ticket-budget-usd",
+                "3.25",
+                "--day-budget-usd",
+                "15.50",
+            )
+            self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
+            plan_lines = (ws["root"] / ".crew" / "start-plan.env").read_text(encoding="utf-8").splitlines()
+            plan_map = dict(ln.split("=", 1) for ln in plan_lines if "=" in ln and not ln.startswith("#"))
+            self.assertEqual(plan_map["START_PRESET"], "strict")
+            self.assertEqual(plan_map["START_MODE"], "expert")
+            self.assertEqual(plan_map["START_PROFILE"], "l1")
+            self.assertEqual(plan_map["MODEL_PROVIDER"], "alpha")
+            self.assertEqual(plan_map["MODEL"], "alpha-fast")
+            self.assertEqual(plan_map["AGENT_HARNESS"], "alpha-cli")
+            self.assertEqual(plan_map["DELIVERY"], "outside/cloud-ship")
+            self.assertEqual(plan_map["DELIVERY_ADAPTER"], "cloud-ship")
+            self.assertEqual(plan_map["DELIVERY_TARGET"], "outside/cloud-ship")
+            self.assertEqual(plan_map["DELIVERY_SOURCE"], "plugins/cloud")
+            self.assertEqual(plan_map["DECIDE"], "structured")
+            self.assertEqual(plan_map["DECIDE_ADAPTER"], "structured")
+            self.assertEqual(plan_map["ADAPTERS_PATH"], str((ws["root"] / "plugins" / "cloud").resolve()))
+            self.assertEqual(plan_map["AUTO_INCIDENT_ON_ROLLBACK"], "on")
+            self.assertEqual(plan_map["SPEND_BUDGET_TICKET_USD"], "3.25")
+            self.assertEqual(plan_map["SPEND_BUDGET_DAY_USD"], "15.50")
+            self.assertEqual(plan_map["SUGGESTED_TICKET_BUDGET_USD"], "3.25")
+            self.assertEqual(plan_map["SUGGESTED_DAY_BUDGET_USD"], "15.50")
+            self.assertEqual(plan_map["START_WORKLOAD_CONTRACT"], str(ws["contract"]))
+            self.assertNotIn("WORKLOAD_CONTRACT", plan_map)
+
+        # Without budgets and with built-in delivery, omit SPEND_BUDGET_* and ADAPTERS_PATH
+        with tempfile.TemporaryDirectory() as td:
+            ws = _make_workspace(Path(td))
+            res = _run_cli(
+                ws,
+                "start",
+                "--non-interactive",
+                "--preset",
+                "junior",
+                "--provider",
+                "replay",
+                "--harness",
+                "replay",
+                "--delivery",
+                "local-proxy",
+            )
+            self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
+            plan_lines = (ws["root"] / ".crew" / "start-plan.env").read_text(encoding="utf-8").splitlines()
+            plan_map = dict(ln.split("=", 1) for ln in plan_lines if "=" in ln and not ln.startswith("#"))
+            self.assertEqual(plan_map["DELIVERY"], "local-proxy")
+            self.assertEqual(plan_map["DECIDE"], "replay")
+            self.assertEqual(plan_map["MODEL"], "")
+            self.assertNotIn("ADAPTERS_PATH", plan_map)
+            self.assertNotIn("SPEND_BUDGET_TICKET_USD", plan_map)
+            self.assertNotIn("SPEND_BUDGET_DAY_USD", plan_map)
+
+        # Invalid budget values must be refused cleanly
+        with tempfile.TemporaryDirectory() as td:
+            ws = _make_workspace(Path(td))
+            bad = _run_cli(
+                ws,
+                "start",
+                "--non-interactive",
+                "--preset",
+                "junior",
+                "--provider",
+                "replay",
+                "--harness",
+                "replay",
+                "--delivery",
+                "local-proxy",
+                "--ticket-budget-usd",
+                "0",
+            )
+            self.assertEqual(bad.returncode, 1)
+            self.assertRegex(bad.stdout.strip(), r"^NO-GO: start — ")
+
+    def test_next_and_start_refuse_secret_keys_in_start_plan_env(self) -> None:
+        for secret_key in ("SYNTH_ALPHA_TOKEN", "SOME_KEY", "AUTH_SECRET", "DB_PASSWORD", "METRICS_AUTH_HEADER"):
+            with tempfile.TemporaryDirectory() as td:
+                ws = _make_workspace(Path(td))
+                secret_val = "never-print-me-999"
+                _write(
+                    ws["root"] / ".crew" / "start-plan.env",
+                    f"START_PROFILE=l0\n{secret_key}={secret_val}\n",
+                )
+                res_next = _run_cli(ws, "next")
+                self.assertEqual(res_next.returncode, 1, f"{secret_key} was accepted by next")
+                self.assertRegex(res_next.stdout.strip(), r"^NO-GO: next — ")
+                self.assertIn(secret_key, res_next.stdout)
+                self.assertNotIn(secret_val, res_next.stdout + res_next.stderr)
+
+                res_start = _run_cli(
+                    ws,
+                    "start",
+                    "--non-interactive",
+                    "--preset",
+                    "junior",
+                    "--provider",
+                    "replay",
+                    "--harness",
+                    "replay",
+                    "--delivery",
+                    "local-proxy",
+                )
+                self.assertEqual(res_start.returncode, 1, f"{secret_key} was accepted by start")
+                self.assertRegex(res_start.stdout.strip(), r"^NO-GO: start — ")
+                self.assertNotIn(secret_val, res_start.stdout + res_start.stderr)
+
 
 if __name__ == "__main__":
     unittest.main()
