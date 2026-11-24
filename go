@@ -6,6 +6,8 @@
 # built from workbench/Containerfile (docs/adr/0004-containerised-toolchain.md).
 #
 #   ./go help           list the make targets
+#   ./go start          guided setup wizard (interactive or --non-interactive); writes non-secret plan, checks doctor, prints E2E commands (ADR 0103)
+#   ./go next           inspect repo, contract and state; print next E2E command (MODE=junior|expert, --json) (ADR 0103)
 #   ./go ci             repo self-checks, no engine socket inside
 #   ./go up             start the L0 plane in compose and wait for it
 #   ./go smoke          run the workload's happy path through Envoy
@@ -458,8 +460,54 @@ if [ "$cmd" = try ]; then
   port_flags="$port_flags -e TRY_SOURCE"
 fi
 
+# For `start` and `next`, forward CLI flags (--non-interactive, --json, etc.)
+# via LIGHTS_OUT_CLI_ARGS so `make` never tries to parse them, while keeping
+# KEY=VALUE overrides as make arguments. For `start`, pre-run host-side
+# core/doctor.sh so workbench receives real host engine and port status.
+make_args=""
+if [ "$cmd" = start ] || [ "$cmd" = next ]; then
+  cli_sep=$(printf '\037')
+  cli_args=""
+  for a in "$@"; do
+    case "$a" in
+      [A-Za-z_][A-Za-z0-9_]*=*) make_args="$make_args${make_args:+$cli_sep}$a" ;;
+      *) cli_args="$cli_args${cli_args:+$cli_sep}$a" ;;
+    esac
+  done
+  if [ -n "$cli_args" ]; then
+    LIGHTS_OUT_CLI_ARGS=$cli_args
+    export LIGHTS_OUT_CLI_ARGS
+    port_flags="$port_flags -e LIGHTS_OUT_CLI_ARGS"
+  fi
+  if [ "$cmd" = start ]; then
+    doc_out=$(mktemp)
+    doc_err=$(mktemp)
+    doc_rc=0
+    sh "$here/core/doctor.sh" >"$doc_out" 2>"$doc_err" || doc_rc=$?
+    LIGHTS_OUT_DOCTOR_RC=$doc_rc
+    LIGHTS_OUT_DOCTOR_OUT=$(cat "$doc_out")
+    LIGHTS_OUT_DOCTOR_ERR=$(cat "$doc_err")
+    rm -f "$doc_out" "$doc_err"
+    export LIGHTS_OUT_DOCTOR_RC LIGHTS_OUT_DOCTOR_OUT LIGHTS_OUT_DOCTOR_ERR
+    port_flags="$port_flags -e LIGHTS_OUT_DOCTOR_RC -e LIGHTS_OUT_DOCTOR_OUT -e LIGHTS_OUT_DOCTOR_ERR"
+  fi
+fi
+
 if [ "$cmd" = shell ]; then
   run sh
+elif [ "$cmd" = start ] || [ "$cmd" = next ]; then
+  if [ -n "$make_args" ]; then
+    old_ifs=$IFS
+    IFS=$(printf '\037')
+    set -f
+    # shellcheck disable=SC2086 # deliberate unit-separator splitting for KEY=VALUE args
+    set -- $make_args
+    set +f
+    IFS=$old_ifs
+  else
+    set --
+  fi
+  run make "$cmd" "$@"
 else
   run make "$cmd" "$@"
 fi

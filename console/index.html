@@ -398,6 +398,20 @@ details.net-patch summary { cursor: pointer; font-size: 13px; color: var(--accen
 details.net-patch pre { max-height: 360px; overflow: auto; white-space: pre; word-break: normal; }
 table.net-files td { font-size: 13px; }
 table.net-files tr.net-glob td { font-family: var(--mono); font-weight: 700; background: var(--bg); }
+/* The 6-stage E2E lifecycle guide (docs/adr/0103): uses existing WCAG AA tokens, wraps cleanly at 390 px. */
+.journey-bar { list-style: none; display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 8px; padding: 0; margin: 10px 0 12px; }
+.journey-stage { border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; background: var(--bg); overflow-wrap: anywhere; min-width: 0; }
+.journey-stage[data-state="done"] { border-color: var(--go); }
+.journey-stage[data-state="now"] { border-color: var(--wait); }
+.journey-stage[data-state="todo"] { border-style: dashed; }
+.journey-head { display: flex; align-items: center; justify-content: space-between; gap: 6px; margin-bottom: 4px; font-weight: 700; font-size: 13px; }
+.journey-note { font-size: 13px; color: var(--muted); margin: 0; }
+.journey-links { display: flex; flex-wrap: wrap; gap: 8px 14px; margin: 10px 0 0; font-size: 14px; }
+details.journey-guide { margin: 10px 0 0; border-top: 1px solid var(--line); padding-top: 8px; }
+details.journey-guide summary { cursor: pointer; font-weight: 600; color: var(--ink); }
+details.journey-guide ol { margin: 8px 0 0; padding-left: 20px; font-size: 13px; color: var(--ink); }
+details.journey-guide li { margin: 4px 0; }
+@media (max-width: 720px) { .journey-bar { grid-template-columns: 1fr; } }
 </style>
 <script>
 // The theme before the first paint (docs/adr/0059 §2): the browser's choice,
@@ -1032,7 +1046,93 @@ function screenOverview() {
         h("td", {}, d.docs_ticket_state ? h("a", {href: "#ticket/" + encodeURIComponent(d.docs_ticket)}, d.docs_ticket) : d.docs_ticket),
         h("td", {}, shown(d.docs_ticket_state) === "—" ? "not opened by the tower" : d.docs_ticket_state))))
       : h("p", {cls: "muted"}, "No merge has left docs to realign.")));
+  out.push(journeyPanel());
   return out;
+}
+
+function journeyPanel() {
+  const src = book.source && typeof book.source === "object" ? book.source : {};
+  const tlist = Array.isArray(book.tickets) ? book.tickets : [];
+  const ilist = Array.isArray(book.intakes) ? book.intakes : [];
+  const rlist = Array.isArray(book.releases) ? book.releases : [];
+  const roles = Array.isArray(book.roles) ? book.roles : [];
+  const rec = book.launch && typeof book.launch === "object" && book.launch.record && !unread(book.launch.record) ? book.launch.record : null;
+  const doraOk = !!(book.dora && !unread(book.dora));
+  const spendOk = !!(book.spend && !unread(book.spend));
+  const pms = Array.isArray(book.postmortems) ? book.postmortems : [];
+
+  const s1Done = !!src.workload;
+  const s2Done = s1Done && (roles.length > 0 || !!src.level);
+  const s3Past = new Set(["spec-ready", "opened", "pr-opened", "review", "ci-passed", "ci-failed", "needs-human", "merged", "main-green", "held", "rolled-back"]);
+  const s4Past = new Set(["ci-passed", "merged", "main-green", "held", "rolled-back"]);
+  const s3Done = s2Done && (ilist.some((x) => x && x.state === "confirmed") || tlist.some((t) => t && s3Past.has(t.state)));
+  const s4Done = s3Done && (tlist.some((t) => t && s4Past.has(t.state)) || rlist.length > 0 || !!rec);
+  const s5Done = s4Done && (
+    rlist.some((r) => r && (r.verdict === "rolled-back" || (r.answer && r.answer.answer)))
+    || !!(rec && (rec.verdict === "rolled-back" || rec.promoted || rec.rejected))
+    || tlist.some((t) => t && t.state === "rolled-back")
+  );
+  const s6Done = s5Done && (doraOk || spendOk || pms.length > 0);
+
+  const rawStages = [
+    {n: 1, title: "Connect & contract", done: s1Done, active: !s1Done,
+      detail: src.workload ? "workload " + src.workload + (src.code_host ? " · " + src.code_host : "") : "Run ./go attach and ./go init",
+      href: "#thresholds", label: "Thresholds"},
+    {n: 2, title: "Provider & budget", done: s2Done, active: s1Done && !s2Done,
+      detail: roles.length ? roles.length + " roles configured" + (src.level ? " (" + src.level + ")" : "") : (src.level ? "level " + src.level : "Run ./go start"),
+      href: "#agents", label: "Agents"},
+    {n: 3, title: "Intake & spec gate", done: s3Done, active: s2Done && !s3Done && (ilist.length > 0 || tlist.length > 0),
+      detail: ilist.length + " intake(s), " + tlist.length + " ticket(s)",
+      href: "#specs", label: "Specs"},
+    {n: 4, title: "Build, 8 gates & rework", done: s4Done, active: s3Done && !s4Done,
+      detail: tlist.filter((t) => t && t.state !== "requested" && t.state !== "questions").length + " ticket(s) in build or beyond",
+      href: "#kanban", label: "Kanban"},
+    {n: 5, title: "Canary & human gate", done: s5Done, active: s4Done && !s5Done,
+      detail: rec ? "latest " + shown(rec.version) + " (" + shown(rec.verdict) + ")" : (rlist.length ? rlist.length + " release(s)" : "No canary yet"),
+      href: "#launch", label: "Go-for-launch"},
+    {n: 6, title: "Observe & postmortem", done: s6Done, active: s5Done && !s6Done,
+      detail: [doraOk ? "DORA" : null, spendOk ? "spend" : null, pms.length ? pms.length + " postmortem(s)" : null].filter(Boolean).join(" · ") || "Run ./go logbook & ./go dora",
+      href: "#network", label: "Network"},
+  ];
+  let seenCurrent = false;
+  const stages = rawStages.map((s) => {
+    let state = "todo";
+    if (s.done) state = "done";
+    else if (!seenCurrent) { state = "now"; seenCurrent = true; }
+    else if (s.active) { state = "now"; seenCurrent = true; }
+    return Object.assign({}, s, {state});
+  });
+  const doneCount = stages.filter((s) => s.done).length;
+  const chipCls = {done: "GO", now: "pending", todo: "none"};
+  const chipWord = {done: "done", now: "current", todo: "next"};
+
+  return h("section", {id: "journey"},
+    h("h2", {}, "End-to-end journey (./go next, ADR 0103)"),
+    h("div", {cls: "panel"},
+      h("p", {cls: "muted"}, doneCount + " of 6 stages recorded in this logbook. Quick CLI check: ./go next (MODE=junior or MODE=expert)."),
+      h("ol", {cls: "journey-bar", "aria-label": "Six-stage end-to-end delivery lifecycle"},
+        stages.map((s) => h("li", {cls: "journey-stage", "data-stage": String(s.n), "data-state": s.state},
+          h("div", {cls: "journey-head"},
+            h("span", {}, s.n + ". " + s.title),
+            h("span", {cls: "chip " + chipCls[s.state]}, chipWord[s.state])),
+          h("p", {cls: "journey-note"}, s.detail, " · ", h("a", {href: s.href}, s.label + " →"))))),
+      h("details", {cls: "journey-guide"},
+        h("summary", {}, "Junior Guide: how the 6 stages protect every change"),
+        h("ol", {},
+          h("li", {}, h("b", {}, "Connect & contract: "), "./go init measures your baseline mutation score and locks test, SAST, and mutation rules into a read-only contract."),
+          h("li", {}, h("b", {}, "Provider, harness & budget: "), "./go start picks replay (zero cost) or a live AI provider and validates doctor status without ever storing secrets in the plan file."),
+          h("li", {}, h("b", {}, "Intake & spec gate: "), "./go intake turns plain language into verifiable Given/When/Then criteria and a strict file perimeter before agents touch code."),
+          h("li", {}, h("b", {}, "Build, 8 gates & rework: "), "Every PR passes risk, secrets, test-weakening, dependencies, SAST, tests, mutation testing, and test-proof, with automatic rework on NO-GO."),
+          h("li", {}, h("b", {}, "Canary deploy, SLO verify & human gate: "), "Rollouts shift 5% then 25% traffic, verify error-rate and p95 latency SLOs, roll back automatically on regression, and wait for human approval at 25%."),
+          h("li", {}, h("b", {}, "Observe & postmortem: "), "./go logbook, ./go dora, ./go spend, signed ./go evidence packs, and ./go postmortem turn rollbacks into trackable follow-up tickets."))),
+      h("div", {cls: "journey-links"},
+        h("span", {cls: "muted"}, "Quick links:"),
+        h("a", {href: "#specs"}, "Specs"),
+        h("a", {href: "#kanban"}, "Kanban"),
+        h("a", {href: "#network"}, "Network"),
+        h("a", {href: "#launch"}, "Go-for-launch"),
+        h("a", {href: "#thresholds"}, "Thresholds"),
+        h("a", {href: "#agents"}, "Agents"))));
 }
 
 // --- the view in the link (docs/adr/0059 §1) ----------------------------
@@ -1851,7 +1951,7 @@ function screenThresholds() {
       h("td", {}, t.provenance ? h("span", {}, h("b", {}, t.provenance.kind + ": "), t.provenance.text) : h("span", {cls: "chip NO-GO"}, "undeclared")))))));
   // What the contract gives the agents (docs/adr/0073 §10): the lines `./go
   // agents` prints, verbatim; a logbook before 1.3 has none to show.
-  if (book.agents !== undefined) out.push(h("h2", {}, "Agents"), h("div", {cls: "panel"},
+  if (book.agents !== undefined) out.push(h("h2", {}, "Agents"), h("div", {cls: "panel", id: "agents"},
     unread(book.agents) ? err(book.agents) : h("pre", {}, (book.agents.lines || []).join("\n"))));
   return out;
 }
@@ -2540,13 +2640,13 @@ function render() {
   header();
   const {screen, arg} = route();
   for (const a of document.querySelectorAll("nav a")) a.classList.toggle("on", a.dataset.s === screen ||
-    ((screen === "ticket" || screen === "intake") && a.dataset.s === "kanban") || (screen === "adr" && a.dataset.s === "adrs"));
+    ((screen === "ticket" || screen === "intake") && a.dataset.s === "kanban") || (screen === "adr" && a.dataset.s === "adrs") || (screen === "agents" && a.dataset.s === "thresholds"));
   let body;
   if (screen === "ticket") body = screenTicket(arg);
   else if (screen === "intake") body = screenIntake(arg);
   else if (screen === "incidents") body = screenIncidents();
   else if (screen === "launch") body = screenLaunch();
-  else if (screen === "thresholds") body = screenThresholds();
+  else if (screen === "thresholds" || screen === "agents") body = screenThresholds();
   else if (screen === "overview") body = screenOverview();
   else if (screen === "kanban") body = screenKanban();
   else if (screen === "network") body = screenNetwork(arg);
