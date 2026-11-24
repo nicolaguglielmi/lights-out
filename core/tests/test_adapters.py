@@ -162,7 +162,7 @@ class AdmitTest(AdaptersCase):
         self.assertIn("EVENT_BUS=outside/json-files", self.refusal(env))
 
     def test_a_port_without_a_suite_is_refused(self):
-        for port in ("TRACKER", "ORCHESTRATOR", "METRICS"):
+        for port in ("ORCHESTRATOR", "METRICS"):
             env = dict(self.env, STATE_STORE="sqlite", **{port: "outside/json-files"})
             line = self.refusal(env)
             self.assertIn(f"{port}=outside/json-files", line)
@@ -171,8 +171,8 @@ class AdmitTest(AdaptersCase):
     def test_every_port_with_a_suite_can_be_admitted(self):
         suites = {"CODE_HOST": "codehost-conformance", "DELIVERY": "delivery-conformance",
                   "STATE_STORE": "statestore-conformance", "EVENT_BUS": "eventbus-conformance",
-                  "AGENT_HARNESS": "harness-conformance", "REGISTRY": "registry-conformance",
-                  "FLAGS": "flags-conformance"}
+                  "TRACKER": "tracker-conformance", "AGENT_HARNESS": "harness-conformance",
+                  "REGISTRY": "registry-conformance", "FLAGS": "flags-conformance"}
         for port, suite in suites.items():
             env = dict(self.env, STATE_STORE="sqlite")
             env[port] = "outside/json-files"
@@ -288,10 +288,16 @@ class TrialTest(AdaptersCase):
         self.assertFalse(Path(".crew/adapters/register").exists())
 
     def test_trial_of_a_port_without_a_suite_is_refused(self):
-        env = dict(self.env, TRACKER="outside/json-files")
-        code, out, err = self.call("trial", "TRACKER", env=env)
+        env = dict(self.env, ORCHESTRATOR="outside/json-files")
+        code, out, err = self.call("trial", "ORCHESTRATOR", env=env)
         self.assertEqual(code, 1)
         self.assertIn("no conformance suite", err)
+
+    def test_tracker_can_be_tried_registered_and_admitted(self):
+        env = dict(self.env, STATE_STORE="sqlite", TRACKER="outside/json-files")
+        self.assertIn("tracker-conformance", self.refusal(env))
+        self.prove("TRACKER", "tracker-conformance", env)
+        self.assertTrue(self.admitted(env))
 
 
 if __name__ == "__main__":
