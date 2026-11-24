@@ -378,11 +378,34 @@ def infer_javascript(repo):
 
 
 def infer(repo):
-    if os.path.isfile(os.path.join(repo, "pyproject.toml")):
+    try:
+        from . import stacks
+    except ImportError:  # run as a script: core/ is sys.path[0]
+        import stacks
+
+    runners_dir = ".lights-out/runners"
+    has_pyproject = os.path.isfile(os.path.join(repo, "pyproject.toml"))
+    has_uv = os.path.isfile(os.path.join(repo, "uv.lock"))
+    has_poetry = os.path.isfile(os.path.join(repo, "poetry.lock"))
+    has_reqs = os.path.isfile(os.path.join(repo, "requirements.txt"))
+    if has_pyproject:
+        if has_uv:
+            return infer_python(repo)
+        if has_poetry or has_reqs:
+            return stacks.infer_python_fallback(repo, runners_dir=runners_dir)
         return infer_python(repo)
+    if has_reqs:
+        return stacks.infer_python_fallback(repo, runners_dir=runners_dir)
+    if os.path.isfile(os.path.join(repo, "go.mod")):
+        return stacks.infer_go(repo, runners_dir=runners_dir)
     if os.path.isfile(os.path.join(repo, "package.json")):
+        if os.path.isfile(os.path.join(repo, "tsconfig.json")):
+            return stacks.infer_typescript(repo, runners_dir=runners_dir)
         return infer_javascript(repo)
-    raise Undraftable("no stack found: looked for pyproject.toml (python) and package.json (javascript) at the root")
+    raise Undraftable(
+        "no stack found: looked for pyproject.toml / requirements.txt (python), "
+        "go.mod (go), and package.json (typescript/javascript) at the root"
+    )
 
 
 def render_workload_env(d, committed, today, commit, plane=None):
