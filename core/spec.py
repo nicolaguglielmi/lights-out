@@ -48,7 +48,11 @@ _WORD = {w: re.compile(rf"(?:^|[\s,;.])({w})\b", re.I) for w in ("given", "when"
 DECISIONS = ("ask_product_owner", "confirm_acceptance")
 # The two optional header fields (docs/adr/0055 §7): their exact values.
 FIELDS = {"Feature": re.compile(r"^[a-z0-9]+(-[a-z0-9]+)*$"), "Priority": re.compile(r"^P[0-3]$")}
-_HEADER = re.compile(r"^- ([A-Z][A-Za-z]*): ?(.*)$")
+# Optional DAG/epic header fields (docs/adr/0119): validated by check() and dependencies().
+_TICKET_ID = re.compile(r"^\d{4}$")
+_TITLE_ID = re.compile(r"^#\s*(\d{4})(?:\s|[—–-]|$)")
+_EPIC = re.compile(r"^[A-Za-z0-9]+(?:[-_][A-Za-z0-9]+)*$")
+_HEADER = re.compile(r"^- ([A-Z][A-Za-z-]*): ?(.*)$")
 
 
 def now():
@@ -122,7 +126,75 @@ def fields(text):
     return {k.lower(): (head.get(k) or [None])[0] for k in FIELDS}
 
 
-def check(text):
+def ticket_id(text):
+    """The 4-digit ticket id from the `# <id> ...` heading, or None when absent."""
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not stripped:
+            continue
+        if stripped.startswith("# "):
+            match = _TITLE_ID.match(stripped)
+            return match.group(1) if match else None
+        break
+    return None
+
+
+def _parse_dependencies(text, own_id=None):
+    """Return (depends_on, epic, error) for optional `- Depends-On:` and `- Epic:` headers."""
+    head = header(text)
+    known_id = own_id if own_id is not None else ticket_id(text)
+
+    dep_lines = head.get("Depends-On") or []
+    if len(dep_lines) > 1:
+        return [], None, f"- Depends-On: is set {len(dep_lines)} times"
+    deps = []
+    if dep_lines:
+        raw = dep_lines[0].strip()
+        if not raw:
+            return [], None, '- Depends-On: "" is not a comma-separated list of 4-digit ticket IDs'
+        seen = set()
+        for part in raw.split(","):
+            item = part.strip()
+            if not _TICKET_ID.match(item):
+                return [], None, f'- Depends-On: "{item}" is not a 4-digit ticket ID'
+            if known_id and item == known_id:
+                return [], None, f"- Depends-On: ticket {known_id} cannot depend on itself"
+            if item not in seen:
+                seen.add(item)
+                deps.append(item)
+
+    epic_lines = head.get("Epic") or []
+    if len(epic_lines) > 1:
+        return [], None, f"- Epic: is set {len(epic_lines)} times"
+    epic_val = None
+    if epic_lines:
+        raw_epic = epic_lines[0].strip()
+        if not raw_epic or not _EPIC.match(raw_epic):
+            return [], None, f'- Epic: "{raw_epic}" is not a valid id or slug'
+        epic_val = raw_epic
+
+    return deps, epic_val, None
+
+
+def dependencies(text, own_id=None):
+    """Return (depends_on, epic) from header fields; raise ValueError when malformed."""
+    deps, epic_val, error = _parse_dependencies(text, own_id=own_id)
+    if error:
+        raise ValueError(error)
+    return deps, epic_val
+
+
+def depends_on(text, own_id=None):
+    """Return validated list of 4-digit dependency IDs from `- Depends-On:`."""
+    return dependencies(text, own_id=own_id)[0]
+
+
+def epic(text):
+    """Return validated epic id/slug from `- Epic:`, or None when absent."""
+    return dependencies(text)[1]
+
+
+def check(text, own_id=None):
     """The first reason the spec fails the gate, or None (docs/adr/0055 §4)."""
     criteria = criteria_of(text)
     if criteria is None:
@@ -146,6 +218,9 @@ def check(text):
         if values and not shape.match(values[0]):
             want = "P0, P1, P2 or P3" if field == "Priority" else "a slug, lowercase letters and digits joined by hyphens"
             return f'- {field}: "{values[0]}" is not {want}'
+    _, _, dep_error = _parse_dependencies(text, own_id=own_id)
+    if dep_error:
+        return dep_error
     return None
 
 
@@ -277,11 +352,22 @@ def draft(fields):
     if not isinstance(title, str) or not title.strip():
         raise Refused("a draft needs a title")
     text = {}
-    for key in ("context", "feature", "priority"):
+    for key in ("context", "feature", "priority", "epic"):
         value = fields.get(key) or ""
         if not isinstance(value, str):
             raise Refused(f"{key} is not a string")
         text[key] = value.strip()
+    raw_deps = fields.get("depends_on")
+    deps = []
+    if raw_deps is not None:
+        if isinstance(raw_deps, list):
+            if not all(isinstance(d, str) for d in raw_deps):
+                raise Refused("depends_on is not a list of ticket IDs")
+            deps = [d.strip() for d in raw_deps if d.strip()]
+        elif isinstance(raw_deps, str):
+            deps = [raw_deps.strip()] if raw_deps.strip() else []
+        else:
+            raise Refused("depends_on is not a list of ticket IDs")
     criteria = fields.get("criteria") or []
     if not isinstance(criteria, list) or not all(isinstance(c, dict) for c in criteria):
         raise Refused("criteria is not a list of {given, when, then}")
@@ -291,6 +377,8 @@ def draft(fields):
     head = ["- Status: open"]
     head += [f"- Feature: {text['feature']}"] if text["feature"] else []
     head += [f"- Priority: {text['priority']}"] if text["priority"] else []
+    head += [f"- Epic: {text['epic']}"] if text["epic"] else []
+    head += [f"- Depends-On: {', '.join(deps)}"] if deps else []
     body = [""] + head + ["", "## Problem", "", text["context"] or "(no context given)", "", CRITERIA, ""]
     for c in criteria:
         lines = []
