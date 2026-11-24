@@ -5,6 +5,7 @@
     GET  /                   console/index.html, five screens
     GET  /v1/logbook.json    the logbook, as core/logbook.sh wrote it, with an ETag
     GET  /v1/console.json    this console and this request: mode, auth, identity
+    GET  /v1/events          SSE stream of logbook ETag and read-state updates (docs/adr/0124)
     POST /v1/go-for-launch   the first write: core/promote.sh, as ./go promote runs it, with
                              the human's reason, required for a rollback (docs/adr/0079 §2)
     POST /v1/answer          the second: ./go answer's recipe (docs/adr/0055 §2)
@@ -47,6 +48,7 @@ import sys
 import tempfile
 import threading
 import time
+import urllib.parse
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 # absolute(), not resolve(): a throwaway root with console/ and core/
@@ -58,6 +60,15 @@ COMMITTED_SNAPSHOT = ROOT / "console" / "snapshot" / "logbook.json"
 # a canary shift or a press shows within one beat, at one reader run per
 # beat whatever the number of tabs.
 POLL_S = float(os.environ.get("CONSOLE_POLL_S", "2"))
+# Provenance, decision: ADR 0124, 50 ms floor avoids tight zero-timeout
+# Condition spin loops while allowing fast heartbeat checks in E2E tests.
+MIN_SSE_HEARTBEAT_S = 0.05
+# Provenance, decision: ADR 0124, 15 s is one quarter of standard 60 s
+# reverse-proxy idle stream timeouts (deploy/proxy/, ADR 0111).
+SSE_HEARTBEAT_S = max(
+    MIN_SSE_HEARTBEAT_S,
+    float(os.environ.get("SSE_HEARTBEAT_S") or os.environ.get("CONSOLE_SSE_HEARTBEAT_S") or "15.0"),
+)
 LOOPBACK = ("127.0.0.1", "::1", "localhost")
 # Provenance, decision: docs/adr/0059 §4, twice the answer's 8 KiB for a
 # request's several criteria; the check reads one file, no network.
@@ -103,7 +114,8 @@ class Config:
 
 
 CFG = None
-state = {"bytes": None, "book": None, "etag": None, "read_at": None, "read_error": None}
+state = {"bytes": None, "book": None, "etag": None, "read_at": None, "read_error": None, "seq": 0}
+state_cond = threading.Condition()
 press = threading.Lock()
 reading = threading.Lock()  # the loop and a press never run the reader at once
 
@@ -125,12 +137,32 @@ def _read_once(out):
         line = p.stdout.strip().splitlines()[-1] if p.stdout.strip() else ""
         if p.returncode != 0:
             err = p.stderr.strip().splitlines()
-            state["read_error"] = line or (err[-1] if err else f"core/logbook.sh exit {p.returncode}")
+            err_msg = line or (err[-1] if err else f"core/logbook.sh exit {p.returncode}")
+            with state_cond:
+                changed = state["read_error"] != err_msg
+                state["read_error"] = err_msg
+                if changed:
+                    state["seq"] += 1
+                    state_cond.notify_all()
             return
         data = pathlib.Path(out).read_bytes()
-        state.update(bytes=data, book=json.loads(data), etag=etag(data), read_at=utc(), read_error=None)
+        parsed_book = json.loads(data)
+        new_tag = etag(data)
+        now_at = utc()
+        with state_cond:
+            changed = (new_tag != state["etag"]) or (state["read_error"] is not None)
+            state.update(bytes=data, book=parsed_book, etag=new_tag, read_at=now_at, read_error=None)
+            if changed:
+                state["seq"] += 1
+                state_cond.notify_all()
     except (OSError, ValueError, subprocess.TimeoutExpired) as exc:
-        state["read_error"] = f"console: reading the logbook failed: {exc}"
+        err_msg = f"console: reading the logbook failed: {exc}"
+        with state_cond:
+            changed = state["read_error"] != err_msg
+            state["read_error"] = err_msg
+            if changed:
+                state["seq"] += 1
+                state_cond.notify_all()
 
 
 def refresh(out):
@@ -141,11 +173,28 @@ def refresh(out):
 
 def load_snapshot():
     data = pathlib.Path(CFG.snapshot).read_bytes()
-    state.update(bytes=data, book=json.loads(data), etag=etag(data), read_at=None, read_error=None)
+    parsed_book = json.loads(data)
+    with state_cond:
+        state.update(bytes=data, book=parsed_book, etag=etag(data), read_at=None, read_error=None,
+                     seq=state["seq"] + 1)
+        state_cond.notify_all()
 
 
 def etag(data):
     return '"' + hashlib.sha256(data).hexdigest() + '"'
+
+
+def sse_frame():
+    """Format one SSE event frame (`logbook` or `pending`); caller holds state_cond."""
+    mode = "snapshot" if CFG.snapshot else "live"
+    payload = {
+        "etag": state["etag"],
+        "mode": mode,
+        "read_at": state["read_at"],
+        "read_error": state["read_error"],
+    }
+    event_name = "pending" if state["etag"] is None else "logbook"
+    return f"event: {event_name}\ndata: {json.dumps(payload)}\n\n".encode("utf-8")
 
 
 def identity(headers):
@@ -184,13 +233,50 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def stream_events(self, once):
+        self.close_connection = True
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream; charset=utf-8")
+        self.send_header("Cache-Control", "no-store")
+        self.send_header("X-Content-Type-Options", "nosniff")
+        self.send_header("Content-Security-Policy", "default-src 'self'; style-src 'self' 'unsafe-inline'; "
+                         "script-src 'self' 'unsafe-inline'; frame-ancestors 'none'")
+        self.send_header("Connection", "close")
+        self.end_headers()
+        try:
+            with state_cond:
+                seen_seq = state["seq"]
+                initial = sse_frame()
+            self.wfile.write(initial)
+            self.wfile.flush()
+            if once:
+                return
+            while not getattr(self.server, "shutting_down", False):
+                with state_cond:
+                    if state["seq"] == seen_seq and not getattr(self.server, "shutting_down", False):
+                        state_cond.wait(timeout=SSE_HEARTBEAT_S)
+                    if getattr(self.server, "shutting_down", False):
+                        return
+                    changed = state["seq"] != seen_seq
+                    seen_seq = state["seq"]
+                    chunk = sse_frame() if changed else b": keepalive\n\n"
+                self.wfile.write(chunk)
+                self.wfile.flush()
+        except (BrokenPipeError, ConnectionResetError, OSError):
+            return
+
     def do_GET(self):
         who, err = identity(self.headers)
         if err:
             return self.send(err, {"error": f"no {CFG.header} header: reach the console through its proxy"})
-        path = self.path.split("?")[0]
+        parsed = urllib.parse.urlsplit(self.path)
+        path = parsed.path
         if path in ("/", "/index.html"):
             return self.send(200, PAGE.read_bytes(), "text/html; charset=utf-8")
+        if path == "/v1/events":
+            qs = urllib.parse.parse_qs(parsed.query, keep_blank_values=True)
+            once = bool(CFG.snapshot) or ("1" in qs.get("once", ()))
+            return self.stream_events(once)
         if path == "/v1/logbook.json":
             if state["bytes"] is None:
                 return self.send(503, {"error": state["read_error"] or "console: first read still running"})
@@ -462,6 +548,8 @@ def main():
     else:
         threading.Thread(target=refresh, args=(out,), daemon=True).start()
     server = ThreadingHTTPServer((CFG.bind, CFG.listen), Handler)
+    server.daemon_threads = True
+    server.shutting_down = False
     server.logbook_file = out
     mode = f"snapshot of {CFG.snapshot}" if CFG.snapshot else "live"
     print(f"console: http://localhost:{CFG.port}  ({mode}, auth {CFG.auth}; Ctrl-C to stop)", file=sys.stderr)
@@ -469,6 +557,10 @@ def main():
         server.serve_forever()
     except KeyboardInterrupt:
         pass
+    finally:
+        server.shutting_down = True
+        with state_cond:
+            state_cond.notify_all()
 
 
 if __name__ == "__main__":

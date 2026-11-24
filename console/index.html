@@ -13,8 +13,9 @@
      the decisions on its proposed tickets, a POST to /v1/intake-confirm,
      which run ./go intake's and ./go intake-confirm's recipes (docs/adr/0090 §8). The kanban moves no card: every interaction
      changes the view, never a column (docs/adr/0059 §1). The theme is the
-     colour tokens and nothing else (§2). No build, no asset from the
-     network. Built by hand, not from a Stitch design (console/README.md). -->
+     colour tokens and nothing else (§2). Bundled deterministically from
+     console/src/ by console/build.py with progressive /v1/events SSE in live
+     mode and no asset from the network (docs/adr/0124, console/README.md). -->
 <html lang="en">
 <head>
 <meta charset="utf-8">
@@ -981,7 +982,6 @@ function flowDetail(t, id) {
         n.line ? h("span", {cls: "flow-why", id: pre + i, role: "tooltip"}, n.line) : null);
     }));
 }
-
 // --- the role matrix (docs/adr/0086 §2) ---------------------------------------
 // One row per role, from the logbook's `roles`: what the profile configures,
 // the last run's tokens against the role's TOKEN_BUDGET, and its state in the
@@ -1268,390 +1268,6 @@ function setView(patch) {
   drawBoard();
 }
 
-// --- kanban (docs/adr/0055 §7, docs/adr/0059 §1) -------------------------
-// The columns and the order inside them are the logbook's (`kanban`): the
-// page filters, groups, searches, collapses and turns a card over, and never
-// moves a card. No drag-and-drop, no button that moves one: a card moves
-// when the tower moves its ticket, and then it shows where it came from.
-// Provenance, decision: docs/adr/0059 §1, two beats of the console's 2 s poll.
-const MOVED_MS = 4000;
-// A moved card flies from where it was to where it is (docs/adr/0068 §4).
-// Provenance, decision: 400 ms ends inside one 2 s poll, so two flights
-// never overlap, and inside the 4 s mark.
-const FLIGHT_MS = 400;
-let moved = {};  // id -> {from, until, rect, flown}: cards the last logbook moved
-const still = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
-function noteMoves(before, after) {
-  if (!before || !Array.isArray(before.kanban) || !Array.isArray(after.kanban)) return;
-  const col = (b) => Object.fromEntries(b.kanban.flatMap((c) => c.tickets.map((id) => [id, c.state])));
-  const was = col(before), now = col(after), until = Date.now() + MOVED_MS;
-  const said = [];
-  for (const [id, st] of Object.entries(now)) if (was[id] && was[id] !== st) {
-    // Where the card is drawn now, before the redraw puts it elsewhere.
-    const el = document.querySelector('.card[data-id="' + CSS.escape(id) + '"]');
-    moved[id] = {from: was[id], until, rect: el ? el.getBoundingClientRect() : null, flown: false};
-    said.push(id + " moved from " + was[id] + " to " + st);
-  }
-  // Said to a screen reader too (WCAG 2.1 SC 4.1.3): a polite live region.
-  if (said.length) document.getElementById("announce").textContent = said.join(". ") + ".";
-  setTimeout(drawBoard, MOVED_MS + 50);
-}
-function fly() {
-  for (const [id, m] of Object.entries(moved)) {
-    if (m.flown || m.until <= Date.now()) continue;
-    m.flown = true;
-    const el = document.querySelector('.card[data-id="' + CSS.escape(id) + '"]');
-    if (!el || !m.rect || still()) continue;
-    const r = el.getBoundingClientRect();
-    const dx = m.rect.left - r.left, dy = m.rect.top - r.top;
-    if (dx || dy) el.animate([{transform: "translate(" + dx + "px, " + dy + "px)"}, {transform: "none"}],
-      {duration: FLIGHT_MS, easing: "cubic-bezier(.2, .8, .2, 1)"});
-  }
-}
-// A path matches a perimeter glob as core/perimeter.sh matches it (`*`
-// crosses `/`), or the glob contains the text typed.
-function globMatches(glob, text) {
-  if (glob.toLowerCase().includes(text.toLowerCase())) return true;
-  const re = "^" + glob.replace(/[.+^${}()|\\]/g, "\\$&").replace(/\*/g, ".*").replace(/\?/g, ".") + "$";
-  try { return new RegExp(re).test(text); } catch (e) { return false; }
-}
-function searched(t, q) {
-  if (!q) return true;
-  const low = q.toLowerCase();
-  if (t.id.includes(q) || String(t.title).toLowerCase().includes(low)) return true;
-  return Array.isArray(t.perimeter) && t.perimeter.some((g) => globMatches(g, q));
-}
-// A card's face (docs/adr/0068 §2): labels, the title, the now line, and a
-// badge row: who has the ball, how long in this state, the attempts, the outcome.
-function card(t, v) {
-  const m = moved[t.id] && moved[t.id].until > Date.now() ? moved[t.id] : null;
-  const open = () => setView({card: t.id});
-  const held = launchTicket() === t ? launchable() : null;
-  return h("div", {cls: "card" + (m ? " moved" : "") + (v.card === t.id ? " selected" : ""), "data-id": t.id, "data-turn": now(t).turn,
-    "data-from": m ? m.from : null, tabindex: "0", role: "button", "aria-label": named(t), onclick: open,
-    draggable: held ? "true" : null, "data-launch": held ? held.version : null,
-    ondragstart: held ? (e) => { e.dataTransfer.setData("text/plain", held.version); e.dataTransfer.effectAllowed = "move"; } : null},
-    labels(t),
-    titled(t, v.q),
-    nowLine(t),
-    flowFace(t),
-    h("div", {cls: "badges"}, whoBadge(t), age(t), pips(t), liveBadge(t),
-      t.outcome && t.outcome.verdict !== "pending"
-        ? (t.outcome.verdict === "NO-GO" && whyButton(t, t.attempt, chip(t.outcome.verdict))) || chip(t.outcome.verdict) : null),
-    m ? h("div", {cls: "muted"}, "moved here from " + m.from) : null);
-}
-function adrName(n) {
-  const items = book.adrs && Array.isArray(book.adrs.items) ? book.adrs.items : [];
-  const a = items.find((x) => x.number === n);
-  return a ? a.title : "ADR " + n;
-}
-function adrLinks(nums) {
-  return nums && nums.length ? h("ul", {}, nums.map((n) => h("li", {}, h("a", {href: "#adr/" + n}, adrName(n)))))
-    : h("p", {cls: "muted"}, unread(book.adrs) ? "No project map: " + book.adrs.error : "No ADR cites a file of its perimeter.");
-}
-// The card's back (docs/adr/0068 §3): what the docked drawer showed, inside
-// a modal dialog over the board, with the now line's one action drawn as the
-// primary link, the open question's text, the band strip and a compact
-// timeline. No answer box: the kanban writes nothing (ADR 0059 §1).
-function closeBack(id) { setView({card: ""}); focusCard(id); }
-// What the last run used (docs/adr/0073 §10): the dev-worker's MCP calls and
-// the reviewer's instructions from the base; no row when the run had none.
-function agentRows(t) {
-  const mcp = t.task && t.task.mcp, ins = t.review && t.review.instructions;
-  const calls = mcp ? (mcp.calls || []).map((c) => c.server + "." + c.tool + " ×" + c.count).join(", ") : "";
-  return [mcp ? ["MCP", calls || "declared, no calls"] : null,
-    ins ? ["Reviewer instructions", ins.file + " (sha256 " + String(ins.sha256).slice(0, 12) + ", from base " + String(ins.base).slice(0, 7) + ")"] : null];
-}
-function drawer(t) {
-  const rows = t.timeline || [];
-  const q = openQuestion(t);
-  return h("aside", {id: "drawer", "data-id": t.id, "aria-label": "Ticket " + t.id},
-    h("div", {cls: "back-top"}, labels(t), h("button", {cls: "close", onclick: () => closeBack(t.id)}, "Close (Esc)")),
-    h("h2", {}, named(t)),
-    h("div", {cls: "nowbox", "data-turn": now(t).turn}, nowLine(t, true)),
-    q ? h("blockquote", {cls: "question"}, h("b", {}, q.from === "spec" ? "The spec gate asks: " : "The product role asks: "), q.question) : null,
-    stageStrip(t),
-    flowDetail(t),
-    liveLine(t),
-    h("div", {cls: "badges"}, whoBadge(t), age(t), pips(t)),
-    // No verdict yet: the now line says what is awaited, and no empty row stands in.
-    dl([["State", t.state + " · " + bandName(bandOf(t.state))],
-      t.outcome.verdict !== "pending" ? ["Outcome", h("span", {}, chip(t.outcome.verdict), " ", shown(t.outcome.judge))] : null,
-      t.outcome.verdict !== "pending" ? ["Line", h("span", {cls: "mono"}, shown(t.outcome.line))] : null,
-      ["Perimeter", unread(t.perimeter) ? err(t.perimeter) : h("span", {cls: "mono"}, (t.perimeter || []).join("  ·  ") || "—")],
-      ["Waits", t.wait ? waitLine(t.wait) : "no"],
-      t.screen ? ["Screen", screenLine(t.screen)] : null,
-      ...agentRows(t)]),
-    h("h3", {}, "Timeline"),
-    rows.length ? h("ol", {cls: "compact"}, rows.map((r) => h("li", {"data-phase": r.phase},
-      h("span", {}, r.phase), r.verdict ? whyRow(t, r, chip(verdictOf(r))) : whyRow(t, r, null) || h("span", {cls: "muted"}, "—"),
-      h("span", {cls: "line", title: r.line || ""}, shown(r.line)), h("span", {cls: "at"}, shown(r.at)))))
-      : h("p", {cls: "muted"}, "This logbook has no timeline (written before 1.1)."),
-    h("h3", {}, "ADRs that govern its perimeter"), adrLinks(t.adrs),
-    h("p", {}, h("a", {href: "#ticket/" + encodeURIComponent(t.id)}, "The whole timeline →")));
-}
-function screenKanban() {
-  const out = [h("h1", {}, "Kanban"),
-    h("p", {cls: "lede"}, "One list per tower state, under the four bands of the flow. A card moves only when the tower moves its ticket. The one card that drags is a held release, onto Promote or Rollback: the drop opens the confirmation, it moves nothing. ",
-      h("span", {cls: "muted"}, "Click a card, or press Enter on it, to turn it over; the arrows move between cards, Esc closes, / searches; the link keeps the view."))];
-  if (unread(book.kanban) || unread(book.tickets)) return out.concat(h("div", {cls: "panel"}, err(unread(book.kanban) ? book.kanban : book.tickets)));
-  if (!Array.isArray(book.kanban)) return out.concat(h("div", {cls: "panel"}, h("p", {cls: "muted"}, "This logbook has no kanban (written before 1.1).")));
-  const v = kanbanView();
-  const features = [...new Set(ticketsList().map((t) => t.feature || ""))].sort();
-  const sel = (name, value, opts) => h("select", {name, onchange: (e) => setView({[name]: e.target.value})},
-    opts.map(([val, txt]) => h("option", {value: val, selected: val === value}, txt)));
-  out.push(h("div", {cls: "controls"},
-    h("input", {type: "search", id: "kanban-q", value: v.q, placeholder: "Search id, title or a perimeter path", "aria-label": "Search",
-      oninput: (e) => setView({q: e.target.value})}),
-    h("span", {}, "Feature ", sel("feature", v.feature, [["", "all"]].concat(features.map((f) => [f || "-", f || "no feature"])))),
-    h("span", {}, "Priority ", sel("priority", v.priority, [["", "all"], ["P0", "P0"], ["P1", "P1"], ["P2", "P2"], ["P3", "P3"], ["-", "unprioritised"]])),
-    h("span", {}, "Group by ", sel("group", v.group, [["", "nothing"], ["feature", "feature"], ["priority", "priority"]])),
-    h("span", {}, "Empty columns ", sel("empty", v.empty, [["", "shown"], ["hide", "hidden"]])),
-    h("button", {id: "only-mine", cls: "only-mine", "aria-pressed": v.turn === "you" ? "true" : "false",
-      onclick: () => setView({turn: kanbanView().turn === "you" ? "" : "you"})}, "Your turn only")),
-    intakesPanel(),
-    h("div", {id: "board-area"}));
-  return out;
-}
-// --- the intakes (docs/adr/0090 §8) ---------------------------------------
-// One card per intake, above the board: the client's first words, the
-// interview so far and the tickets it became, each a link to its card.
-// Every value is the logbook's `intakes` field; the page decides nothing.
-function intakesList() { return Array.isArray(book.intakes) ? book.intakes : []; }
-function intakeWords(i, n) { const w = String(i.text || "").replace(/\s+/g, " ").trim(); return w.length > n ? w.slice(0, n - 1) + "…" : w; }
-function intakeChip(i) {
-  const st = String(i.state || "");
-  if (i.stranded) return chip("NO-GO");
-  const cls = st === "confirmed" ? "GO" : st === "intake-questions" || st === "proposed" ? "pending" : "none";
-  return h("span", {cls: "chip " + cls}, st);
-}
-function intakeCounts(i) {
-  const qs = i.questions || [];
-  return qs.length + " question" + (qs.length === 1 ? "" : "s") + ", " + qs.filter((q) => q.answer).length + " answered" +
-    ((i.proposal || []).length ? " · " + i.proposal.length + " proposed" : "");
-}
-function intakesPanel() {
-  if (unread(book.intakes)) return h("section", {id: "intakes"}, h("h2", {}, "Intakes"), h("div", {cls: "panel"}, err(book.intakes)));
-  const all = intakesList();
-  if (!all.length) return null;
-  return h("section", {id: "intakes", "aria-label": "Intakes"}, h("h2", {}, "Intakes"),
-    h("div", {cls: "intakes"}, all.map((i) => h("a", {cls: "intake-card", href: "#intake/" + encodeURIComponent(i.id), "data-intake": i.id,
-      "aria-label": "Intake " + i.id + ", " + i.state + ": " + intakeWords(i, 80)},
-      h("div", {cls: "badges"}, h("b", {}, "Intake " + i.id), intakeChip(i), screenMark(i.screen)),
-      h("p", {cls: "words"}, "“" + intakeWords(i, 140) + "”"),
-      h("div", {cls: "muted"}, intakeCounts(i)),
-      (i.tickets || []).length ? h("div", {cls: "fan"}, "→ ", i.tickets.map((id) => h("span", {cls: "mono"}, id))) : null))));
-}
-const intakeEdits = {};  // intake id -> [{action, title, problem, criteria, perimeter, feature, priority}]
-let intakeLine = null;
-function intakeForm(i) {
-  if (!intakeEdits[i.id] || intakeEdits[i.id].length !== (i.proposal || []).length) {
-    intakeEdits[i.id] = (i.proposal || []).map((t) => ({action: "confirm", title: t.title || "", problem: t.problem || "",
-      criteria: (t.criteria || []).join("\n"), perimeter: (t.perimeter || []).join("\n"), feature: t.feature || "", priority: t.priority || ""}));
-  }
-  return intakeEdits[i.id];
-}
-function decisions(i) {
-  return intakeForm(i).map((e) => e.action !== "edit" ? e.action : {edit: {title: e.title, problem: e.problem,
-    criteria: e.criteria.split("\n").map((l) => l.trim()).filter(Boolean),
-    perimeter: e.perimeter.split("\n").map((l) => l.trim()).filter(Boolean), feature: e.feature.trim(), priority: e.priority}});
-}
-async function pressConfirm(i) {
-  busy = true; render();
-  try {
-    const r = await fetch("/v1/intake-confirm", {method: "POST", headers: {"Content-Type": "application/json"},
-      body: JSON.stringify({intake: i.id, decisions: decisions(i)})});
-    const body = await r.json().catch(() => ({}));
-    intakeLine = body.line || ("refused (" + r.status + "): " + (body.error || r.statusText));
-  } catch (e) { intakeLine = "the console did not answer: " + e; }
-  busy = false; delete intakeEdits[i.id]; await load(); render();
-}
-function proposedTicket(i, t, n, form) {
-  const e = form ? form[n] : null;
-  const where = "intake-" + i.id + "-" + t.n;
-  const pick = e ? h("fieldset", {}, h("legend", {cls: "muted"}, "Ticket " + t.n + ": your decision"),
-    ["confirm", "edit", "drop"].map((a) => h("label", {}, h("input", {type: "radio", name: where + "-action", value: a, checked: e.action === a,
-      onchange: () => { e.action = a; render(); }}), " " + a))) : null;
-  const set = (k) => (ev) => { e[k] = ev.target.value; };
-  const edit = e && e.action === "edit" ? h("div", {cls: "edit"},
-    h("label", {for: where + "-title"}, "Title"), h("input", {type: "text", id: where + "-title", value: e.title, oninput: set("title")}),
-    h("label", {for: where + "-problem"}, "Problem"), h("textarea", {id: where + "-problem", oninput: set("problem")}, e.problem),
-    h("label", {for: where + "-criteria"}, "Acceptance criteria, one Given/When/Then per line"), h("textarea", {id: where + "-criteria", oninput: set("criteria")}, e.criteria),
-    h("label", {for: where + "-perimeter"}, "Perimeter, one path or glob per line"), h("textarea", {id: where + "-perimeter", oninput: set("perimeter")}, e.perimeter),
-    h("label", {for: where + "-feature"}, "Feature (optional)"), h("input", {type: "text", id: where + "-feature", value: e.feature, oninput: set("feature")}),
-    h("label", {for: where + "-priority"}, "Priority (optional)"), h("select", {id: where + "-priority", onchange: set("priority")},
-      [["", "unprioritised"], ["P0", "P0"], ["P1", "P1"], ["P2", "P2"], ["P3", "P3"]].map(([v, x]) => h("option", {value: v, selected: v === e.priority}, x)))) : null;
-  const line = String(t.check || "");
-  return h("div", {cls: "proposed", "data-n": t.n},
-    h("div", {cls: "badges"}, h("b", {}, t.n + ". " + t.title), t.decision ? h("span", {cls: "chip " + (t.decision === "drop" ? "none" : "GO")}, t.decision) : null),
-    h("p", {}, t.problem),
-    h("ul", {}, (t.criteria || []).map((c) => h("li", {}, c))),
-    dl([["Feature", shown(t.feature)], ["Priority", shown(t.priority)],
-      ["Perimeter", (t.perimeter || []).length ? h("span", {cls: "mono"}, t.perimeter.join(", ")) : h("span", {cls: "muted"}, "none proposed: write it before confirming")],
-      (t.uncertain || []).length ? ["Uncertain, yours to decide", h("span", {cls: "mono", "data-kind": "uncertain"}, t.uncertain.join(", "))] : null,
-      ["Spec gate on the draft", line ? h("span", {}, chip(line.startsWith("GO") ? "GO" : "NO-GO"), " ", h("span", {cls: "mono"}, line)) : "—"],
-      ["Ticket", t.ticket ? h("a", {href: "#ticket/" + encodeURIComponent(t.ticket)}, t.ticket) : "—"]]),
-    pick, edit);
-}
-function screenIntake(id) {
-  const i = intakesList().find((x) => x.id === id);
-  const out = [h("p", {}, h("a", {href: "#kanban"}, "← Kanban"))];
-  if (!i) return out.concat(h("h1", {}, "Intake " + id), h("div", {cls: "panel"}, h("p", {cls: "muted"}, "The logbook holds no intake " + id + ".")));
-  const roleLine = (r, who) => !r ? null : r.consulted === false
-    ? h("p", {cls: "muted"}, "The " + who + " role was not consulted: " + shown(r.why))
-    : r.by === "decide"
-      ? h("p", {cls: "muted"}, "The " + who + " role asked one yes/no question per file and ticket (ADR 0091): " + shown(r.questions) + " questions, " + shown(r.harness) + (r.replayed ? ", replayed" : "") + ".")
-      : h("p", {cls: "muted"}, "The " + who + " role: " + shown(r.harness) + (r.replayed ? ", replayed" : "") + ", " + shown(r.turns) + " turns.");
-  const form = i.state === "proposed" && con.mode !== "snapshot" ? intakeForm(i) : null;
-  out.push(h("h1", {}, "Intake " + i.id, " ", intakeChip(i)),
-    h("p", {cls: "lede"}, "A client's request in their own words, the interview of the product role, the tickets it proposed with the perimeter the architect role proposed, and the person's decision on each (ADR 0090)."),
-    i.stranded ? h("div", {cls: "banner err"}, "Stopped at " + i.stranded.step + ": " + i.stranded.error) : null,
-    h("div", {cls: "panel"}, h("h2", {}, "The request"), h("pre", {cls: "words"}, i.text),
-      h("p", {cls: "muted"}, "By " + shown(i.by) + " via " + shown(i.via) + ", " + shown(i.at) + "."),
-      i.screen ? h("p", {cls: "muted", "data-kind": "screen"}, "Screen (ADR 0091): " + screenLine(i.screen) + ".") : null),
-    h("div", {cls: "panel"}, h("h2", {}, "The interview"), roleLine(i.product, "product"),
-      (i.questions || []).length ? h("ol", {}, i.questions.map((q) => h("li", {}, h("b", {}, q.question),
-        q.answer ? h("p", {}, "“" + q.answer + "” — " + shown(q.answered_by) + " via " + shown(q.answered_via)) : h("p", {cls: "muted"}, "Not answered yet."))))
-        : h("p", {cls: "muted"}, "No question asked.")),
-    answerPanel(i));
-  if ((i.proposal || []).length) {
-    out.push(h("div", {cls: "panel", id: "proposal"}, h("h2", {}, "Proposed tickets"), roleLine(i.architect, "architect"),
-      i.proposal.map((t, n) => proposedTicket(i, t, n, form)),
-      form ? h("div", {cls: "buttons"}, h("button", {cls: "go", id: "confirm-intake", disabled: busy,
-        onclick: () => pressConfirm(i)}, "Confirm these decisions — ./go intake-confirm TICKET=" + i.id)) : null,
-      i.state === "proposed" && con.mode === "snapshot" ? h("p", {cls: "muted"}, "Snapshot: no tower behind it, nothing can be confirmed.") : null,
-      form ? h("p", {cls: "muted"}, "Each ticket you keep is written under the next free id and starts at spec-ready: the spec gate, unchanged, opens it or sends it back with its reason.") : null,
-      busy ? h("p", {cls: "muted"}, "./go intake-confirm is running…") : null,
-      intakeLine ? h("pre", {}, intakeLine) : null));
-  }
-  if (i.confirmation) out.push(h("div", {cls: "panel"}, h("h2", {}, "Confirmed"),
-    h("p", {}, "By " + shown(i.confirmation.by) + " via " + shown(i.confirmation.via) + ", " + shown(i.confirmation.at) + ". "),
-    h("p", {cls: "fan"}, (i.tickets || []).length ? ["Tickets: "].concat(i.tickets.map((tid) => h("a", {href: "#ticket/" + encodeURIComponent(tid)}, tid))) : "No ticket was kept.")));
-  return out;
-}
-// The board and the drawer, redrawn in place: the controls keep their focus.
-function drawBoard() {
-  const area = document.getElementById("board-area");
-  if (!area || !book || !Array.isArray(book.kanban)) return;
-  const v = kanbanView();
-  const byId = Object.fromEntries(ticketsList().map((t) => [t.id, t]));
-  const keep = (t) => (!v.feature || (t.feature || "-") === v.feature) && (!v.priority || (t.priority || "-") === v.priority) && searched(t, v.q)
-    && (v.turn !== "you" || now(t).turn === "you");
-  const mine = document.getElementById("only-mine");
-  if (mine) mine.setAttribute("aria-pressed", v.turn === "you" ? "true" : "false");
-  const group = v.group === "feature" || v.group === "priority" ? v.group : "";
-  const lanes = group ? [...new Set(ticketsList().filter(keep).map((t) => t[group] || ""))]
-    .sort((a, b) => (a || "~").localeCompare(b || "~")) : [null];
-  const focused = document.activeElement && document.activeElement.classList.contains("card") ? document.activeElement.dataset.id : null;
-  const kids = [], held = new Set();
-  for (const lane of lanes) {
-    const inLane = (t) => keep(t) && (lane === null || (t[group] || "") === lane);
-    // Hiding the empty columns is a view, like the filters: the order of
-    // the columns left is still the tower's.
-    const cols = book.kanban.map((col) => [col.state, col.tickets.filter((id) => byId[id] && inLane(byId[id]))])
-      .filter(([, ids]) => !v.empty || ids.length);
-    const column = ([state, ids]) => {
-      const shut = v.collapsed.has(state);
-      const toggle = () => { const c = new Set(kanbanView().collapsed); if (c.has(state)) c.delete(state); else c.add(state); setView({collapsed: c}); };
-      // A column with no card in this view is drawn narrow (docs/adr/0063
-      // §1): a drawing rule, not part of the view or the link.
-      return h("div", {cls: "col" + (shut ? " collapsed" : ids.length ? "" : " empty"), "data-state": state},
-        h("h3", {}, h("button", {cls: "col-toggle", onclick: toggle, "aria-expanded": shut ? "false" : "true",
-          title: (shut ? "Expand " : "Collapse ") + state}, shut ? "+" : "−"), state + " · " + ids.length),
-        shut ? null : ids.map((id) => card(byId[id], v)));
-    };
-    // The columns stay in the logbook's order; consecutive columns of one
-    // band sit under its name.
-    const runs = [];
-    for (const c of cols) {
-      const b = bandOf(c[0]);
-      if (c[1].length) held.add(b);
-      if (!runs.length || runs[runs.length - 1].band !== b) runs.push({band: b, cols: []});
-      runs[runs.length - 1].cols.push(c);
-    }
-    const board = h("div", {cls: "board"}, runs.map((r) => {
-      const wide = r.cols.some(([state, ids]) => ids.length && !v.collapsed.has(state));
-      return h("div", {cls: "band" + (wide ? " wide" : ""), "data-band": r.band,
-        style: wide ? "flex-grow: " + r.cols.filter(([state, ids]) => ids.length && !v.collapsed.has(state)).length : null},
-        h("div", {cls: "band-name"}, bandName(r.band)), h("div", {cls: "band-cols"}, r.cols.map(column)));
-    }));
-    kids.push(h("div", {cls: "lane", "data-lane": lane === null ? "" : lane},
-      lane === null ? null : h("h2", {}, lane || (group === "priority" ? "unprioritised" : "no feature")),
-      h("div", {cls: "panel board-wrap"}, board)));
-  }
-  // On a phone the stack is long: a bar of the bands that hold a card, each
-  // button scrolling to its band; no hash, no history entry (docs/adr/0068 §5).
-  const jump = BANDS.concat([{band: "other", name: "Other"}]).filter((b) => held.has(b.band));
-  kids.unshift(h("div", {cls: "band-jump", role: "navigation", "aria-label": "Jump to a band"}, jump.map((b) =>
-    h("button", {"data-band": b.band, onclick: () => {
-      const el = area.querySelector('.band[data-band="' + b.band + '"]');
-      if (el) el.scrollIntoView({block: "start", behavior: still() ? "auto" : "smooth"});
-    }}, b.name))));
-  const drop = launchDrop();
-  if (drop) kids.unshift(drop);
-  area.replaceChildren(...kids);
-  fly();
-  showBack(v.card ? byId[v.card] : null);
-  if (focused && !v.card) focusCard(focused);
-}
-// The back is one dialog, outside the board, opened modal: the board behind
-// it is inert, and Esc or the backdrop closes it, giving the focus back to
-// the card.
-function showBack(t) {
-  const d = document.getElementById("card-back");
-  if (!t) {
-    if (d.open) d.close();
-    d.replaceChildren();
-    return;
-  }
-  const inside = d.open && d.contains(document.activeElement);
-  d.replaceChildren(drawer(t));
-  if (!d.open) d.showModal();
-  else if (inside || !d.contains(document.activeElement)) { const c = d.querySelector("button.close"); if (c) c.focus(); }
-}
-(function () {
-  const d = document.getElementById("card-back");
-  d.addEventListener("cancel", (e) => { e.preventDefault(); const id = kanbanView().card; if (id) closeBack(id); });
-  // A click on the backdrop lands on the dialog itself: its content fills it.
-  d.addEventListener("click", (e) => { if (e.target === d) { const id = kanbanView().card; if (id) closeBack(id); } });
-})();
-function focusCard(id) {
-  const el = document.querySelector('.card[data-id="' + CSS.escape(id) + '"]');
-  if (el) el.focus();
-}
-// Arrows between cards: left and right across the lane's columns that hold
-// cards, up and down inside one.
-function moveFocus(el, key) {
-  const col = el.closest(".col"), lane = el.closest(".lane");
-  if (!col || !lane) return;
-  const cols = [...lane.querySelectorAll(".col")].filter((c) => c.querySelector(".card"));
-  const cards = [...col.querySelectorAll(".card")];
-  const i = cards.indexOf(el), c = cols.indexOf(col);
-  let next = null;
-  if (key === "ArrowUp") next = cards[Math.max(0, i - 1)];
-  else if (key === "ArrowDown") next = cards[Math.min(cards.length - 1, i + 1)];
-  else {
-    const to = cols[key === "ArrowLeft" ? c - 1 : c + 1];
-    if (to) { const there = [...to.querySelectorAll(".card")]; next = there[Math.min(i, there.length - 1)]; }
-  }
-  if (next) next.focus();
-}
-document.addEventListener("keydown", (e) => {
-  if (route().screen !== "kanban" || document.getElementById("why").open || document.getElementById("launch-confirm").open) return;
-  const el = e.target;
-  const typing = el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.tagName === "SELECT");
-  if (e.key === "Escape" && kanbanView().card) {
-    const id = kanbanView().card;
-    e.preventDefault(); closeBack(id);
-  } else if (kanbanView().card) {
-    return;  // the back is open: its own controls take the keys
-  } else if (e.key === "/" && !typing) {
-    e.preventDefault(); const q = document.getElementById("kanban-q"); if (q) q.focus();
-  } else if (el && el.classList && el.classList.contains("card")) {
-    if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setView({card: el.dataset.id}); }
-    else if (e.key.startsWith("Arrow")) { e.preventDefault(); moveFocus(el, e.key); }
-  }
-});
 
 // --- screen 1 ----------------------------------------------------------
 function screenTickets() {
@@ -2046,6 +1662,614 @@ function screenThresholds() {
     unread(book.agents) ? err(book.agents) : h("pre", {}, (book.agents.lines || []).join("\n"))));
   return out;
 }
+
+
+// --- the specs (docs/adr/0059 §4) ----------------------------------------
+function screenSpecs() {
+  const out = [h("h1", {}, "Specs"),
+    h("p", {cls: "lede"}, "Every ticket's spec: the criteria confirmed and by whom, the spec gate's last verdict, and the question still open. ",
+      h("a", {href: "#request"}, "Write a new request →"))];
+  if (unread(book.tickets)) return out.concat(h("div", {cls: "panel"}, err(book.tickets)));
+  const order = Array.isArray(book.kanban) ? book.kanban.flatMap((c) => c.tickets) : ticketsList().map((t) => t.id);
+  const byId = Object.fromEntries(ticketsList().map((t) => [t.id, t]));
+  const all = order.map((id) => byId[id]).filter(Boolean);
+  if (!all.length) return out.concat(h("div", {cls: "panel"}, h("p", {cls: "muted"}, "No ticket in the tower yet.")));
+  for (const t of all) {
+    const spec = t.spec || {};
+    const q = openQuestion(t);
+    out.push(h("div", {cls: "panel spec", "data-id": t.id},
+      h("h2", {style: "margin-top: 0"}, h("a", {href: "#ticket/" + encodeURIComponent(t.id)}, named(t)), " ", h("span", {cls: "chip none"}, t.state)),
+      (spec.criteria || []).length ? h("div", {}, h("div", {cls: "muted"}, "Criteria, confirmed by " + shown(spec.by)),
+        h("ol", {}, spec.criteria.map((c) => h("li", {}, c)))) : h("p", {cls: "muted"}, "No criteria confirmed yet."),
+      h("p", {}, "Spec gate: ", spec.verdict ? chip(spec.verdict) : h("span", {cls: "chip none"}, "not run"), " ",
+        h("span", {cls: "mono"}, shown(spec.line)), spec.at ? h("span", {cls: "muted"}, " at " + spec.at) : null),
+      q ? h("p", {}, h("b", {}, q.from === "spec" ? "Open, from the spec gate: " : "Open, from the product role: "), q.question,
+        " ", h("a", {href: "#ticket/" + encodeURIComponent(t.id)}, "answer it →")) : null));
+  }
+  return out;
+}
+
+// --- the request editor (docs/adr/0059 §4) --------------------------------
+// The fields live here, not in the DOM, so a redraw keeps them. The check
+// is /v1/spec-check: gates/spec.sh itself on the draft, which writes
+// nothing; its line is shown as the gate printed it.
+const draftFields = {title: "", context: "", criteria: [{given: "", when: "", then: ""}], perimeter: "", feature: "", priority: ""};
+let checkTimer = null, checkSeq = 0, lastCheck = null, saveLine = null;
+// Provenance, decision: docs/adr/0059 §4, one check per pause, not per key.
+const CHECK_DELAY_MS = 300;
+function draftBody() {
+  return {title: draftFields.title, context: draftFields.context,
+    criteria: draftFields.criteria.filter((c) => c.given.trim() || c.when.trim() || c.then.trim()),
+    perimeter: draftFields.perimeter.split("\n").map((l) => l.trim()).filter(Boolean),
+    feature: draftFields.feature.trim(), priority: draftFields.priority};
+}
+function scheduleCheck() {
+  clearTimeout(checkTimer);
+  checkTimer = setTimeout(runCheck, CHECK_DELAY_MS);
+}
+async function runCheck() {
+  const seq = ++checkSeq;
+  let result;
+  if (!draftFields.title.trim()) result = {error: "a draft needs a title before the spec gate can read it"};
+  else {
+    try {
+      const r = await fetch("/v1/spec-check", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(draftBody())});
+      const body = await r.json().catch(() => ({}));
+      result = r.ok ? body : {error: "refused (" + r.status + "): " + (body.error || r.statusText)};
+    } catch (e) { result = {error: "the console did not answer: " + e}; }
+  }
+  if (seq !== checkSeq) return;  // a later keystroke's check is on its way
+  lastCheck = result;
+  showCheck();
+}
+function showCheck() {
+  const line = document.getElementById("spec-line"), chipEl = document.getElementById("spec-chip"),
+    pre = document.getElementById("spec-preview"), save = document.getElementById("save");
+  if (!line) return;
+  const r = lastCheck;
+  line.textContent = r ? (r.line || r.error) : "—";
+  const go = !!(r && r.line && r.line.startsWith("GO: spec"));
+  chipEl.replaceChildren(r && r.line ? chip(go ? "GO" : "NO-GO") : h("span", {cls: "chip none"}, "no line"));
+  pre.textContent = r && r.markdown ? r.markdown : "";
+  if (save) save.disabled = !canSave() || !go || busy;
+}
+function canSave() { return con && con.mode !== "snapshot" && con.auth !== "public"; }
+async function pressRequest() {
+  busy = true; showCheck();
+  try {
+    const r = await fetch("/v1/request", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(draftBody())});
+    const body = await r.json().catch(() => ({}));
+    saveLine = r.ok ? {ticket: body.ticket, line: body.line} : {line: "refused (" + r.status + "): " + (body.error || r.statusText) + (body.line ? "\n" + body.line : "")};
+  } catch (e) { saveLine = {line: "the console did not answer: " + e}; }
+  busy = false;
+  // A ticket file was written (docs/adr/0063 §5): the draft is done, so it is
+  // cleared and Request waits for the next edit; a second press cannot file
+  // the same text twice.
+  if (saveLine.ticket) {
+    Object.assign(draftFields, {title: "", context: "", criteria: [{given: "", when: "", then: ""}], perimeter: "", feature: "", priority: ""});
+    lastCheck = null; clearTimeout(checkTimer); checkSeq++;
+  }
+  await load();
+  render();
+}
+function field(label, el) { return [h("label", {}, label), el]; }
+// "Describe the need" (docs/adr/0090 §8): a client's words start an intake.
+const need = {text: ""};
+let needLine = null;
+async function pressIntake() {
+  if (!need.text.trim()) return;
+  busy = true; render();
+  try {
+    const r = await fetch("/v1/intake", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({text: need.text})});
+    const body = await r.json().catch(() => ({}));
+    needLine = body.line || ("refused (" + r.status + "): " + (body.error || r.statusText));
+    if (r.ok && String(body.line || "").startsWith("GO")) need.text = "";
+  } catch (e) { needLine = "the console did not answer: " + e; }
+  busy = false; await load(); render();
+}
+function needPanel() {
+  const m = /intake — (\d{4})/.exec(String(needLine || ""));
+  return h("div", {cls: "panel editor", id: "need"}, h("h2", {}, "Describe the need"),
+    h("p", {cls: "muted"}, "No ticket yet? Write what is needed in your own words. The product role interviews you, one question at a time, then proposes tickets; the architect role proposes where each may change the code; you confirm, edit or drop each one (./go intake)."),
+    h("label", {for: "need-text"}, "The need, in your words"),
+    h("textarea", {id: "need-text", name: "need", oninput: (e) => { need.text = e.target.value; }}, need.text),
+    h("div", {cls: "buttons"}, h("button", {cls: "go", id: "start-intake", disabled: busy || !canSave(),
+      onclick: pressIntake}, "Start the interview — ./go intake")),
+    canSave() ? null : h("p", {cls: "muted"}, con.mode === "snapshot" ? "Snapshot: no tower behind it, no intake can start." : "This console cannot start an intake."),
+    needLine ? h("pre", {id: "need-line"}, needLine) : null,
+    m ? h("p", {}, h("a", {href: "#intake/" + m[1]}, "Intake " + m[1] + " →")) : null);
+}
+function screenRequest() {
+  const level = (book.source || {}).level || "";
+  const set = (k) => (e) => { draftFields[k] = e.target.value; scheduleCheck(); };
+  const rows = draftFields.criteria.map((c, i) => h("div", {cls: "criterion"},
+    h("span", {cls: "muted"}, "Given"), h("input", {type: "text", name: "given", value: c.given, placeholder: "the state before",
+      oninput: (e) => { c.given = e.target.value; scheduleCheck(); }}),
+    h("span", {cls: "muted"}, "When"), h("input", {type: "text", name: "when", value: c.when, placeholder: "the action",
+      oninput: (e) => { c.when = e.target.value; scheduleCheck(); }}),
+    h("span", {cls: "muted"}, "Then"), h("input", {type: "text", name: "then", value: c.then, placeholder: "what is observed: a status, a value, a line",
+      oninput: (e) => { c.then = e.target.value; scheduleCheck(); }}),
+    h("span", {}), h("div", {}, draftFields.criteria.length > 1 ? h("button", {onclick: () => { draftFields.criteria.splice(i, 1); render(); scheduleCheck(); }}, "Remove this criterion") : null)));
+  const prio = h("select", {name: "priority", onchange: set("priority")},
+    [["", "unprioritised"], ["P0", "P0"], ["P1", "P1"], ["P2", "P2"], ["P3", "P3"]].map(([v, t]) => h("option", {value: v, selected: v === draftFields.priority}, t)));
+  const out = [h("h1", {}, "New request"), needPanel(),
+    h("p", {cls: "lede"}, "A ticket's request, checked as you type by the spec gate itself (gates/spec.sh, through the console, writing nothing). Saving writes the ticket file and runs ./go request."),
+    level === "l0"
+      ? h("div", {cls: "banner warn", id: "l0-note"}, "Level l0: the product role replays recordings, and a new request has none. It will not be consulted on this draft; the spec gate alone judges it (ADR 0055 §3). With a key (l1) saving consults it, and its questions come back on the ticket's page.")
+      : h("div", {cls: "banner"}, "Saving requests the ticket: the product role reads it and asks or confirms, and its questions come back on the ticket's page with an answer box."),
+    saveLine && saveLine.ticket ? h("div", {cls: "panel", id: "saved"}, h("p", {style: "margin: 0"},
+      chip(String(saveLine.line || "").startsWith("GO") ? "GO" : "NO-GO"), " ", h("span", {cls: "mono"}, shown(saveLine.line)), h("br"),
+      "tickets/" + saveLine.ticket + ".md is written, not committed. ",
+      h("a", {id: "new-ticket", href: "#ticket/" + encodeURIComponent(saveLine.ticket)}, "Ticket " + saveLine.ticket + "'s timeline →"),
+      " The form below is empty for the next request.")) : null,
+    h("div", {cls: "panel editor"},
+      field("Title", h("input", {type: "text", name: "title", value: draftFields.title, oninput: set("title")})),
+      field("Context: the problem, in a few sentences", h("textarea", {name: "context", oninput: set("context")}, draftFields.context)),
+      h("label", {}, "Acceptance criteria: each a Given, a When and a Then with an observable outcome"), rows,
+      h("button", {id: "add-criterion", onclick: () => { draftFields.criteria.push({given: "", when: "", then: ""}); render(); }}, "Add a criterion"),
+      field("Perimeter: one path or glob per line, the files the change may touch", h("textarea", {name: "perimeter", oninput: set("perimeter")}, draftFields.perimeter)),
+      field("Feature (optional): lowercase letters and digits joined by hyphens", h("input", {type: "text", name: "feature", value: draftFields.feature, oninput: set("feature")})),
+      field("Priority (optional)", prio)),
+    h("div", {cls: "savebar", id: "savebar"}, h("span", {id: "spec-chip"}), h("span", {cls: "mono", id: "spec-line"}, "—"),
+      h("div", {cls: "buttons"}, h("button", {cls: "go", id: "save", disabled: true, onclick: pressRequest}, "Request it — ./go request"))),
+    h("h2", {}, "The ticket as it will be written"),
+    h("div", {cls: "panel"}, h("pre", {id: "spec-preview"}),
+      canSave() ? h("p", {}, "Saving writes this file as it is shown, under the next free id, uncommitted; commit it with the change or before. Only a draft the gate passes is saved.")
+        : h("p", {cls: "muted"}, con.mode === "snapshot" ? "Snapshot: no tower behind it, nothing can be requested. The check still runs." : "This console cannot request."),
+      busy ? h("p", {cls: "muted"}, "./go request is running: the product role, then the spec gate…") : null,
+      saveLine && !saveLine.ticket ? h("pre", {}, saveLine.line) : null)];
+  return out;
+}
+
+// --- ADR search (docs/adr/0059 §3) ----------------------------------------
+// The ADRs are the logbook's, read from the project map: the page searches
+// and links them, it computes no relation of its own.
+function adrItems() { return book.adrs && Array.isArray(book.adrs.items) ? book.adrs.items : []; }
+function adrSearch(q) {
+  const text = q.trim();
+  if (!text) return adrItems();
+  const num = text.match(/^(?:adr\s*)?0*(\d{1,4})$/i);
+  const want = num ? num[1].padStart(4, "0") : null;
+  const words = text.toLowerCase().split(/\s+/);
+  const hits = [];
+  for (const a of adrItems()) {
+    const hay = (a.number + " " + a.title + " " + a.status + " " + a.text).toLowerCase();
+    const byNumber = a.number === want;
+    const byFile = a.files.some((f) => f === text || f.endsWith("/" + text) || (text.includes("/") && f.startsWith(text.replace(/\/$/, "") + "/")));
+    const byTitle = words.every((w) => a.title.toLowerCase().includes(w));
+    if (byNumber || byFile || words.every((w) => hay.includes(w)))
+      hits.push([byNumber ? 0 : byFile ? 1 : byTitle ? 2 : 3, a]);
+  }
+  return hits.sort((x, y) => x[0] - y[0] || x[1].number.localeCompare(y[1].number)).map(([, a]) => a);
+}
+function snippet(a, q) {
+  const w = q.trim().toLowerCase().split(/\s+/)[0];
+  const at = w ? a.text.toLowerCase().indexOf(w) : -1;
+  if (at < 0) return null;
+  const from = Math.max(0, at - 80);
+  return (from ? "…" : "") + a.text.slice(from, at + 120).replace(/\s+/g, " ") + "…";
+}
+function adrRow(a, q) {
+  const tickets = Object.fromEntries(ticketsList().map((t) => [t.id, t]));
+  return h("div", {cls: "adr", "data-number": a.number},
+    h("div", {}, h("a", {href: "#adr/" + a.number}, h("b", {}, a.title))),
+    h("div", {cls: "muted"}, "Status: " + (a.status || "none").slice(0, 160)),
+    q ? h("div", {cls: "links"}, snippet(a, q)) : null,
+    h("div", {cls: "links"}, "Files: ", a.files.length ? a.files.slice(0, 12).map((f) => h("code", {}, f)) : "none",
+      a.files.length > 12 ? " and " + (a.files.length - 12) + " more" : ""),
+    h("div", {cls: "links"}, "Tickets: ", a.tickets.length ? a.tickets.map((id) => [tickets[id] ? h("a", {href: "#ticket/" + id}, id) : id, " "]) : "none",
+      " · ADRs: ", a.adrs.length ? a.adrs.map((n) => [h("a", {href: "#adr/" + n}, n), " "]) : "none"));
+}
+function drawAdrs() {
+  const area = document.getElementById("adr-results");
+  if (!area) return;
+  const q = route().query.q || "";
+  const found = adrSearch(q);
+  area.replaceChildren(h("p", {cls: "muted"}, found.length + " of " + adrItems().length + " ADRs"), ...found.map((a) => adrRow(a, q)));
+}
+function screenAdrs() {
+  const out = [h("h1", {}, "ADRs"),
+    h("p", {cls: "lede"}, "The project's decisions, from the project map (./go map): search by number, a word of the title, the status, the text, or a file one cites.")];
+  if (unread(book.adrs)) return out.concat(h("div", {cls: "panel"}, err(book.adrs)));
+  if (!book.adrs) return out.concat(h("div", {cls: "panel"}, h("p", {cls: "muted"}, "This logbook has no adrs (written before 1.2).")));
+  const q = route().query.q || "";
+  out.push(h("div", {cls: "controls"},
+    h("input", {type: "search", id: "adr-q", value: q, placeholder: "0055, kanban, proposed, core/spec.py", "aria-label": "Search the ADRs",
+      oninput: (e) => { history.replaceState(null, "", viewHash("adrs", {q: e.target.value}, ["q"])); drawAdrs(); }}),
+    h("span", {}, "map built at ", h("span", {cls: "mono"}, shown(book.adrs.map_sha).slice(0, 12)))),
+    h("div", {cls: "panel", id: "adr-results"}));
+  return out;
+}
+function screenAdr(n) {
+  const a = adrItems().find((x) => x.number === n);
+  if (!a) return [h("h1", {}, "ADR " + n), h("div", {cls: "panel"}, unread(book.adrs) ? err(book.adrs) : "This ADR is not in the project map.")];
+  return [h("h1", {}, a.title), h("p", {cls: "lede"}, h("a", {href: "#adrs"}, "← every ADR"), " · ", h("code", {}, a.path)),
+    h("div", {cls: "panel"}, adrRow(a, "")), h("div", {cls: "panel"}, h("pre", {}, a.text))];
+}
+// --- kanban (docs/adr/0055 §7, docs/adr/0059 §1) -------------------------
+// The columns and the order inside them are the logbook's (`kanban`): the
+// page filters, groups, searches, collapses and turns a card over, and never
+// moves a card. No drag-and-drop, no button that moves one: a card moves
+// when the tower moves its ticket, and then it shows where it came from.
+// Provenance, decision: docs/adr/0059 §1, two beats of the console's 2 s poll.
+const MOVED_MS = 4000;
+// A moved card flies from where it was to where it is (docs/adr/0068 §4).
+// Provenance, decision: 400 ms ends inside one 2 s poll, so two flights
+// never overlap, and inside the 4 s mark.
+const FLIGHT_MS = 400;
+let moved = {};  // id -> {from, until, rect, flown}: cards the last logbook moved
+const still = () => matchMedia("(prefers-reduced-motion: reduce)").matches;
+function noteMoves(before, after) {
+  if (!before || !Array.isArray(before.kanban) || !Array.isArray(after.kanban)) return;
+  const col = (b) => Object.fromEntries(b.kanban.flatMap((c) => c.tickets.map((id) => [id, c.state])));
+  const was = col(before), now = col(after), until = Date.now() + MOVED_MS;
+  const said = [];
+  for (const [id, st] of Object.entries(now)) if (was[id] && was[id] !== st) {
+    // Where the card is drawn now, before the redraw puts it elsewhere.
+    const el = document.querySelector('.card[data-id="' + CSS.escape(id) + '"]');
+    moved[id] = {from: was[id], until, rect: el ? el.getBoundingClientRect() : null, flown: false};
+    said.push(id + " moved from " + was[id] + " to " + st);
+  }
+  // Said to a screen reader too (WCAG 2.1 SC 4.1.3): a polite live region.
+  if (said.length) document.getElementById("announce").textContent = said.join(". ") + ".";
+  setTimeout(drawBoard, MOVED_MS + 50);
+}
+function fly() {
+  for (const [id, m] of Object.entries(moved)) {
+    if (m.flown || m.until <= Date.now()) continue;
+    m.flown = true;
+    const el = document.querySelector('.card[data-id="' + CSS.escape(id) + '"]');
+    if (!el || !m.rect || still()) continue;
+    const r = el.getBoundingClientRect();
+    const dx = m.rect.left - r.left, dy = m.rect.top - r.top;
+    if (dx || dy) el.animate([{transform: "translate(" + dx + "px, " + dy + "px)"}, {transform: "none"}],
+      {duration: FLIGHT_MS, easing: "cubic-bezier(.2, .8, .2, 1)"});
+  }
+}
+// A path matches a perimeter glob as core/perimeter.sh matches it (`*`
+// crosses `/`), or the glob contains the text typed.
+function globMatches(glob, text) {
+  if (glob.toLowerCase().includes(text.toLowerCase())) return true;
+  const re = "^" + glob.replace(/[.+^${}()|\\]/g, "\\$&").replace(/\*/g, ".*").replace(/\?/g, ".") + "$";
+  try { return new RegExp(re).test(text); } catch (e) { return false; }
+}
+function searched(t, q) {
+  if (!q) return true;
+  const low = q.toLowerCase();
+  if (t.id.includes(q) || String(t.title).toLowerCase().includes(low)) return true;
+  return Array.isArray(t.perimeter) && t.perimeter.some((g) => globMatches(g, q));
+}
+// A card's face (docs/adr/0068 §2): labels, the title, the now line, and a
+// badge row: who has the ball, how long in this state, the attempts, the outcome.
+function card(t, v) {
+  const m = moved[t.id] && moved[t.id].until > Date.now() ? moved[t.id] : null;
+  const open = () => setView({card: t.id});
+  const held = launchTicket() === t ? launchable() : null;
+  return h("div", {cls: "card" + (m ? " moved" : "") + (v.card === t.id ? " selected" : ""), "data-id": t.id, "data-turn": now(t).turn,
+    "data-from": m ? m.from : null, tabindex: "0", role: "button", "aria-label": named(t), onclick: open,
+    draggable: held ? "true" : null, "data-launch": held ? held.version : null,
+    ondragstart: held ? (e) => { e.dataTransfer.setData("text/plain", held.version); e.dataTransfer.effectAllowed = "move"; } : null},
+    labels(t),
+    titled(t, v.q),
+    nowLine(t),
+    flowFace(t),
+    h("div", {cls: "badges"}, whoBadge(t), age(t), pips(t), liveBadge(t),
+      t.outcome && t.outcome.verdict !== "pending"
+        ? (t.outcome.verdict === "NO-GO" && whyButton(t, t.attempt, chip(t.outcome.verdict))) || chip(t.outcome.verdict) : null),
+    m ? h("div", {cls: "muted"}, "moved here from " + m.from) : null);
+}
+function adrName(n) {
+  const items = book.adrs && Array.isArray(book.adrs.items) ? book.adrs.items : [];
+  const a = items.find((x) => x.number === n);
+  return a ? a.title : "ADR " + n;
+}
+function adrLinks(nums) {
+  return nums && nums.length ? h("ul", {}, nums.map((n) => h("li", {}, h("a", {href: "#adr/" + n}, adrName(n)))))
+    : h("p", {cls: "muted"}, unread(book.adrs) ? "No project map: " + book.adrs.error : "No ADR cites a file of its perimeter.");
+}
+// The card's back (docs/adr/0068 §3): what the docked drawer showed, inside
+// a modal dialog over the board, with the now line's one action drawn as the
+// primary link, the open question's text, the band strip and a compact
+// timeline. No answer box: the kanban writes nothing (ADR 0059 §1).
+function closeBack(id) { setView({card: ""}); focusCard(id); }
+// What the last run used (docs/adr/0073 §10): the dev-worker's MCP calls and
+// the reviewer's instructions from the base; no row when the run had none.
+function agentRows(t) {
+  const mcp = t.task && t.task.mcp, ins = t.review && t.review.instructions;
+  const calls = mcp ? (mcp.calls || []).map((c) => c.server + "." + c.tool + " ×" + c.count).join(", ") : "";
+  return [mcp ? ["MCP", calls || "declared, no calls"] : null,
+    ins ? ["Reviewer instructions", ins.file + " (sha256 " + String(ins.sha256).slice(0, 12) + ", from base " + String(ins.base).slice(0, 7) + ")"] : null];
+}
+function drawer(t) {
+  const rows = t.timeline || [];
+  const q = openQuestion(t);
+  return h("aside", {id: "drawer", "data-id": t.id, "aria-label": "Ticket " + t.id},
+    h("div", {cls: "back-top"}, labels(t), h("button", {cls: "close", onclick: () => closeBack(t.id)}, "Close (Esc)")),
+    h("h2", {}, named(t)),
+    h("div", {cls: "nowbox", "data-turn": now(t).turn}, nowLine(t, true)),
+    q ? h("blockquote", {cls: "question"}, h("b", {}, q.from === "spec" ? "The spec gate asks: " : "The product role asks: "), q.question) : null,
+    stageStrip(t),
+    flowDetail(t),
+    liveLine(t),
+    h("div", {cls: "badges"}, whoBadge(t), age(t), pips(t)),
+    // No verdict yet: the now line says what is awaited, and no empty row stands in.
+    dl([["State", t.state + " · " + bandName(bandOf(t.state))],
+      t.outcome.verdict !== "pending" ? ["Outcome", h("span", {}, chip(t.outcome.verdict), " ", shown(t.outcome.judge))] : null,
+      t.outcome.verdict !== "pending" ? ["Line", h("span", {cls: "mono"}, shown(t.outcome.line))] : null,
+      ["Perimeter", unread(t.perimeter) ? err(t.perimeter) : h("span", {cls: "mono"}, (t.perimeter || []).join("  ·  ") || "—")],
+      ["Waits", t.wait ? waitLine(t.wait) : "no"],
+      t.screen ? ["Screen", screenLine(t.screen)] : null,
+      ...agentRows(t)]),
+    h("h3", {}, "Timeline"),
+    rows.length ? h("ol", {cls: "compact"}, rows.map((r) => h("li", {"data-phase": r.phase},
+      h("span", {}, r.phase), r.verdict ? whyRow(t, r, chip(verdictOf(r))) : whyRow(t, r, null) || h("span", {cls: "muted"}, "—"),
+      h("span", {cls: "line", title: r.line || ""}, shown(r.line)), h("span", {cls: "at"}, shown(r.at)))))
+      : h("p", {cls: "muted"}, "This logbook has no timeline (written before 1.1)."),
+    h("h3", {}, "ADRs that govern its perimeter"), adrLinks(t.adrs),
+    h("p", {}, h("a", {href: "#ticket/" + encodeURIComponent(t.id)}, "The whole timeline →")));
+}
+function screenKanban() {
+  const out = [h("h1", {}, "Kanban"),
+    h("p", {cls: "lede"}, "One list per tower state, under the four bands of the flow. A card moves only when the tower moves its ticket. The one card that drags is a held release, onto Promote or Rollback: the drop opens the confirmation, it moves nothing. ",
+      h("span", {cls: "muted"}, "Click a card, or press Enter on it, to turn it over; the arrows move between cards, Esc closes, / searches; the link keeps the view."))];
+  if (unread(book.kanban) || unread(book.tickets)) return out.concat(h("div", {cls: "panel"}, err(unread(book.kanban) ? book.kanban : book.tickets)));
+  if (!Array.isArray(book.kanban)) return out.concat(h("div", {cls: "panel"}, h("p", {cls: "muted"}, "This logbook has no kanban (written before 1.1).")));
+  const v = kanbanView();
+  const features = [...new Set(ticketsList().map((t) => t.feature || ""))].sort();
+  const sel = (name, value, opts) => h("select", {name, onchange: (e) => setView({[name]: e.target.value})},
+    opts.map(([val, txt]) => h("option", {value: val, selected: val === value}, txt)));
+  out.push(h("div", {cls: "controls"},
+    h("input", {type: "search", id: "kanban-q", value: v.q, placeholder: "Search id, title or a perimeter path", "aria-label": "Search",
+      oninput: (e) => setView({q: e.target.value})}),
+    h("span", {}, "Feature ", sel("feature", v.feature, [["", "all"]].concat(features.map((f) => [f || "-", f || "no feature"])))),
+    h("span", {}, "Priority ", sel("priority", v.priority, [["", "all"], ["P0", "P0"], ["P1", "P1"], ["P2", "P2"], ["P3", "P3"], ["-", "unprioritised"]])),
+    h("span", {}, "Group by ", sel("group", v.group, [["", "nothing"], ["feature", "feature"], ["priority", "priority"]])),
+    h("span", {}, "Empty columns ", sel("empty", v.empty, [["", "shown"], ["hide", "hidden"]])),
+    h("button", {id: "only-mine", cls: "only-mine", "aria-pressed": v.turn === "you" ? "true" : "false",
+      onclick: () => setView({turn: kanbanView().turn === "you" ? "" : "you"})}, "Your turn only")),
+    intakesPanel(),
+    h("div", {id: "board-area"}));
+  return out;
+}
+// --- the intakes (docs/adr/0090 §8) ---------------------------------------
+// One card per intake, above the board: the client's first words, the
+// interview so far and the tickets it became, each a link to its card.
+// Every value is the logbook's `intakes` field; the page decides nothing.
+function intakesList() { return Array.isArray(book.intakes) ? book.intakes : []; }
+function intakeWords(i, n) { const w = String(i.text || "").replace(/\s+/g, " ").trim(); return w.length > n ? w.slice(0, n - 1) + "…" : w; }
+function intakeChip(i) {
+  const st = String(i.state || "");
+  if (i.stranded) return chip("NO-GO");
+  const cls = st === "confirmed" ? "GO" : st === "intake-questions" || st === "proposed" ? "pending" : "none";
+  return h("span", {cls: "chip " + cls}, st);
+}
+function intakeCounts(i) {
+  const qs = i.questions || [];
+  return qs.length + " question" + (qs.length === 1 ? "" : "s") + ", " + qs.filter((q) => q.answer).length + " answered" +
+    ((i.proposal || []).length ? " · " + i.proposal.length + " proposed" : "");
+}
+function intakesPanel() {
+  if (unread(book.intakes)) return h("section", {id: "intakes"}, h("h2", {}, "Intakes"), h("div", {cls: "panel"}, err(book.intakes)));
+  const all = intakesList();
+  if (!all.length) return null;
+  return h("section", {id: "intakes", "aria-label": "Intakes"}, h("h2", {}, "Intakes"),
+    h("div", {cls: "intakes"}, all.map((i) => h("a", {cls: "intake-card", href: "#intake/" + encodeURIComponent(i.id), "data-intake": i.id,
+      "aria-label": "Intake " + i.id + ", " + i.state + ": " + intakeWords(i, 80)},
+      h("div", {cls: "badges"}, h("b", {}, "Intake " + i.id), intakeChip(i), screenMark(i.screen)),
+      h("p", {cls: "words"}, "“" + intakeWords(i, 140) + "”"),
+      h("div", {cls: "muted"}, intakeCounts(i)),
+      (i.tickets || []).length ? h("div", {cls: "fan"}, "→ ", i.tickets.map((id) => h("span", {cls: "mono"}, id))) : null))));
+}
+const intakeEdits = {};  // intake id -> [{action, title, problem, criteria, perimeter, feature, priority}]
+let intakeLine = null;
+function intakeForm(i) {
+  if (!intakeEdits[i.id] || intakeEdits[i.id].length !== (i.proposal || []).length) {
+    intakeEdits[i.id] = (i.proposal || []).map((t) => ({action: "confirm", title: t.title || "", problem: t.problem || "",
+      criteria: (t.criteria || []).join("\n"), perimeter: (t.perimeter || []).join("\n"), feature: t.feature || "", priority: t.priority || ""}));
+  }
+  return intakeEdits[i.id];
+}
+function decisions(i) {
+  return intakeForm(i).map((e) => e.action !== "edit" ? e.action : {edit: {title: e.title, problem: e.problem,
+    criteria: e.criteria.split("\n").map((l) => l.trim()).filter(Boolean),
+    perimeter: e.perimeter.split("\n").map((l) => l.trim()).filter(Boolean), feature: e.feature.trim(), priority: e.priority}});
+}
+async function pressConfirm(i) {
+  busy = true; render();
+  try {
+    const r = await fetch("/v1/intake-confirm", {method: "POST", headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({intake: i.id, decisions: decisions(i)})});
+    const body = await r.json().catch(() => ({}));
+    intakeLine = body.line || ("refused (" + r.status + "): " + (body.error || r.statusText));
+  } catch (e) { intakeLine = "the console did not answer: " + e; }
+  busy = false; delete intakeEdits[i.id]; await load(); render();
+}
+function proposedTicket(i, t, n, form) {
+  const e = form ? form[n] : null;
+  const where = "intake-" + i.id + "-" + t.n;
+  const pick = e ? h("fieldset", {}, h("legend", {cls: "muted"}, "Ticket " + t.n + ": your decision"),
+    ["confirm", "edit", "drop"].map((a) => h("label", {}, h("input", {type: "radio", name: where + "-action", value: a, checked: e.action === a,
+      onchange: () => { e.action = a; render(); }}), " " + a))) : null;
+  const set = (k) => (ev) => { e[k] = ev.target.value; };
+  const edit = e && e.action === "edit" ? h("div", {cls: "edit"},
+    h("label", {for: where + "-title"}, "Title"), h("input", {type: "text", id: where + "-title", value: e.title, oninput: set("title")}),
+    h("label", {for: where + "-problem"}, "Problem"), h("textarea", {id: where + "-problem", oninput: set("problem")}, e.problem),
+    h("label", {for: where + "-criteria"}, "Acceptance criteria, one Given/When/Then per line"), h("textarea", {id: where + "-criteria", oninput: set("criteria")}, e.criteria),
+    h("label", {for: where + "-perimeter"}, "Perimeter, one path or glob per line"), h("textarea", {id: where + "-perimeter", oninput: set("perimeter")}, e.perimeter),
+    h("label", {for: where + "-feature"}, "Feature (optional)"), h("input", {type: "text", id: where + "-feature", value: e.feature, oninput: set("feature")}),
+    h("label", {for: where + "-priority"}, "Priority (optional)"), h("select", {id: where + "-priority", onchange: set("priority")},
+      [["", "unprioritised"], ["P0", "P0"], ["P1", "P1"], ["P2", "P2"], ["P3", "P3"]].map(([v, x]) => h("option", {value: v, selected: v === e.priority}, x)))) : null;
+  const line = String(t.check || "");
+  return h("div", {cls: "proposed", "data-n": t.n},
+    h("div", {cls: "badges"}, h("b", {}, t.n + ". " + t.title), t.decision ? h("span", {cls: "chip " + (t.decision === "drop" ? "none" : "GO")}, t.decision) : null),
+    h("p", {}, t.problem),
+    h("ul", {}, (t.criteria || []).map((c) => h("li", {}, c))),
+    dl([["Feature", shown(t.feature)], ["Priority", shown(t.priority)],
+      ["Perimeter", (t.perimeter || []).length ? h("span", {cls: "mono"}, t.perimeter.join(", ")) : h("span", {cls: "muted"}, "none proposed: write it before confirming")],
+      (t.uncertain || []).length ? ["Uncertain, yours to decide", h("span", {cls: "mono", "data-kind": "uncertain"}, t.uncertain.join(", "))] : null,
+      ["Spec gate on the draft", line ? h("span", {}, chip(line.startsWith("GO") ? "GO" : "NO-GO"), " ", h("span", {cls: "mono"}, line)) : "—"],
+      ["Ticket", t.ticket ? h("a", {href: "#ticket/" + encodeURIComponent(t.ticket)}, t.ticket) : "—"]]),
+    pick, edit);
+}
+function screenIntake(id) {
+  const i = intakesList().find((x) => x.id === id);
+  const out = [h("p", {}, h("a", {href: "#kanban"}, "← Kanban"))];
+  if (!i) return out.concat(h("h1", {}, "Intake " + id), h("div", {cls: "panel"}, h("p", {cls: "muted"}, "The logbook holds no intake " + id + ".")));
+  const roleLine = (r, who) => !r ? null : r.consulted === false
+    ? h("p", {cls: "muted"}, "The " + who + " role was not consulted: " + shown(r.why))
+    : r.by === "decide"
+      ? h("p", {cls: "muted"}, "The " + who + " role asked one yes/no question per file and ticket (ADR 0091): " + shown(r.questions) + " questions, " + shown(r.harness) + (r.replayed ? ", replayed" : "") + ".")
+      : h("p", {cls: "muted"}, "The " + who + " role: " + shown(r.harness) + (r.replayed ? ", replayed" : "") + ", " + shown(r.turns) + " turns.");
+  const form = i.state === "proposed" && con.mode !== "snapshot" ? intakeForm(i) : null;
+  out.push(h("h1", {}, "Intake " + i.id, " ", intakeChip(i)),
+    h("p", {cls: "lede"}, "A client's request in their own words, the interview of the product role, the tickets it proposed with the perimeter the architect role proposed, and the person's decision on each (ADR 0090)."),
+    i.stranded ? h("div", {cls: "banner err"}, "Stopped at " + i.stranded.step + ": " + i.stranded.error) : null,
+    h("div", {cls: "panel"}, h("h2", {}, "The request"), h("pre", {cls: "words"}, i.text),
+      h("p", {cls: "muted"}, "By " + shown(i.by) + " via " + shown(i.via) + ", " + shown(i.at) + "."),
+      i.screen ? h("p", {cls: "muted", "data-kind": "screen"}, "Screen (ADR 0091): " + screenLine(i.screen) + ".") : null),
+    h("div", {cls: "panel"}, h("h2", {}, "The interview"), roleLine(i.product, "product"),
+      (i.questions || []).length ? h("ol", {}, i.questions.map((q) => h("li", {}, h("b", {}, q.question),
+        q.answer ? h("p", {}, "“" + q.answer + "” — " + shown(q.answered_by) + " via " + shown(q.answered_via)) : h("p", {cls: "muted"}, "Not answered yet."))))
+        : h("p", {cls: "muted"}, "No question asked.")),
+    answerPanel(i));
+  if ((i.proposal || []).length) {
+    out.push(h("div", {cls: "panel", id: "proposal"}, h("h2", {}, "Proposed tickets"), roleLine(i.architect, "architect"),
+      i.proposal.map((t, n) => proposedTicket(i, t, n, form)),
+      form ? h("div", {cls: "buttons"}, h("button", {cls: "go", id: "confirm-intake", disabled: busy,
+        onclick: () => pressConfirm(i)}, "Confirm these decisions — ./go intake-confirm TICKET=" + i.id)) : null,
+      i.state === "proposed" && con.mode === "snapshot" ? h("p", {cls: "muted"}, "Snapshot: no tower behind it, nothing can be confirmed.") : null,
+      form ? h("p", {cls: "muted"}, "Each ticket you keep is written under the next free id and starts at spec-ready: the spec gate, unchanged, opens it or sends it back with its reason.") : null,
+      busy ? h("p", {cls: "muted"}, "./go intake-confirm is running…") : null,
+      intakeLine ? h("pre", {}, intakeLine) : null));
+  }
+  if (i.confirmation) out.push(h("div", {cls: "panel"}, h("h2", {}, "Confirmed"),
+    h("p", {}, "By " + shown(i.confirmation.by) + " via " + shown(i.confirmation.via) + ", " + shown(i.confirmation.at) + ". "),
+    h("p", {cls: "fan"}, (i.tickets || []).length ? ["Tickets: "].concat(i.tickets.map((tid) => h("a", {href: "#ticket/" + encodeURIComponent(tid)}, tid))) : "No ticket was kept.")));
+  return out;
+}
+// The board and the drawer, redrawn in place: the controls keep their focus.
+function drawBoard() {
+  const area = document.getElementById("board-area");
+  if (!area || !book || !Array.isArray(book.kanban)) return;
+  const v = kanbanView();
+  const byId = Object.fromEntries(ticketsList().map((t) => [t.id, t]));
+  const keep = (t) => (!v.feature || (t.feature || "-") === v.feature) && (!v.priority || (t.priority || "-") === v.priority) && searched(t, v.q)
+    && (v.turn !== "you" || now(t).turn === "you");
+  const mine = document.getElementById("only-mine");
+  if (mine) mine.setAttribute("aria-pressed", v.turn === "you" ? "true" : "false");
+  const group = v.group === "feature" || v.group === "priority" ? v.group : "";
+  const lanes = group ? [...new Set(ticketsList().filter(keep).map((t) => t[group] || ""))]
+    .sort((a, b) => (a || "~").localeCompare(b || "~")) : [null];
+  const focused = document.activeElement && document.activeElement.classList.contains("card") ? document.activeElement.dataset.id : null;
+  const kids = [], held = new Set();
+  for (const lane of lanes) {
+    const inLane = (t) => keep(t) && (lane === null || (t[group] || "") === lane);
+    // Hiding the empty columns is a view, like the filters: the order of
+    // the columns left is still the tower's.
+    const cols = book.kanban.map((col) => [col.state, col.tickets.filter((id) => byId[id] && inLane(byId[id]))])
+      .filter(([, ids]) => !v.empty || ids.length);
+    const column = ([state, ids]) => {
+      const shut = v.collapsed.has(state);
+      const toggle = () => { const c = new Set(kanbanView().collapsed); if (c.has(state)) c.delete(state); else c.add(state); setView({collapsed: c}); };
+      // A column with no card in this view is drawn narrow (docs/adr/0063
+      // §1): a drawing rule, not part of the view or the link.
+      return h("div", {cls: "col" + (shut ? " collapsed" : ids.length ? "" : " empty"), "data-state": state},
+        h("h3", {}, h("button", {cls: "col-toggle", onclick: toggle, "aria-expanded": shut ? "false" : "true",
+          title: (shut ? "Expand " : "Collapse ") + state}, shut ? "+" : "−"), state + " · " + ids.length),
+        shut ? null : ids.map((id) => card(byId[id], v)));
+    };
+    // The columns stay in the logbook's order; consecutive columns of one
+    // band sit under its name.
+    const runs = [];
+    for (const c of cols) {
+      const b = bandOf(c[0]);
+      if (c[1].length) held.add(b);
+      if (!runs.length || runs[runs.length - 1].band !== b) runs.push({band: b, cols: []});
+      runs[runs.length - 1].cols.push(c);
+    }
+    const board = h("div", {cls: "board"}, runs.map((r) => {
+      const wide = r.cols.some(([state, ids]) => ids.length && !v.collapsed.has(state));
+      return h("div", {cls: "band" + (wide ? " wide" : ""), "data-band": r.band,
+        style: wide ? "flex-grow: " + r.cols.filter(([state, ids]) => ids.length && !v.collapsed.has(state)).length : null},
+        h("div", {cls: "band-name"}, bandName(r.band)), h("div", {cls: "band-cols"}, r.cols.map(column)));
+    }));
+    kids.push(h("div", {cls: "lane", "data-lane": lane === null ? "" : lane},
+      lane === null ? null : h("h2", {}, lane || (group === "priority" ? "unprioritised" : "no feature")),
+      h("div", {cls: "panel board-wrap"}, board)));
+  }
+  // On a phone the stack is long: a bar of the bands that hold a card, each
+  // button scrolling to its band; no hash, no history entry (docs/adr/0068 §5).
+  const jump = BANDS.concat([{band: "other", name: "Other"}]).filter((b) => held.has(b.band));
+  kids.unshift(h("div", {cls: "band-jump", role: "navigation", "aria-label": "Jump to a band"}, jump.map((b) =>
+    h("button", {"data-band": b.band, onclick: () => {
+      const el = area.querySelector('.band[data-band="' + b.band + '"]');
+      if (el) el.scrollIntoView({block: "start", behavior: still() ? "auto" : "smooth"});
+    }}, b.name))));
+  const drop = launchDrop();
+  if (drop) kids.unshift(drop);
+  area.replaceChildren(...kids);
+  fly();
+  showBack(v.card ? byId[v.card] : null);
+  if (focused && !v.card) focusCard(focused);
+}
+// The back is one dialog, outside the board, opened modal: the board behind
+// it is inert, and Esc or the backdrop closes it, giving the focus back to
+// the card.
+function showBack(t) {
+  const d = document.getElementById("card-back");
+  if (!t) {
+    if (d.open) d.close();
+    d.replaceChildren();
+    return;
+  }
+  const inside = d.open && d.contains(document.activeElement);
+  d.replaceChildren(drawer(t));
+  if (!d.open) d.showModal();
+  else if (inside || !d.contains(document.activeElement)) { const c = d.querySelector("button.close"); if (c) c.focus(); }
+}
+(function () {
+  const d = document.getElementById("card-back");
+  d.addEventListener("cancel", (e) => { e.preventDefault(); const id = kanbanView().card; if (id) closeBack(id); });
+  // A click on the backdrop lands on the dialog itself: its content fills it.
+  d.addEventListener("click", (e) => { if (e.target === d) { const id = kanbanView().card; if (id) closeBack(id); } });
+})();
+function focusCard(id) {
+  const el = document.querySelector('.card[data-id="' + CSS.escape(id) + '"]');
+  if (el) el.focus();
+}
+// Arrows between cards: left and right across the lane's columns that hold
+// cards, up and down inside one.
+function moveFocus(el, key) {
+  const col = el.closest(".col"), lane = el.closest(".lane");
+  if (!col || !lane) return;
+  const cols = [...lane.querySelectorAll(".col")].filter((c) => c.querySelector(".card"));
+  const cards = [...col.querySelectorAll(".card")];
+  const i = cards.indexOf(el), c = cols.indexOf(col);
+  let next = null;
+  if (key === "ArrowUp") next = cards[Math.max(0, i - 1)];
+  else if (key === "ArrowDown") next = cards[Math.min(cards.length - 1, i + 1)];
+  else {
+    const to = cols[key === "ArrowLeft" ? c - 1 : c + 1];
+    if (to) { const there = [...to.querySelectorAll(".card")]; next = there[Math.min(i, there.length - 1)]; }
+  }
+  if (next) next.focus();
+}
+document.addEventListener("keydown", (e) => {
+  if (route().screen !== "kanban" || document.getElementById("why").open || document.getElementById("launch-confirm").open) return;
+  const el = e.target;
+  const typing = el && (el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.tagName === "SELECT");
+  if (e.key === "Escape" && kanbanView().card) {
+    const id = kanbanView().card;
+    e.preventDefault(); closeBack(id);
+  } else if (kanbanView().card) {
+    return;  // the back is open: its own controls take the keys
+  } else if (e.key === "/" && !typing) {
+    e.preventDefault(); const q = document.getElementById("kanban-q"); if (q) q.focus();
+  } else if (el && el.classList && el.classList.contains("card")) {
+    if (e.key === "Enter" || e.key === " ") { e.preventDefault(); setView({card: el.dataset.id}); }
+    else if (e.key.startsWith("Arrow")) { e.preventDefault(); moveFocus(el, e.key); }
+  }
+});
 
 // --- the governed network (docs/adr/0071 §2-§5) -----------------------------
 // One ticket's network from the logbook alone: the tower, the six roles, the
@@ -2453,238 +2677,18 @@ function startReplay(tid, draw = true) {
   const t = ticketsList().find((x) => x.id === tid);
   const total = t && Array.isArray(t.timeline) ? t.timeline.length : 0;
   replay = {ticket: tid, row: 0, total, done: false, timer: null};
+  stopEventStream();
   if (draw) render();
   replay.timer = setInterval(() => {
     replay.row += 1;
-    if (replay.row >= replay.total) { replay.row = replay.total; replay.done = true; clearInterval(replay.timer); replay.timer = null; }
+    if (replay.row >= replay.total) {
+      replay.row = replay.total; replay.done = true; clearInterval(replay.timer); replay.timer = null;
+      syncEventStream();
+    }
     if (route().screen === "network") render();
   }, REPLAY_BEAT_MS);
 }
 const replaying = () => replay !== null && !replay.done;
-
-// --- the specs (docs/adr/0059 §4) ----------------------------------------
-function screenSpecs() {
-  const out = [h("h1", {}, "Specs"),
-    h("p", {cls: "lede"}, "Every ticket's spec: the criteria confirmed and by whom, the spec gate's last verdict, and the question still open. ",
-      h("a", {href: "#request"}, "Write a new request →"))];
-  if (unread(book.tickets)) return out.concat(h("div", {cls: "panel"}, err(book.tickets)));
-  const order = Array.isArray(book.kanban) ? book.kanban.flatMap((c) => c.tickets) : ticketsList().map((t) => t.id);
-  const byId = Object.fromEntries(ticketsList().map((t) => [t.id, t]));
-  const all = order.map((id) => byId[id]).filter(Boolean);
-  if (!all.length) return out.concat(h("div", {cls: "panel"}, h("p", {cls: "muted"}, "No ticket in the tower yet.")));
-  for (const t of all) {
-    const spec = t.spec || {};
-    const q = openQuestion(t);
-    out.push(h("div", {cls: "panel spec", "data-id": t.id},
-      h("h2", {style: "margin-top: 0"}, h("a", {href: "#ticket/" + encodeURIComponent(t.id)}, named(t)), " ", h("span", {cls: "chip none"}, t.state)),
-      (spec.criteria || []).length ? h("div", {}, h("div", {cls: "muted"}, "Criteria, confirmed by " + shown(spec.by)),
-        h("ol", {}, spec.criteria.map((c) => h("li", {}, c)))) : h("p", {cls: "muted"}, "No criteria confirmed yet."),
-      h("p", {}, "Spec gate: ", spec.verdict ? chip(spec.verdict) : h("span", {cls: "chip none"}, "not run"), " ",
-        h("span", {cls: "mono"}, shown(spec.line)), spec.at ? h("span", {cls: "muted"}, " at " + spec.at) : null),
-      q ? h("p", {}, h("b", {}, q.from === "spec" ? "Open, from the spec gate: " : "Open, from the product role: "), q.question,
-        " ", h("a", {href: "#ticket/" + encodeURIComponent(t.id)}, "answer it →")) : null));
-  }
-  return out;
-}
-
-// --- the request editor (docs/adr/0059 §4) --------------------------------
-// The fields live here, not in the DOM, so a redraw keeps them. The check
-// is /v1/spec-check: gates/spec.sh itself on the draft, which writes
-// nothing; its line is shown as the gate printed it.
-const draftFields = {title: "", context: "", criteria: [{given: "", when: "", then: ""}], perimeter: "", feature: "", priority: ""};
-let checkTimer = null, checkSeq = 0, lastCheck = null, saveLine = null;
-// Provenance, decision: docs/adr/0059 §4, one check per pause, not per key.
-const CHECK_DELAY_MS = 300;
-function draftBody() {
-  return {title: draftFields.title, context: draftFields.context,
-    criteria: draftFields.criteria.filter((c) => c.given.trim() || c.when.trim() || c.then.trim()),
-    perimeter: draftFields.perimeter.split("\n").map((l) => l.trim()).filter(Boolean),
-    feature: draftFields.feature.trim(), priority: draftFields.priority};
-}
-function scheduleCheck() {
-  clearTimeout(checkTimer);
-  checkTimer = setTimeout(runCheck, CHECK_DELAY_MS);
-}
-async function runCheck() {
-  const seq = ++checkSeq;
-  let result;
-  if (!draftFields.title.trim()) result = {error: "a draft needs a title before the spec gate can read it"};
-  else {
-    try {
-      const r = await fetch("/v1/spec-check", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(draftBody())});
-      const body = await r.json().catch(() => ({}));
-      result = r.ok ? body : {error: "refused (" + r.status + "): " + (body.error || r.statusText)};
-    } catch (e) { result = {error: "the console did not answer: " + e}; }
-  }
-  if (seq !== checkSeq) return;  // a later keystroke's check is on its way
-  lastCheck = result;
-  showCheck();
-}
-function showCheck() {
-  const line = document.getElementById("spec-line"), chipEl = document.getElementById("spec-chip"),
-    pre = document.getElementById("spec-preview"), save = document.getElementById("save");
-  if (!line) return;
-  const r = lastCheck;
-  line.textContent = r ? (r.line || r.error) : "—";
-  const go = !!(r && r.line && r.line.startsWith("GO: spec"));
-  chipEl.replaceChildren(r && r.line ? chip(go ? "GO" : "NO-GO") : h("span", {cls: "chip none"}, "no line"));
-  pre.textContent = r && r.markdown ? r.markdown : "";
-  if (save) save.disabled = !canSave() || !go || busy;
-}
-function canSave() { return con && con.mode !== "snapshot" && con.auth !== "public"; }
-async function pressRequest() {
-  busy = true; showCheck();
-  try {
-    const r = await fetch("/v1/request", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify(draftBody())});
-    const body = await r.json().catch(() => ({}));
-    saveLine = r.ok ? {ticket: body.ticket, line: body.line} : {line: "refused (" + r.status + "): " + (body.error || r.statusText) + (body.line ? "\n" + body.line : "")};
-  } catch (e) { saveLine = {line: "the console did not answer: " + e}; }
-  busy = false;
-  // A ticket file was written (docs/adr/0063 §5): the draft is done, so it is
-  // cleared and Request waits for the next edit; a second press cannot file
-  // the same text twice.
-  if (saveLine.ticket) {
-    Object.assign(draftFields, {title: "", context: "", criteria: [{given: "", when: "", then: ""}], perimeter: "", feature: "", priority: ""});
-    lastCheck = null; clearTimeout(checkTimer); checkSeq++;
-  }
-  await load();
-  render();
-}
-function field(label, el) { return [h("label", {}, label), el]; }
-// "Describe the need" (docs/adr/0090 §8): a client's words start an intake.
-const need = {text: ""};
-let needLine = null;
-async function pressIntake() {
-  if (!need.text.trim()) return;
-  busy = true; render();
-  try {
-    const r = await fetch("/v1/intake", {method: "POST", headers: {"Content-Type": "application/json"}, body: JSON.stringify({text: need.text})});
-    const body = await r.json().catch(() => ({}));
-    needLine = body.line || ("refused (" + r.status + "): " + (body.error || r.statusText));
-    if (r.ok && String(body.line || "").startsWith("GO")) need.text = "";
-  } catch (e) { needLine = "the console did not answer: " + e; }
-  busy = false; await load(); render();
-}
-function needPanel() {
-  const m = /intake — (\d{4})/.exec(String(needLine || ""));
-  return h("div", {cls: "panel editor", id: "need"}, h("h2", {}, "Describe the need"),
-    h("p", {cls: "muted"}, "No ticket yet? Write what is needed in your own words. The product role interviews you, one question at a time, then proposes tickets; the architect role proposes where each may change the code; you confirm, edit or drop each one (./go intake)."),
-    h("label", {for: "need-text"}, "The need, in your words"),
-    h("textarea", {id: "need-text", name: "need", oninput: (e) => { need.text = e.target.value; }}, need.text),
-    h("div", {cls: "buttons"}, h("button", {cls: "go", id: "start-intake", disabled: busy || !canSave(),
-      onclick: pressIntake}, "Start the interview — ./go intake")),
-    canSave() ? null : h("p", {cls: "muted"}, con.mode === "snapshot" ? "Snapshot: no tower behind it, no intake can start." : "This console cannot start an intake."),
-    needLine ? h("pre", {id: "need-line"}, needLine) : null,
-    m ? h("p", {}, h("a", {href: "#intake/" + m[1]}, "Intake " + m[1] + " →")) : null);
-}
-function screenRequest() {
-  const level = (book.source || {}).level || "";
-  const set = (k) => (e) => { draftFields[k] = e.target.value; scheduleCheck(); };
-  const rows = draftFields.criteria.map((c, i) => h("div", {cls: "criterion"},
-    h("span", {cls: "muted"}, "Given"), h("input", {type: "text", name: "given", value: c.given, placeholder: "the state before",
-      oninput: (e) => { c.given = e.target.value; scheduleCheck(); }}),
-    h("span", {cls: "muted"}, "When"), h("input", {type: "text", name: "when", value: c.when, placeholder: "the action",
-      oninput: (e) => { c.when = e.target.value; scheduleCheck(); }}),
-    h("span", {cls: "muted"}, "Then"), h("input", {type: "text", name: "then", value: c.then, placeholder: "what is observed: a status, a value, a line",
-      oninput: (e) => { c.then = e.target.value; scheduleCheck(); }}),
-    h("span", {}), h("div", {}, draftFields.criteria.length > 1 ? h("button", {onclick: () => { draftFields.criteria.splice(i, 1); render(); scheduleCheck(); }}, "Remove this criterion") : null)));
-  const prio = h("select", {name: "priority", onchange: set("priority")},
-    [["", "unprioritised"], ["P0", "P0"], ["P1", "P1"], ["P2", "P2"], ["P3", "P3"]].map(([v, t]) => h("option", {value: v, selected: v === draftFields.priority}, t)));
-  const out = [h("h1", {}, "New request"), needPanel(),
-    h("p", {cls: "lede"}, "A ticket's request, checked as you type by the spec gate itself (gates/spec.sh, through the console, writing nothing). Saving writes the ticket file and runs ./go request."),
-    level === "l0"
-      ? h("div", {cls: "banner warn", id: "l0-note"}, "Level l0: the product role replays recordings, and a new request has none. It will not be consulted on this draft; the spec gate alone judges it (ADR 0055 §3). With a key (l1) saving consults it, and its questions come back on the ticket's page.")
-      : h("div", {cls: "banner"}, "Saving requests the ticket: the product role reads it and asks or confirms, and its questions come back on the ticket's page with an answer box."),
-    saveLine && saveLine.ticket ? h("div", {cls: "panel", id: "saved"}, h("p", {style: "margin: 0"},
-      chip(String(saveLine.line || "").startsWith("GO") ? "GO" : "NO-GO"), " ", h("span", {cls: "mono"}, shown(saveLine.line)), h("br"),
-      "tickets/" + saveLine.ticket + ".md is written, not committed. ",
-      h("a", {id: "new-ticket", href: "#ticket/" + encodeURIComponent(saveLine.ticket)}, "Ticket " + saveLine.ticket + "'s timeline →"),
-      " The form below is empty for the next request.")) : null,
-    h("div", {cls: "panel editor"},
-      field("Title", h("input", {type: "text", name: "title", value: draftFields.title, oninput: set("title")})),
-      field("Context: the problem, in a few sentences", h("textarea", {name: "context", oninput: set("context")}, draftFields.context)),
-      h("label", {}, "Acceptance criteria: each a Given, a When and a Then with an observable outcome"), rows,
-      h("button", {id: "add-criterion", onclick: () => { draftFields.criteria.push({given: "", when: "", then: ""}); render(); }}, "Add a criterion"),
-      field("Perimeter: one path or glob per line, the files the change may touch", h("textarea", {name: "perimeter", oninput: set("perimeter")}, draftFields.perimeter)),
-      field("Feature (optional): lowercase letters and digits joined by hyphens", h("input", {type: "text", name: "feature", value: draftFields.feature, oninput: set("feature")})),
-      field("Priority (optional)", prio)),
-    h("div", {cls: "savebar", id: "savebar"}, h("span", {id: "spec-chip"}), h("span", {cls: "mono", id: "spec-line"}, "—"),
-      h("div", {cls: "buttons"}, h("button", {cls: "go", id: "save", disabled: true, onclick: pressRequest}, "Request it — ./go request"))),
-    h("h2", {}, "The ticket as it will be written"),
-    h("div", {cls: "panel"}, h("pre", {id: "spec-preview"}),
-      canSave() ? h("p", {}, "Saving writes this file as it is shown, under the next free id, uncommitted; commit it with the change or before. Only a draft the gate passes is saved.")
-        : h("p", {cls: "muted"}, con.mode === "snapshot" ? "Snapshot: no tower behind it, nothing can be requested. The check still runs." : "This console cannot request."),
-      busy ? h("p", {cls: "muted"}, "./go request is running: the product role, then the spec gate…") : null,
-      saveLine && !saveLine.ticket ? h("pre", {}, saveLine.line) : null)];
-  return out;
-}
-
-// --- ADR search (docs/adr/0059 §3) ----------------------------------------
-// The ADRs are the logbook's, read from the project map: the page searches
-// and links them, it computes no relation of its own.
-function adrItems() { return book.adrs && Array.isArray(book.adrs.items) ? book.adrs.items : []; }
-function adrSearch(q) {
-  const text = q.trim();
-  if (!text) return adrItems();
-  const num = text.match(/^(?:adr\s*)?0*(\d{1,4})$/i);
-  const want = num ? num[1].padStart(4, "0") : null;
-  const words = text.toLowerCase().split(/\s+/);
-  const hits = [];
-  for (const a of adrItems()) {
-    const hay = (a.number + " " + a.title + " " + a.status + " " + a.text).toLowerCase();
-    const byNumber = a.number === want;
-    const byFile = a.files.some((f) => f === text || f.endsWith("/" + text) || (text.includes("/") && f.startsWith(text.replace(/\/$/, "") + "/")));
-    const byTitle = words.every((w) => a.title.toLowerCase().includes(w));
-    if (byNumber || byFile || words.every((w) => hay.includes(w)))
-      hits.push([byNumber ? 0 : byFile ? 1 : byTitle ? 2 : 3, a]);
-  }
-  return hits.sort((x, y) => x[0] - y[0] || x[1].number.localeCompare(y[1].number)).map(([, a]) => a);
-}
-function snippet(a, q) {
-  const w = q.trim().toLowerCase().split(/\s+/)[0];
-  const at = w ? a.text.toLowerCase().indexOf(w) : -1;
-  if (at < 0) return null;
-  const from = Math.max(0, at - 80);
-  return (from ? "…" : "") + a.text.slice(from, at + 120).replace(/\s+/g, " ") + "…";
-}
-function adrRow(a, q) {
-  const tickets = Object.fromEntries(ticketsList().map((t) => [t.id, t]));
-  return h("div", {cls: "adr", "data-number": a.number},
-    h("div", {}, h("a", {href: "#adr/" + a.number}, h("b", {}, a.title))),
-    h("div", {cls: "muted"}, "Status: " + (a.status || "none").slice(0, 160)),
-    q ? h("div", {cls: "links"}, snippet(a, q)) : null,
-    h("div", {cls: "links"}, "Files: ", a.files.length ? a.files.slice(0, 12).map((f) => h("code", {}, f)) : "none",
-      a.files.length > 12 ? " and " + (a.files.length - 12) + " more" : ""),
-    h("div", {cls: "links"}, "Tickets: ", a.tickets.length ? a.tickets.map((id) => [tickets[id] ? h("a", {href: "#ticket/" + id}, id) : id, " "]) : "none",
-      " · ADRs: ", a.adrs.length ? a.adrs.map((n) => [h("a", {href: "#adr/" + n}, n), " "]) : "none"));
-}
-function drawAdrs() {
-  const area = document.getElementById("adr-results");
-  if (!area) return;
-  const q = route().query.q || "";
-  const found = adrSearch(q);
-  area.replaceChildren(h("p", {cls: "muted"}, found.length + " of " + adrItems().length + " ADRs"), ...found.map((a) => adrRow(a, q)));
-}
-function screenAdrs() {
-  const out = [h("h1", {}, "ADRs"),
-    h("p", {cls: "lede"}, "The project's decisions, from the project map (./go map): search by number, a word of the title, the status, the text, or a file one cites.")];
-  if (unread(book.adrs)) return out.concat(h("div", {cls: "panel"}, err(book.adrs)));
-  if (!book.adrs) return out.concat(h("div", {cls: "panel"}, h("p", {cls: "muted"}, "This logbook has no adrs (written before 1.2).")));
-  const q = route().query.q || "";
-  out.push(h("div", {cls: "controls"},
-    h("input", {type: "search", id: "adr-q", value: q, placeholder: "0055, kanban, proposed, core/spec.py", "aria-label": "Search the ADRs",
-      oninput: (e) => { history.replaceState(null, "", viewHash("adrs", {q: e.target.value}, ["q"])); drawAdrs(); }}),
-    h("span", {}, "map built at ", h("span", {cls: "mono"}, shown(book.adrs.map_sha).slice(0, 12)))),
-    h("div", {cls: "panel", id: "adr-results"}));
-  return out;
-}
-function screenAdr(n) {
-  const a = adrItems().find((x) => x.number === n);
-  if (!a) return [h("h1", {}, "ADR " + n), h("div", {cls: "panel"}, unread(book.adrs) ? err(book.adrs) : "This ADR is not in the project map.")];
-  return [h("h1", {}, a.title), h("p", {cls: "lede"}, h("a", {href: "#adrs"}, "← every ADR"), " · ", h("code", {}, a.path)),
-    h("div", {cls: "panel"}, adrRow(a, "")), h("div", {cls: "panel"}, h("pre", {}, a.text))];
-}
-
 // --- animated hive control center & onboarding wizard (docs/adr/0111) -------
 const HIVE_ROLES = [
   {role: "product", label: "Product", cx: 250, cy: 58, short: "Interview & Spec"},
@@ -3225,7 +3229,6 @@ function screenHive() {
       narrEl),
   ];
 }
-
 // --- frame -------------------------------------------------------------
 // The theme switch (docs/adr/0059 §2): tokens on <html data-theme>, kept in
 // the browser when it lets us; no screen reads it.
@@ -3322,17 +3325,93 @@ async function load() {
   }
   return changed;
 }
+
+// --- progressive SSE live updates (docs/adr/0124 §3) -----------------------
+// Provenance, decision: docs/adr/0047 §4 & 0124, 2000 ms If-None-Match poll
+// remains active as resilient fallback when EventSource is unavailable.
+const POLL_FALLBACK_MS = 2000;
+let eventStream = null;
+let sseState = "off";
+let ticking = false, tickPending = false;
+
+function setSseState(next) {
+  sseState = next;
+  if (document.documentElement && document.documentElement.dataset) {
+    document.documentElement.dataset.sse = next;
+  }
+}
+
+function stopEventStream() {
+  if (eventStream) {
+    try { eventStream.close(); } catch (e) { /* stream already closed */ }
+    eventStream = null;
+  }
+  setSseState("off");
+}
+
+function handleLogbookEvent(ev) {
+  if (!con || con.mode === "snapshot") { stopEventStream(); return; }
+  if (replaying()) return;
+  let payload = null;
+  try { payload = JSON.parse(String((ev && ev.data) || "")); } catch (e) { return; }
+  if (!payload || typeof payload !== "object") return;
+  if (payload.mode === "snapshot") { stopEventStream(); return; }
+  setSseState("live");
+  const errChanged = (payload.read_error || null) !== (con.read_error || null);
+  const tagChanged = Boolean(payload.etag) && payload.etag !== etag;
+  if (tagChanged || errChanged) tick();
+}
+
+function syncEventStream() {
+  if (!con || con.mode === "snapshot" || replaying()) {
+    stopEventStream();
+    return;
+  }
+  if (typeof EventSource !== "function") {
+    setSseState("fallback");
+    return;
+  }
+  if (eventStream) return;
+  try {
+    const es = new EventSource("/v1/events");
+    eventStream = es;
+    setSseState("connecting");
+    es.addEventListener("open", () => {
+      if (eventStream === es) setSseState("live");
+    });
+    es.addEventListener("logbook", handleLogbookEvent);
+    es.addEventListener("pending", handleLogbookEvent);
+    es.addEventListener("error", () => {
+      if (eventStream === es) setSseState("fallback");
+    });
+  } catch (e) {
+    eventStream = null;
+    setSseState("fallback");
+  }
+}
+
 async function tick() {
-  const changed = await load();
-  if (!book || busy) return;
-  // The editor and an intake's open decisions keep their inputs (docs/adr/0090 §8).
-  const editing = route().screen === "request" || (route().screen === "intake" && intakeEdits[route().arg]);
-  if (changed && !editing) render(); else header();
+  if (ticking) { tickPending = true; return; }
+  ticking = true;
+  try {
+    do {
+      tickPending = false;
+      const changed = await load();
+      syncEventStream();
+      if (!book || busy) continue;
+      // The editor and an intake's open decisions keep their inputs (docs/adr/0090 §8).
+      const editing = route().screen === "request" || (route().screen === "intake" && intakeEdits[route().arg]);
+      if (changed && !editing) render(); else header();
+    } while (tickPending && con && con.mode === "live" && !replaying());
+  } finally {
+    ticking = false;
+  }
 }
 window.addEventListener("hashchange", () => { render(); });
-load().then(() => render());
+window.addEventListener("pagehide", stopEventStream);
+load().then(() => { render(); syncEventStream(); });
 // A replay holds the poll: it sends no request until it ends (docs/adr/0071 §3).
-setInterval(() => { if (con && con.mode === "live" && !replaying()) tick(); }, 2000);
+setInterval(() => { if (con && con.mode === "live" && !replaying()) tick(); }, POLL_FALLBACK_MS);
 </script>
 </body>
 </html>

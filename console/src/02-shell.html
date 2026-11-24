@@ -1,0 +1,151 @@
+<script>
+// The theme before the first paint (docs/adr/0059 §2): the browser's choice,
+// or the system's when there is none or storage is refused.
+(function () {
+  let t = "system";
+  try { t = localStorage.getItem("lights-out.theme") || "system"; } catch (e) { /* storage refused */ }
+  if (t === "light" || t === "dark") document.documentElement.dataset.theme = t;
+})();
+</script>
+</head>
+<body>
+<header>
+  <div class="top">
+    <span class="brand">lights-out console</span>
+    <span class="meta" id="who">reading…</span>
+    <span class="meta" id="fresh"></span>
+    <label class="meta theme">Theme <select id="theme" aria-label="Theme">
+      <option value="system">system</option><option value="light">light</option><option value="dark">dark</option>
+    </select></label>
+  </div>
+  <nav id="nav">
+    <a href="#overview" data-s="overview">Overview</a>
+    <a href="#hive" data-s="hive">Hive</a>
+    <a href="#kanban" data-s="kanban">Kanban</a>
+    <a href="#network" data-s="network">Network</a>
+    <a href="#tickets" data-s="tickets">This week's tickets</a>
+    <a href="#specs" data-s="specs">Specs</a>
+    <a href="#request" data-s="request">New request</a>
+    <a href="#adrs" data-s="adrs">ADRs</a>
+    <a href="#incidents" data-s="incidents">Incidents and post mortems</a>
+    <a href="#launch" data-s="launch">Go-for-launch</a>
+    <a href="#thresholds" data-s="thresholds">Thresholds</a>
+  </nav>
+</header>
+<main id="main"><p class="muted">Reading the logbook…</p></main>
+<!-- The card's back (docs/adr/0068 §3), opened with showModal() over the
+     board; and the region that announces a card the tower moved (§4). -->
+<dialog id="card-back" aria-label="A card's back"></dialog>
+<!-- The why of a NO-GO (docs/adr/0078 §4): one panel, opened from any red gate. -->
+<dialog id="why" aria-labelledby="why-title"></dialog>
+<!-- The human gate's confirmation (docs/adr/0079 §4): from a drop, a target or #launch's buttons. -->
+<dialog id="launch-confirm" aria-labelledby="lc-title"></dialog>
+<!-- Interactive onboarding command generator (docs/adr/0111): uses native buttons, never stores secrets. -->
+<dialog id="onboard-wizard" closedby="any" aria-labelledby="wizard-title"></dialog>
+<div id="announce" aria-live="polite"></div>
+<!-- The tower's transition table, as board/index.html embeds it (docs/adr/
+     0035), with who runs each step and the bands the columns sit under
+     (docs/adr/0063 §2). ./go ci proves next equal to core/tower.py's,
+     who naming every step of its PRECONDITION and no other, actor doing
+     the same with the card's badge (docs/adr/0068 §2), and the bands
+     holding core/logbook.py's COLUMNS in their order. The page reads no
+     other copy, and no sentence carries a number of its own. -->
+<script type="application/json" id="tower-machine">
+{"next": {"intake": "interview", "drafted": "perimeter", "requested": "clarify", "spec-ready": "spec", "opened": "assign", "pr-opened": "ci", "review": "review", "ci-passed": "merge", "merged": "mainline", "main-green": "release", "ci-failed": "rework"},
+ "who": {"interview": "The product role interviews the client: a question, or the tickets proposed",
+         "intake-answer": "The product role reads the answer: a question, or the tickets proposed",
+         "perimeter": "The architect role proposes each ticket's perimeter from the project map",
+         "clarify": "The product role reads the request: a question, or the criteria confirmed",
+         "answer": "The product role reads the answer: a question, or the criteria confirmed",
+         "spec": "The spec gate checks the criteria",
+         "assign": "The dev-worker takes it and opens a PR",
+         "ci": "The gates judge the PR",
+         "review": "The reviewer reads the diff",
+         "merge": "The merge step merges the PR",
+         "mainline": "Main's check runs after the merge",
+         "release": "The canary goes out, each stage verified before the next",
+         "rework": "The dev-worker reworks it with the verdict"},
+ "actor": {"interview": "product", "intake-answer": "product", "perimeter": "architect", "clarify": "product", "answer": "product", "spec": "spec", "assign": "dev", "ci": "gates", "review": "reviewer",
+           "merge": "tower", "mainline": "tower", "release": "canary", "rework": "dev"},
+ "bands": [{"band": "spec", "name": "Spec", "states": ["requested", "questions", "spec-ready"]},
+           {"band": "build", "name": "Build", "states": ["opened", "pr-opened"]},
+           {"band": "test", "name": "Test and review", "states": ["review", "ci-passed", "ci-failed", "needs-human"]},
+           {"band": "release", "name": "Release", "states": ["merged", "main-green", "held", "rolled-back"]}]}
+</script>
+<!-- The network's words (docs/adr/0071 §5): the table core/network.py
+     prints with --table, so `./go network` and this screen say every fact
+     in the same words; ./go ci proves this copy equal to it, its roles the
+     roles/ directories and its gates the Makefile's GATES. -->
+<script type="application/json" id="network-words">
+{
+  "gates": [
+    "risk",
+    "secrets",
+    "test-weakening",
+    "deps",
+    "sast",
+    "test",
+    "mutation",
+    "test-proof"
+  ],
+  "roles": [
+    "architect",
+    "dev-worker",
+    "ops-triage",
+    "product",
+    "release",
+    "test-reviewer"
+  ],
+  "words": {
+    "attempt": "attempt {attempt}, by {who}",
+    "attempt_sent_back": "sent back: {line}",
+    "file": "{path} +{added} −{removed}",
+    "file_binary": "{path}, binary",
+    "file_by": ", by {member}",
+    "file_row": "{path}: by {member}, attempts {attempts}, tests {tests}, ADRs {adrs}, held by {held}",
+    "gate": "gate {gate}: {verdict}",
+    "gate_off": "gate line off the contract: {line}",
+    "gates_summary": "gate gates: {line}",
+    "hand_written": ", hand-written: no model ran",
+    "heading": "ticket {id} — {title} · attempt {attempt}",
+    "heading_none": "ticket {id} — {title} · no attempt yet",
+    "human": "human gate: {answer} by {by} via {via}",
+    "human_none": "human gate: not reached",
+    "human_rolled_back": "human gate: not reached, the canary rolled back",
+    "human_waiting": "human gate: waiting for go-for-launch",
+    "no_attempt": "no attempt yet",
+    "no_model": "no model",
+    "no_worker": "worker: none recorded for attempt {attempt}",
+    "none": "none",
+    "not_run": "gate {gate}: not run, an earlier gate said NO-GO",
+    "not_run_yet": "gate {gate}: not run yet",
+    "old_logbook": "this logbook ({version}) records no patches or gate lines",
+    "outside": "outside the perimeter",
+    "patch": "patch: {bytes} bytes",
+    "patch_begin": "--- patch of attempt {attempt} ---",
+    "patch_cut": "patch: {bytes} bytes, cut at {shown} bytes",
+    "patch_end": "--- end of patch ---",
+    "patch_none": "patch: not recorded",
+    "perimeter": "perimeter {glob}",
+    "perimeter_adrs": "ADRs governing the perimeter: {adrs}",
+    "perimeter_empty": "perimeter {glob}: no file touched",
+    "replayed": ", replayed",
+    "review": "review: {verdict} by {role}",
+    "review_back": "review: sent attempt {attempt} back",
+    "review_none": "review: not reached on attempt {attempt}",
+    "review_none_yet": "review: not reached",
+    "rework": "rework: {count} sent back to the dev-worker, at most {max} attempts",
+    "rework_nomax": "rework: {count} sent back to the dev-worker",
+    "role_idle": "role {role}: did not run for this ticket",
+    "role_ran": "role {role}: ran for this ticket",
+    "single": "the single worker",
+    "stage": "canary {pct}%: {verdict}",
+    "stage_none": "canary: not reached",
+    "tower": "tower: the ticket is at {state}",
+    "unknown_to_map": "not in the project map",
+    "unread": "could not read {what}: {error}",
+    "who_unknown": "a worker the logbook does not record",
+    "worker": "worker {id}: {harness}, {model}"
+  }
+}
+</script>

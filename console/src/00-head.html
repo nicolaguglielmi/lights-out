@@ -1,0 +1,23 @@
+<!doctype html>
+<!-- SPDX-License-Identifier: Apache-2.0 -->
+<!-- The console (docs/adr/0047, 0055, 0059, 0071): eleven screens over one
+     document, the logbook, read from /v1/logbook.json. Every value on these
+     screens is a field of the logbook (docs/plans/console.md names each
+     one); the page computes no verdict of its own: the spec check's line is
+     gates/spec.sh's, through /v1/spec-check, which writes nothing. Three
+     inputs: go-for-launch, a POST to /v1/go-for-launch, which runs
+     core/promote.sh; the answer to a ticket's open question, a POST to
+     /v1/answer, which runs ./go answer's recipe (docs/adr/0055 §2); and a
+     new ticket's request, a POST to /v1/request, which runs ./go request's
+     recipe (docs/adr/0059 §4); a client's words, a POST to /v1/intake, and
+     the decisions on its proposed tickets, a POST to /v1/intake-confirm,
+     which run ./go intake's and ./go intake-confirm's recipes (docs/adr/0090 §8). The kanban moves no card: every interaction
+     changes the view, never a column (docs/adr/0059 §1). The theme is the
+     colour tokens and nothing else (§2). Bundled deterministically from
+     console/src/ by console/build.py with progressive /v1/events SSE in live
+     mode and no asset from the network (docs/adr/0124, console/README.md). -->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>lights-out console</title>

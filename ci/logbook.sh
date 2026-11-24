@@ -224,7 +224,7 @@ def cmd_names(root):
 # docs/adr/0059 §4): three scripts, one command of core/spec.py, two recipes.
 SCRIPTS = {"core/logbook.sh", "core/promote.sh", "gates/spec.sh"}
 MAKES = {"answer", "request", "intake", "intake-confirm"}
-GETS = {"/v1/logbook.json", "/v1/console.json"}
+GETS = {"/v1/logbook.json", "/v1/console.json", "/v1/events"}
 WRITES = {"/v1/go-for-launch", "/v1/answer", "/v1/spec-check", "/v1/request", "/v1/intake", "/v1/intake-confirm"}
 DRAG = r"(?:drag|dragstart|dragover|dragend|dragenter|dragleave|drop)"
 
@@ -702,7 +702,7 @@ import subprocess
 
 class H:
     def do_GET(self):
-        if self.path in ("/", "/v1/logbook.json", "/v1/console.json"):
+        if self.path in ("/", "/v1/logbook.json", "/v1/console.json", "/v1/events"):
             return
     def do_POST(self):
         if self.path not in ("/v1/go-for-launch", "/v1/answer", "/v1/spec-check", "/v1/intake", "/v1/intake-confirm", "/v1/request"):
@@ -723,6 +723,7 @@ sed 's|"request", "TICKET=1"|"answer", "TICKET=1"|' "$st/serve-good.py" > "$st/s
 sed 's|"request", "TICKET=1"|"request", "deploy", "TICKET=1"|' "$st/serve-good.py" > "$st/serve-two-targets.py"
 sed 's|check=False)|check=False, shell=True)|' "$st/serve-good.py" > "$st/serve-shell.py"
 sed 's|"/v1/console.json"|"/v1/console.json", "/v1/extra"|' "$st/serve-good.py" > "$st/serve-route.py"
+sed 's|, "/v1/events"||' "$st/serve-good.py" > "$st/serve-no-events-route.py"
 sed 's|, "/v1/request"):|):|; s|, "/v1/request")|)|' "$st/serve-good.py" > "$st/serve-no-request-route.py"
 sed 's|"/v1/spec-check", ||' "$st/serve-good.py" > "$st/serve-no-spec-route.py"
 sed 's|\["sh", "core/promote.sh"\]|["git", "core/promote.sh"]|' "$st/serve-good.py" > "$st/serve-git.py"
@@ -735,7 +736,7 @@ sed '/core\/spec.py/d' "$st/serve-good.py" > "$st/serve-no-draft.py"
 sed 's|\["sh", "core/logbook.sh"\]|["sh", script]|' "$st/serve-good.py" > "$st/serve-computed.py"
 { cat "$st/serve-good.py"; printf '\n\nclass X:\n    def do_DELETE(self):\n        pass\n'; } > "$st/serve-delete.py"
 must_accept "serve.py" serve "$st/serve-good.py"
-for v in adapter two-posts shell route git delete make no-request-recipe two-targets no-request-route no-spec-route gate no-gate python python-c spec-command no-draft computed; do
+for v in adapter two-posts shell route no-events-route git delete make no-request-recipe two-targets no-request-route no-spec-route gate no-gate python python-c spec-command no-draft computed; do
   must_reject "serve.py ($v)" serve "$st/serve-$v.py"
 done
 
@@ -2141,7 +2142,15 @@ fi
 
 # --- d. the console's perimeter ----------------------------------------------
 [ -f console/serve.py ] || nogo "console/serve.py not found"
+[ -f console/build.py ] || nogo "console/build.py not found"
+[ -d console/src ] || nogo "console/src not found"
 [ -f console/index.html ] || nogo "console/index.html not found"
+printf 'drifted\n' > "$st/drifted-index.html"
+if python3 -B console/build.py --src console/src --out "$st/drifted-index.html" --check >/dev/null 2>&1; then
+  nogo "console/build.py --check accepted a drifted output; a gate that cannot fail is not a gate"
+fi
+python3 -B console/build.py --check >"$tmp/chk.out" 2>"$tmp/chk.err" \
+  || nogo "console/index.html has drifted from console/src/ (run python3 console/build.py --write)" "$(cat "$tmp/chk.out")" "$(cat "$tmp/chk.err")"
 chk names console >"$tmp/chk.out" || nogo "console/ names what it must not" "$(cat "$tmp/chk.out")"
 chk serve console/serve.py >"$tmp/chk.out" || nogo "console/serve.py is outside its perimeter" "$(cat "$tmp/chk.out")"
 chk index console/index.html >"$tmp/chk.out" || nogo "console/index.html is outside its perimeter" "$(cat "$tmp/chk.out")"
@@ -2359,6 +2368,14 @@ req "$(base)/v1/console.json"
 [ "$code" = 200 ] || nogo "snapshot mode: GET /v1/console.json answered $code, want 200"
 jq -e '.mode == "snapshot" and .can_launch == false and (.reason | type == "string" and length > 0)' "$body" >/dev/null \
   || nogo "snapshot mode: /v1/console.json is not {mode: snapshot, can_launch: false, reason}" "$(cat "$body")"
+curl -s -D "$tmp/sse.hdr" -o "$tmp/sse.body" --max-time 5 "$(base)/v1/events" || nogo "snapshot mode: GET /v1/events failed or blocked"
+grep -qi '^Content-Type: text/event-stream' "$tmp/sse.hdr" || nogo "snapshot mode: GET /v1/events is not text/event-stream" "$(cat "$tmp/sse.hdr")"
+grep -qi '^Cache-Control: no-store' "$tmp/sse.hdr" || nogo "snapshot mode: GET /v1/events lacks Cache-Control: no-store" "$(cat "$tmp/sse.hdr")"
+grep -qi '^X-Content-Type-Options: nosniff' "$tmp/sse.hdr" || nogo "snapshot mode: GET /v1/events lacks X-Content-Type-Options: nosniff" "$(cat "$tmp/sse.hdr")"
+grep -q '^event: logbook$' "$tmp/sse.body" || nogo "snapshot mode: GET /v1/events did not emit event: logbook" "$(cat "$tmp/sse.body")"
+sse_want="\"$(sha256sum "$golden" | cut -d' ' -f1)\""
+sed -n 's/^data: *//p' "$tmp/sse.body" | jq -e --arg tag "$sse_want" '.mode == "snapshot" and .etag == $tag and .read_at == null' >/dev/null \
+  || nogo "snapshot mode: /v1/events data is not {etag, mode: snapshot, read_at: null}" "$(cat "$tmp/sse.body")"
 want_sha=$(jq -r '.launch.brief.sha256' "$golden")
 press GO 0.5.0-d 25 "$want_sha"
 [ "$code" = 403 ] || nogo "snapshot mode: a correct POST answered $code, want 403" "$(cat "$body")"
@@ -2366,7 +2383,7 @@ press PREPARE 0.5.0-d 25 "$want_sha"
 [ "$code" = 403 ] || nogo "snapshot mode: a PREPARE POST answered $code, want 403" "$(cat "$body")"
 reply 0009 1 "a perimeter"
 [ "$code" = 403 ] || nogo "snapshot mode: an answer POST answered $code, want 403" "$(cat "$body")"
-for path in /v1/logbook.json /v1/console.json /; do
+for path in /v1/logbook.json /v1/console.json /v1/events /; do
   req -X POST -H 'Content-Type: application/json' -H "Origin: http://127.0.0.1:$port" -d '{}' "$(base)$path"
   case "$code" in 404 | 405) : ;; *) nogo "POST $path answered $code, want 404 or 405: the six POST routes are the writes" ;; esac
 done
@@ -2491,6 +2508,13 @@ first_read
 req "$(base)/v1/logbook.json"
 jq -e --arg sha "$want_sha" '.launch.pressable == true and .launch.brief.sha256 == $sha' "$body" >/dev/null \
   || nogo "the live console's logbook does not offer the press the stub sources allow" "$(jq -c .launch "$body" | head -c 600)"
+live_tag="\"$(sha256sum "$body" | cut -d' ' -f1)\""
+curl -s -D "$tmp/live-sse.hdr" -o "$tmp/live-sse.body" --max-time 5 "$(base)/v1/events?once=1" \
+  || nogo "live mode: GET /v1/events?once=1 failed or blocked"
+grep -qi '^Content-Type: text/event-stream' "$tmp/live-sse.hdr" || nogo "live mode: GET /v1/events?once=1 is not text/event-stream" "$(cat "$tmp/live-sse.hdr")"
+grep -q '^event: logbook$' "$tmp/live-sse.body" || nogo "live mode: GET /v1/events?once=1 did not emit event: logbook" "$(cat "$tmp/live-sse.body")"
+sed -n 's/^data: *//p' "$tmp/live-sse.body" | jq -e --arg tag "$live_tag" '.mode == "live" and .etag == $tag and (.read_at | type == "string" and length > 0) and .read_error == null' >/dev/null \
+  || nogo "live mode: /v1/events?once=1 data does not match the live logbook" "$(cat "$tmp/live-sse.body")"
 
 req -X POST -H 'Content-Type: text/plain' -H "Origin: http://127.0.0.1:$port" -d '{}' "$(base)/v1/go-for-launch"
 [ "$code" = 415 ] || nogo "a POST with Content-Type text/plain answered $code, want 415"
@@ -2549,11 +2573,13 @@ stop_console
 # --- e4. LIVE behind a proxy: the identity header ------------------------------
 # shellcheck disable=SC2046
 start_console "$live" "$tmp/proxy.log" $(live_env) CONSOLE_AUTH=proxy CONSOLE_IDENTITY_HEADER=X-Test-User CONSOLE_LAUNCHERS=alice
-for path in / /v1/logbook.json /v1/console.json; do
+for path in / /v1/logbook.json /v1/console.json /v1/events; do
   req "$(base)$path"
   [ "$code" = 401 ] || nogo "proxy mode: GET $path without the identity header answered $code, want 401"
 done
 first_read -H 'X-Test-User: alice'
+req -H 'X-Test-User: mallory' "$(base)/v1/events?once=1"
+[ "$code" = 200 ] || nogo "proxy mode: GET /v1/events?once=1 with identity header answered $code, want 200"
 press GO 0.5.0-d 25 "$want_sha"
 [ "$code" = 401 ] || nogo "proxy mode: a POST without the identity header answered $code, want 401"
 untouched "no identity"
