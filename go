@@ -24,6 +24,7 @@
 #   ./go gates          judge a range of the workload: BASE=<ref> HEAD=<ref>, default the last commit; no plane needed
 #   ./go agents         what the contract gives the agents: role files for the reviewers, MCP servers for the dev-worker (ADR 0073)
 #   ./go demo-init      prove attach, init and gates on the two example repositories, without the plane
+#   ./go corpus         verify the unknown-repository corpus (init, light gates, contracts): [CORPUS_FULL=1] (ADR 0106)
 #   ./go detach         drop the attached repository; the workload is app/ again
 #   ./go demo-network   prove a network of members on one ticket, governed end to end (ADR 0036)
 #   ./go e2e            run the full tower: ticket → PR → CI → merge → canary → verify NO-GO → rollback, audited
@@ -421,6 +422,7 @@ fi
 for v in $(awk '/^[A-Za-z0-9_]*(_KEY|_TOKEN|_SECRET|_PASSWORD)=/ || /^METRICS_AUTH_HEADER=/ { sub(/=.*/, ""); print }' "$here/.env.example" | sort -u); do
   if env | grep -q "^$v="; then port_flags="$port_flags -e $v"; fi
 done
+if env | grep -q "^CORPUS_FULL="; then port_flags="$port_flags -e CORPUS_FULL"; fi
 
 # Adapters outside the repository (docs/adr/0058 §1): ADAPTERS_PATH, from
 # this environment, else .env, else the profile, is mounted read-only at
