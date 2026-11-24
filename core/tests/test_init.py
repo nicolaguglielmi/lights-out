@@ -18,11 +18,13 @@ Not asserted: a range that names a minor of the workbench's Node (`~24.1`,
 (24.21.0) decides those; the ADR does not say which the matcher answers.
 """
 
+import os
+import tempfile
 import unittest
 
 import fnmatch
 
-from core.init import (JAVASCRIPT_TEST_PATHS, PYTHON_TEST_PATHS, node_admits, python_admits,
+from core.init import (JAVASCRIPT_TEST_PATHS, PYTHON_TEST_PATHS, infer_python, node_admits, python_admits,
                        render_workload_env)
 
 WORKBENCH_PYTHON = (3, 13)
@@ -298,6 +300,35 @@ class RenderWorkloadEnvTest(unittest.TestCase):
         text = self.render({})
         self.assertTrue(text.endswith("\n"))
         self.assertFalse(text.endswith("\n\n"))
+
+
+class InferPythonTestRunnerTest(unittest.TestCase):
+    def _make_repo(self, lock_body):
+        tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(tmp.cleanup)
+        root = tmp.name
+        os.makedirs(os.path.join(root, "demo"))
+        os.makedirs(os.path.join(root, "tests"))
+        with open(os.path.join(root, "demo", "__init__.py"), "w", encoding="utf-8") as fh:
+            fh.write("")
+        with open(os.path.join(root, "pyproject.toml"), "w", encoding="utf-8") as fh:
+            fh.write('[project]\nname = "demo"\nversion = "0.1.0"\nrequires-python = ">=3.13"\ndependencies = []\n')
+        with open(os.path.join(root, "uv.lock"), "w", encoding="utf-8") as fh:
+            fh.write(lock_body)
+        return root
+
+    def test_uv_lock_with_pytest_uses_pytest(self):
+        repo = self._make_repo(
+            'version = 1\n\n[[package]]\nname = "demo"\n\n[[package]]\nname = "pytest"\n'
+        )
+        d = infer_python(repo)
+        self.assertEqual(d["test_cmd"], "uv run --locked pytest tests -q -p no:cacheprovider")
+
+    def test_uv_lock_without_pytest_uses_unittest_discovery(self):
+        repo = self._make_repo('version = 1\n\n[[package]]\nname = "demo"\n')
+        d = infer_python(repo)
+        self.assertEqual(d["test_cmd"], "uv run --locked python3 -m unittest discover -s tests -q")
+        self.assertIn("python3 -m unittest discover -s tests -q -f", d["mutation_cmd"])
 
 
 if __name__ == "__main__":

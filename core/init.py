@@ -201,6 +201,19 @@ def _read_committed(repo):
     return values
 
 
+def _uv_has_pytest(repo):
+    """True when uv.lock declares pytest or is a minimal package-less stub."""
+    try:
+        with open(os.path.join(repo, "uv.lock"), "rb") as fh:
+            lock = tomllib.load(fh)
+    except (OSError, tomllib.TOMLDecodeError):
+        return True
+    pkgs = lock.get("package")
+    if not isinstance(pkgs, list) or not pkgs:
+        return True
+    return any(isinstance(p, dict) and str(p.get("name", "")).lower() == "pytest" for p in pkgs)
+
+
 def infer_python(repo):
     with open(os.path.join(repo, "pyproject.toml"), "rb") as fh:
         pyproject = tomllib.load(fh)
@@ -248,13 +261,21 @@ def infer_python(repo):
             tests = candidate
             break
     test_target = tests or ""
-    test_cmd = f"uv run --locked pytest {test_target} -q -p no:cacheprovider".replace("  ", " ")
-    mutant_test_cmd = f"uv run --locked pytest {test_target} -q -x -p no:cacheprovider".replace("  ", " ")
-    test_evidence = (
-        f"{tests}/ exists; pytest through uv, the lock honoured"
-        if tests
-        else "no tests/ or test/ directory: pytest's own discovery, the lock honoured"
-    )
+    if _uv_has_pytest(repo):
+        test_cmd = f"uv run --locked pytest {test_target} -q -p no:cacheprovider".replace("  ", " ")
+        mutant_test_cmd = f"uv run --locked pytest {test_target} -q -x -p no:cacheprovider".replace("  ", " ")
+        test_evidence = (
+            f"{tests}/ exists; pytest through uv, the lock honoured"
+            if tests
+            else "no tests/ or test/ directory: pytest's own discovery, the lock honoured"
+        )
+    else:
+        discover_dir = f" -s {tests}" if tests else ""
+        test_cmd = f"uv run --locked python3 -m unittest discover{discover_dir} -q"
+        mutant_test_cmd = f"uv run --locked python3 -m unittest discover{discover_dir} -q -f"
+        test_evidence = (
+            f"{tests or '.'}/ has no pytest in uv.lock; stdlib unittest discovery through uv, the lock honoured"
+        )
 
     requires = project.get("requires-python", "")
     if python_admits(requires, WORKBENCH_PYTHON):
