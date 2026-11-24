@@ -18,6 +18,7 @@ import sys
 NAME = re.compile(r"^[a-z0-9][a-z0-9-]*$")
 STAMP = re.compile(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$")
 SHA = re.compile(r"^[0-9a-f]{40}$")
+TRACE_HEX = re.compile(r"^[0-9a-f]{32}$")
 
 
 class Fail(Exception):
@@ -73,6 +74,8 @@ def validate(path: str) -> dict:
         isinstance(chain, dict) and all(chain.get(k) not in (None, "") for k in ("ticket", "pr", "merge"))
     ):
         bad('"chain" is neither null nor {ticket, pr, merge}')
+    if "traces" in doc and doc["traces"] is not None and not isinstance(doc["traces"], list):
+        bad('"traces" is not a list')
     return doc
 
 
@@ -112,6 +115,35 @@ def anchor_evidence(anchor: str, doc: dict) -> list[str]:
             raise Fail(f"names no {label} in the incident")
         item = items[int(rest) - 1]
         return [item if kind == "log" else str(item.get("headline", ""))]
+    if kind == "trace":
+        traces = doc.get("traces")
+        if not isinstance(traces, list):
+            traces = []
+        if rest.isdigit():
+            idx = int(rest)
+            if not 1 <= idx <= len(traces):
+                raise Fail("names no trace in the incident")
+            entry = traces[idx - 1]
+        elif TRACE_HEX.match(rest.lower()):
+            wanted = rest.lower()
+            entry = next(
+                (
+                    t
+                    for t in traces
+                    if (isinstance(t, dict) and str(t.get("trace_id", "")).lower() == wanted)
+                    or (isinstance(t, str) and t.lower() == wanted)
+                ),
+                None,
+            )
+            if entry is None:
+                raise Fail("names no trace in the incident")
+        else:
+            raise Fail("is not a known anchor")
+        if isinstance(entry, dict):
+            tid = str(entry.get("trace_id", ""))
+            sid = entry.get("span_id")
+            return [f"trace {tid} (span {sid})" if sid else f"trace {tid}"]
+        return [f"trace {entry}"]
     raise Fail("is not a known anchor")
 
 

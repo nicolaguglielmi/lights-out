@@ -21,8 +21,10 @@ import subprocess  # nosec B404 - only for PIPE; tower.py's sh() runs the verbs
 import sys
 
 try:
+    from .obs import extract_trace_exemplars
     from .tower import sh
 except ImportError:  # run as a script: core/ is sys.path[0]
+    from obs import extract_trace_exemplars
     from tower import sh
 
 NAME = re.compile(r"[a-z0-9][a-z0-9-]*")
@@ -110,13 +112,18 @@ def incident(env):
         raise Refused(f"the window ends ({end}) before it starts ({start})")
     record = release_record(env.get("RELEASE_RECORD") or ".crew/release.json")
     logs = log_lines(env["LOGS"]) if env.get("LOGS") else []
+    alert_list = alerts(record)
     anchored = None
     if env.get("TICKET"):
         if not env.get("STATE_STORE"):
             raise Refused("STATE_STORE not set; run this via ./go, not directly")
         anchored = chain(env["TICKET"], env["STATE_STORE"], record["version"])
-    return {"kind": "incident", "name": name, "window": {"from": start, "to": end},
-            "release": record, "alerts": alerts(record), "logs": logs, "chain": anchored}
+    doc = {"kind": "incident", "name": name, "window": {"from": start, "to": end},
+           "release": record, "alerts": alert_list, "logs": logs, "chain": anchored}
+    traces = extract_trace_exemplars(list(alert_list) + list(logs))
+    if traces:
+        doc["traces"] = traces
+    return doc
 
 
 def main(env=None):
