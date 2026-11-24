@@ -14,6 +14,7 @@ file with cosign and verifies it; this file only builds it.
         stderr, exit 0; or print the one-line reason and exit 1
 """
 
+import hashlib
 import json
 import os
 import re
@@ -125,7 +126,41 @@ def stages_section(log, n, rec):
     return out
 
 
-def artefacts_section(log, n, rec):
+def provenance_entry(env, version, ticket):
+    """Signed SLSA/in-toto provenance bundle when present in PROVENANCE_DIR (docs/adr/0117 §5)."""
+    prov_dir = (env or {}).get("PROVENANCE_DIR") or ".crew/provenance"
+    for subject_id in (version, ticket):
+        if not isinstance(subject_id, str) or not subject_id or not VERSION_RE.fullmatch(subject_id) or subject_id.startswith("."):
+            continue
+        att = os.path.join(prov_dir, f"{subject_id}.intoto.json")
+        bundle = f"{att}.bundle"
+        if not (os.path.isfile(att) and os.path.getsize(att) > 0 and os.path.isfile(bundle) and os.path.getsize(bundle) > 0):
+            continue
+        try:
+            with open(att, "rb") as afh:
+                att_bytes = afh.read()
+            with open(bundle, "rb") as bfh:
+                bundle_bytes = bfh.read()
+            stmt = json.loads(att_bytes.decode("utf-8"))
+        except (OSError, ValueError):
+            continue
+        if not isinstance(stmt, dict) or stmt.get("_type") != "https://in-toto.io/Statement/v1":
+            continue
+        return found(
+            f"{att} (+ {bundle})",
+            {
+                "statement": att,
+                "sha256": hashlib.sha256(att_bytes).hexdigest(),
+                "bundle": bundle,
+                "bundle_sha256": hashlib.sha256(bundle_bytes).hexdigest(),
+                "predicate_type": stmt.get("predicateType"),
+                "subject": stmt.get("subject"),
+            },
+        )
+    return None
+
+
+def artefacts_section(log, n, rec, env=None, ticket=None):
     at = f"{log}:{n} .record"
     image = entry(rec, "image", f"{at}.image", "the release record")
     if image.get("value") == "":
@@ -134,7 +169,11 @@ def artefacts_section(log, n, rec):
             missing(f"{at}.sbom", "the registry port gave no SBOM attestation for this image (record.sbom is null)"))
     dast = (found(f"{at}.dast", rec["dast"]) if rec.get("dast") else
             missing(f"{at}.dast", "DAST was off for this release (record.dast is null)"))
-    return {"image": image, "sbom": sbom, "dast": dast}
+    out = {"image": image, "sbom": sbom, "dast": dast}
+    prov = provenance_entry(env, rec.get("version"), ticket)
+    if prov is not None:
+        out["provenance"] = prov
+    return out
 
 
 def answer_section(log, n, rec, answer):
@@ -232,7 +271,7 @@ def pack(env):
     sections = {
         "release": release_section(log, n, line),
         "stages": stages_section(log, n, rec),
-        "artefacts": artefacts_section(log, n, rec),
+        "artefacts": artefacts_section(log, n, rec, env=env, ticket=line.get("ticket")),
         "answer": answer_section(log, n, rec, answer),
         "prs": prs_section(env, log, n, line, version),
     }

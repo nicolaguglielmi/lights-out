@@ -573,5 +573,63 @@ class Build(EvidenceCase):
         self.assertEqual(snapshot(), before)
 
 
+class ProvenanceArtefact(EvidenceCase):
+    def setUp(self):
+        super().setUp()
+        self.write_log(release_line(), release_line("0.3.0", "held", ticket=None), answer_line("0.3.0"))
+        self.write_doc(DOC)
+        self.prov_dir = self.root / ".crew" / "provenance"
+
+    def _write_provenance(self, subject_id, signed=True, directory=None):
+        target_dir = directory or self.prov_dir
+        target_dir.mkdir(parents=True, exist_ok=True)
+        stmt = {
+            "_type": "https://in-toto.io/Statement/v1",
+            "subject": [{"name": f"repo@sha256:{'a' * 64}", "digest": {"sha256": "a" * 64}}],
+            "predicateType": "https://lights-out.dev/provenance/v1",
+            "predicate": {"ticket": {"id": "0001"}, "missing": []},
+        }
+        att = target_dir / f"{subject_id}.intoto.json"
+        att.write_text(json.dumps(stmt, indent=2) + "\n", encoding="utf-8")
+        if signed:
+            bundle = target_dir / f"{subject_id}.intoto.json.bundle"
+            bundle.write_text(json.dumps({"mediaType": "application/vnd.dev.sigstore.bundle.v0.3+json"}) + "\n",
+                              encoding="utf-8")
+        return att
+
+    def test_absent_provenance_keeps_artefacts_and_missing_count_unchanged(self):
+        pack = self.pack()
+        self.assertEqual(set(pack["artefacts"]), {"image", "sbom", "dast"})
+        self.assertFalse(any("provenance" in p for p in pack["missing"]))
+
+    def test_unsigned_statement_without_bundle_is_not_surfaced(self):
+        self._write_provenance(VERSION, signed=False)
+        pack = self.pack()
+        self.assertNotIn("provenance", pack["artefacts"])
+
+    def test_signed_version_provenance_is_surfaced_as_found_entry(self):
+        att = self._write_provenance(VERSION, signed=True)
+        pack = self.pack()
+        self.assertIn("provenance", pack["artefacts"])
+        prov = pack["artefacts"]["provenance"]
+        self.assertEqual(set(prov), {"source", "value"})
+        self.assertEqual(prov["value"]["sha256"], hashlib.sha256(att.read_bytes()).hexdigest())
+        self.assertEqual(prov["value"]["predicate_type"], "https://lights-out.dev/provenance/v1")
+        self.assertTrue(prov["value"]["statement"].endswith(f"{VERSION}.intoto.json"))
+        self.assertTrue(prov["value"]["bundle"].endswith(f"{VERSION}.intoto.json.bundle"))
+        # Leaf shape invariant holds across the entire pack.
+        for e in leaves(sections(pack)):
+            self.assertIn(set(e), ({"source", "value"}, {"source", "missing"}))
+
+    def test_signed_ticket_provenance_fallback_and_custom_provenance_dir(self):
+        custom = self.root / "custom-prov"
+        att = self._write_provenance("0001", signed=True, directory=custom)
+        pack = self.pack(PROVENANCE_DIR="custom-prov")
+        prov = pack["artefacts"]["provenance"]
+        self.assertEqual(set(prov), {"source", "value"})
+        self.assertEqual(prov["value"]["sha256"], hashlib.sha256(att.read_bytes()).hexdigest())
+        self.assertTrue(prov["value"]["statement"].endswith("0001.intoto.json"))
+
+
 if __name__ == "__main__":
     unittest.main()
