@@ -1275,17 +1275,21 @@ Il canary si giudica su quello che vede Envoy, non su quello che l'app dichiara 
   - **Argo Rollouts e Flagger.** Le loro analisi leggono oggi le metriche dell'app. ADR 0098 dice se passano a Envoy, o al mesh che usano, o se restano sull'app con il limite dichiarato. Nessun adapter cambia in silenzio.
   - **I test vengono dall'ADR** (`ci/tests/`, `core/tests/`), e ogni caso è provato a fallire. La guida, il README, il reference e il sito dicono che l'app non deve più esporre metriche.
 
+*Stato 2026-11-23 (sessione M65, branch `agy/m65-verify-proxy`, integrato su `main`):* [ADR 0098](adr/0098-verify-from-the-proxy.md) scritta; `verify/slo.promql` legge Envoy (`envoy_cluster_upstream_rq_completed`, `5xx`, `envoy_cluster_upstream_rq_time_bucket / 1000`), Prometheus raschia `envoy:9901/stats/prometheus` (`stats_flush_interval: 1s`); `WORKLOAD_HEALTH_PROBE` (`http:/<path>` o `tcp[:<port>]`, default `http:/healthz`) e `WORKLOAD_KILL_SWITCH` vuoto sono opzionali; la versione arriva dall'etichetta container via `$DOCKER_HOST`; `adapters/argo-rollouts/slo.promql` e `adapters/flagger/slo.promql` restano su `/metrics` + `target_info` con limite dichiarato. Aggiunto `workloads/plain/` (stdlib HTTP senza OTel/Prometheus/flagd) e `./go demo-seam-plain` GO in 137 s (`error_rate canary=1.000`).
+
 #### M69 — Un solo install (ADR 0099)
 
 Oggi il wrapper si installa con un `curl` e il light tier con `uv tool install lights-out-gates`: sono due strade. Ne basta una.
 
 - **Criteri di accettazione, scritti prima del codice:**
-  - **Il nome su PyPI.** `lights-out` risultava libero il 2026-11-21 (`https://pypi.org/pypi/lights-out/json` rispondeva 404); si ricontrolla prima di scegliere. Se non è libero, ci si ferma e si chiede.
-  - **Un comando, due eseguibili.** `uv tool install lights-out` mette sul PATH `lights-out`, che esegue il wrapper POSIX della stessa versione e non una riscrittura, e `lights-out-gates`. `lights-out --version` coincide con `version=` del wrapper e con `pyproject.toml`, e `ci/package.sh` lo controlla.
+  - **Il nome su PyPI.** `lights-out` risultava libero il 2026-11-21 (`https://pypi.org/pypi/lights-out/json` rispondeva 404); ricontrollato il 2026-11-23: `lights-out` resta 404 su PyPI ma `lightsout` (`1.2.0`) esiste (`200`) e blocca `lights-out` per collisione PEP 503 (`HTTP 400`, già visto in ADR 0061). Decisione dell'owner: entrambi gli eseguibili (`lights-out` via `script-files` e `lights-out-gates`) viaggiano insieme nel pacchetto PyPI già registrato `lights-out-gates`.
+  - **Un comando, due eseguibili.** `uv tool install lights-out-gates` mette sul PATH `lights-out`, che esegue il wrapper POSIX della stessa versione e non una riscrittura, e `lights-out-gates`. `lights-out --version` coincide con `version=` del wrapper e con `pyproject.toml`, e `ci/package.sh` lo controlla.
   - **Il curl resta** come alternativa documentata.
   - **La prova.** Il workflow `stranger` installa dal wheel costruito nel job e lancia `lights-out doctor` e `lights-out gates` su una copia di `workloads/minimal/`.
-  - **Pubblicazione.** `package.yml` costruisce e pubblica il pacchetto nuovo insieme a `lights-out-gates`. La prima pubblicazione avviene solo alla prossima release, con il via dell'owner.
+  - **Pubblicazione.** `package.yml` costruisce e pubblica il pacchetto `lights-out-gates` (con entrambi gli eseguibili) solo alla prossima release con il via dell'owner.
   - **Documentazione.** README, guida, tutorial (livello 2), sito e reference mostrano un solo comando di install. Docs-drift è GO.
+
+*Stato 2026-11-23 (sessione M69, branch `agy/m69-one-install`, integrato su `main`):* [ADR 0099](adr/0099-one-install-via-lights-out-gates.md) scritta; `pyproject.toml` aggiunge `script-files = ["lights-out"]` sotto `[tool.setuptools]` mantenendo `name = "lights-out-gates"` e `version = "0.8.1"`; `lights-out --version` aggiunto come alias di `version`; `ci/package.sh`, `ci/gates-light.sh`, `ci/release.sh`, `package.yml` e `stranger.yml` aggiornati e verificati su wheel `uv build` + `uv tool install` su `workloads/minimal/` (con `lights-out` byte-identico).
 
 ### Dopo
 
