@@ -54,7 +54,7 @@
 #   doctor     core/doctor.sh with no engine: one `NO-GO: doctor —` line naming
 #              the engine, exit 1, no ANSI. With --level (ADR 0057 §8): l2 and
 #              l3 are one `NO-GO: doctor — <level> lacks ` line naming
-#              DELIVERY=cloud-deploy and toolchain; l0 and l1 do not name
+#              engine and toolchain; l0 and l1 do not name
 #              toolchain; --level l9 and an unknown argument are one NO-GO
 #              line; with a fake engine that answers, plain doctor and
 #              --level l0 are GO, so the last two are refused for the
@@ -304,8 +304,8 @@ doctor_level_flaws() {
   dr=$1/core/doctor.sh
   for lv in l2 l3; do
     dlevel "$w/tools" "$dr" --level "$lv"
-    { shape && grep -q "^NO-GO: doctor — $lv lacks " "$w/o" && grep -qF DELIVERY=cloud-deploy "$w/o" && grep -q toolchain "$w/o"; } \
-      || echo "doctor --level $lv with no engine: want exit 1 and the one line NO-GO: doctor — $lv lacks <n>: <items> naming DELIVERY=cloud-deploy and toolchain, no ANSI; got exit $rc: $(cat "$w/o")"
+    { shape && grep -q "^NO-GO: doctor — $lv lacks " "$w/o" && grep -q engine "$w/o" && grep -q toolchain "$w/o"; } \
+      || echo "doctor --level $lv with no engine: want exit 1 and the one line NO-GO: doctor — $lv lacks <n>: <items> naming engine and toolchain, no ANSI; got exit $rc: $(cat "$w/o")"
   done
   for lv in l0 l1; do
     dlevel "$w/tools" "$dr" --level "$lv"
@@ -351,7 +351,6 @@ command -v podman >/dev/null 2>&1 || command -v docker >/dev/null 2>&1 || [ "$mu
 case "$lv" in
   "" | l0 | l1) [ "$mut" = toolchain-at-l0 ] && add toolchain ;;
   l2 | l3)
-    [ "$mut" = no-delivery-item ] || add DELIVERY=cloud-deploy
     [ "$mut" = no-toolchain-item ] || add toolchain
     [ "$mut" = l2-is-go ] && bad="" ;;
   *) [ "$mut" = accepts-l9 ] || { echo "NO-GO: doctor — $lv has no profile"; exit 1; } ;;
@@ -464,7 +463,11 @@ def flaws(d):
             p = j.get("permissions", doc.get("permissions"))
             for k in ("packages", "id-token"):
                 # ADR 0075 §2: the pypi job holds id-token: write too, for trusted publishing; never packages: write.
-                if perm(p, k) and not (path == PKG and (n == "publish" or (n == "pypi" and k == "id-token"))):
+                # ADR 0128 §2: cloud-conformance.yml's conformance job holds id-token: write for keyless OIDC; never packages: write.
+                if perm(p, k) and not (
+                    (path == PKG and (n == "publish" or (n == "pypi" and k == "id-token")))
+                    or (path == ".github/workflows/cloud-conformance.yml" and n == "conformance" and k == "id-token")
+                ):
                     # The one other id-token: write is a GitHub Pages deploy (pages: write, site.yml), which signs nothing.
                     if k == "id-token" and path != PKG and isinstance(p, dict) and p.get("pages") == "write":
                         continue
@@ -729,7 +732,7 @@ try doctor_flaws "want exit 1" 'printf "#!/bin/sh\necho NO-GO: doctor — engine
 got=$(doctor_level_flaws "$w/ok")
 [ -z "$got" ] || nogo "ci/package.sh refuses a doctor that does what ADR 0057 §8 says (its own stand-in)" "$got"
 dmut() { try doctor_level_flaws "$1" "cp \"\$w/doctor.ok\" core/doctor.sh && sed -i \"s/^mut=NONE/mut=$2/\" core/doctor.sh"; }
-for m in ansi nogo-exit0 two-lines wrong-words no-delivery-item no-toolchain-item l2-is-go; do dmut "doctor --level l2 with no engine" "$m"; done
+for m in ansi nogo-exit0 two-lines wrong-words ignores-engine no-toolchain-item l2-is-go; do dmut "doctor --level l2 with no engine" "$m"; done
 dmut "doctor --level l0 with no engine" toolchain-at-l0
 dmut "doctor --level l0 with no engine" ignores-engine
 dmut "with a fake engine that answers: want exit 1" accepts-l9

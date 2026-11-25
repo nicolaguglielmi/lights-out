@@ -1,0 +1,193 @@
+name: cloud-conformance
+
+# Nightly and manual keyless OIDC conformance suite for managed L2/L3 GCP
+# adapters (M88, ADR 0128), oci-registry (ADR 0107), AWS ECS/CodeDeploy, and
+# Azure Container Apps (ADR 0104).
+#
+# Disabled by default so forks and unconfigured repositories skip cleanly:
+# set repository variable CLOUD_CONFORMANCE_ENABLED=true and the OIDC target
+# variables (never static JSON/secret keys) in repository settings.
+
+on:
+  schedule:
+    - cron: '41 3 * * *'
+  workflow_dispatch:
+    inputs:
+      target:
+        description: Conformance target to run (all, gcp, oci-registry, aws, azure)
+        required: false
+        default: all
+        type: choice
+        options:
+          - all
+          - gcp
+          - oci-registry
+          - aws
+          - azure
+
+permissions:
+  contents: read
+
+jobs:
+  gate:
+    runs-on: ubuntu-latest
+    if: github.server_url == 'https://github.com'
+    outputs:
+      enabled: ${{ steps.check.outputs.enabled }}
+    steps:
+      - name: Check CLOUD_CONFORMANCE_ENABLED repository variable
+        id: check
+        env:
+          CLOUD_CONFORMANCE_ENABLED: ${{ vars.CLOUD_CONFORMANCE_ENABLED }}
+        run: |
+          set -eu
+          if [ "${CLOUD_CONFORMANCE_ENABLED:-}" != "true" ]; then
+            {
+              echo "### Cloud Conformance Skipped"
+              echo ""
+              echo "Set repository variable \`CLOUD_CONFORMANCE_ENABLED=true\` and OIDC federation variables to enable live cloud conformance."
+            } >> "$GITHUB_STEP_SUMMARY"
+            echo "::notice::cloud-conformance skipped (vars.CLOUD_CONFORMANCE_ENABLED != 'true')"
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          echo "enabled=true" >> "$GITHUB_OUTPUT"
+
+  conformance:
+    needs: gate
+    if: github.server_url == 'https://github.com' && needs.gate.outputs.enabled == 'true'
+    permissions:
+      contents: read
+      id-token: write
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        target:
+          - gcp
+          - oci-registry
+          - aws
+          - azure
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install cosign (GCP / OCI targets)
+        if: (matrix.target == 'gcp' || matrix.target == 'oci-registry') && (inputs.target == 'all' || inputs.target == '' || inputs.target == matrix.target)
+        uses: sigstore/cosign-installer@v3
+
+      - name: Authenticate to GCP via keyless OIDC
+        id: gcp_auth
+        if: (matrix.target == 'gcp' || matrix.target == 'oci-registry') && (inputs.target == 'all' || inputs.target == '' || inputs.target == matrix.target) && vars.GCP_WIF_PROVIDER != '' && vars.GCP_DEPLOYER_SA != ''
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOYER_SA }}
+          token_format: access_token
+          access_token_scopes: https://www.googleapis.com/auth/cloud-platform
+
+      - name: Setup Cloud SDK (GCP L2/L3)
+        if: matrix.target == 'gcp' && (inputs.target == 'all' || inputs.target == '' || inputs.target == 'gcp') && vars.GCP_WIF_PROVIDER != '' && vars.GCP_DEPLOYER_SA != ''
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Authenticate to AWS via keyless OIDC
+        if: matrix.target == 'aws' && (inputs.target == 'all' || inputs.target == '' || inputs.target == 'aws') && vars.AWS_DEPLOY_ROLE_ARN != ''
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          aws-region: ${{ vars.AWS_REGION }}
+
+      - name: Authenticate to Azure via keyless OIDC
+        if: matrix.target == 'azure' && (inputs.target == 'all' || inputs.target == '' || inputs.target == 'azure') && vars.AZURE_CLIENT_ID != ''
+        uses: azure/login@v2
+        with:
+          client-id: ${{ vars.AZURE_CLIENT_ID }}
+          tenant-id: ${{ vars.AZURE_TENANT_ID }}
+          subscription-id: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+
+      - name: Run keyless OIDC conformance suite
+        env:
+          TARGET: ${{ matrix.target }}
+          DISPATCH_TARGET: ${{ inputs.target }}
+          GCP_WIF_PROVIDER: ${{ vars.GCP_WIF_PROVIDER }}
+          GCP_PROJECT: ${{ vars.GCP_PROJECT }}
+          GCP_REGION: ${{ vars.GCP_REGION }}
+          GCP_PROMETHEUS_LOCATION: ${{ vars.GCP_PROMETHEUS_LOCATION }}
+          GCP_WORKFLOW_LOCATION: ${{ vars.GCP_WORKFLOW_LOCATION }}
+          GCP_ACCESS_TOKEN: ${{ steps.gcp_auth.outputs.access_token }}
+          CLOUDSDK_AUTH_ACCESS_TOKEN: ${{ steps.gcp_auth.outputs.access_token }}
+          ARTIFACT_REGISTRY_REPOSITORY: ${{ vars.ARTIFACT_REGISTRY_REPOSITORY }}
+          CLOUD_DEPLOY_PIPELINE: ${{ vars.CLOUD_DEPLOY_PIPELINE }}
+          CLOUD_DEPLOY_TARGET: ${{ vars.CLOUD_DEPLOY_TARGET }}
+          CLOUD_RUN_SERVICE: ${{ vars.CLOUD_RUN_SERVICE }}
+          CLOUD_WORKFLOW_NAME: ${{ vars.CLOUD_WORKFLOW_NAME }}
+          OCI_REGISTRY_REPO: ${{ vars.OCI_REGISTRY_REPO }}
+          COSIGN_KMS_KEY: ${{ vars.COSIGN_KMS_KEY }}
+          COSIGN_CERT_IDENTITY_REGEXP: ${{ vars.COSIGN_CERT_IDENTITY_REGEXP }}
+          COSIGN_CERT_OIDC_ISSUER: ${{ vars.COSIGN_CERT_OIDC_ISSUER }}
+          METRICS_URL: ${{ vars.METRICS_URL }}
+          AWS_DEPLOY_ROLE_ARN: ${{ vars.AWS_DEPLOY_ROLE_ARN }}
+          AWS_REGION: ${{ vars.AWS_REGION }}
+          ECS_CLUSTER: ${{ vars.ECS_CLUSTER }}
+          ECS_SERVICE: ${{ vars.ECS_SERVICE }}
+          CODEDEPLOY_APP: ${{ vars.CODEDEPLOY_APP }}
+          CODEDEPLOY_GROUP: ${{ vars.CODEDEPLOY_GROUP }}
+          AZURE_CLIENT_ID: ${{ vars.AZURE_CLIENT_ID }}
+          AZURE_SUBSCRIPTION_ID: ${{ vars.AZURE_SUBSCRIPTION_ID }}
+          AZURE_RESOURCE_GROUP: ${{ vars.AZURE_RESOURCE_GROUP }}
+          AZURE_CONTAINER_APP: ${{ vars.AZURE_CONTAINER_APP }}
+        run: |
+          set -eu
+          selected=${DISPATCH_TARGET:-all}
+          if [ "$selected" != "all" ] && [ "$selected" != "$TARGET" ]; then
+            echo "Skipped $TARGET (dispatch target=$selected)" >> "$GITHUB_STEP_SUMMARY"
+            exit 0
+          fi
+
+          case "$TARGET" in
+            gcp)
+              if [ -z "${GCP_WIF_PROVIDER:-}" ] || [ -z "${GCP_PROJECT:-}" ]; then
+                echo "Skipped gcp: GCP_WIF_PROVIDER or GCP_PROJECT unset" >> "$GITHUB_STEP_SUMMARY"
+                exit 0
+              fi
+              CONFORMANCE=1 EVENT_BUS=pubsub sh gates/eventbus-conformance.sh
+              CONFORMANCE=1 STATE_STORE=firestore sh gates/statestore-conformance.sh
+              if [ -n "${OCI_REGISTRY_REPO:-}${ARTIFACT_REGISTRY_REPOSITORY:-}" ]; then
+                CONFORMANCE=1 REGISTRY=artifact-registry sh gates/registry-conformance.sh
+              fi
+              sh adapters/managed-prometheus/ready.sh
+              if [ -n "${CLOUD_WORKFLOW_NAME:-}" ]; then
+                sh adapters/cloud-workflows/ready.sh
+              fi
+              if [ -n "${CLOUD_DEPLOY_PIPELINE:-}" ]; then
+                METRICS=managed-prometheus ./go delivery-conformance DELIVERY=cloud-deploy
+              fi
+              ;;
+            oci-registry)
+              if [ -z "${OCI_REGISTRY_REPO:-}" ]; then
+                echo "Skipped oci-registry: OCI_REGISTRY_REPO unset" >> "$GITHUB_STEP_SUMMARY"
+                exit 0
+              fi
+              if [ -z "${COSIGN_KMS_KEY:-}" ] && [ -n "${ACTIONS_ID_TOKEN_REQUEST_URL:-}" ] && [ -n "${ACTIONS_ID_TOKEN_REQUEST_TOKEN:-}" ]; then
+                COSIGN_IDENTITY_TOKEN=$(printf 'Authorization: bearer %s\n' "$ACTIONS_ID_TOKEN_REQUEST_TOKEN" | \
+                  curl -fsSL -H @- "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=sigstore" | jq -er .value)
+                export COSIGN_IDENTITY_TOKEN
+              fi
+              CONFORMANCE=1 REGISTRY=oci-registry sh gates/registry-conformance.sh
+              ;;
+            aws)
+              if [ -z "${AWS_DEPLOY_ROLE_ARN:-}" ] || [ -z "${ECS_CLUSTER:-}" ]; then
+                echo "Skipped aws: AWS_DEPLOY_ROLE_ARN or ECS_CLUSTER unset" >> "$GITHUB_STEP_SUMMARY"
+                exit 0
+              fi
+              ./go delivery-conformance DELIVERY=outside/aws-ecs-codedeploy ADAPTERS_PATH="$PWD/plugins/cloud"
+              ;;
+            azure)
+              if [ -z "${AZURE_CLIENT_ID:-}" ] || [ -z "${AZURE_CONTAINER_APP:-}" ]; then
+                echo "Skipped azure: AZURE_CLIENT_ID or AZURE_CONTAINER_APP unset" >> "$GITHUB_STEP_SUMMARY"
+                exit 0
+              fi
+              ./go delivery-conformance DELIVERY=outside/azure-container-apps ADAPTERS_PATH="$PWD/plugins/cloud"
+              ;;
+          esac
+          echo "Passed $TARGET keyless OIDC conformance" >> "$GITHUB_STEP_SUMMARY"
