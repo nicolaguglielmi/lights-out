@@ -31,6 +31,18 @@ Before every push, check the commits that are not on `origin/main` yet:
 data listed above. If anything turns up, fix the commits before they leave
 the machine.
 
+## How work reaches `main`
+
+One milestone per branch. A branch reaches `main` only through a `land/*`
+branch on which every workflow is green (package, self, stranger, podman,
+ci, site), whichever tool wrote it. Never accumulate commits on a local
+`main` and push them together: on 2026-11-25, 113 commits made that way
+held a weakened test suite, 22 static-analysis findings and a demo over
+its time budget, and none of it had been through a workflow.
+
+Heavy checks (`./go ci`, `./go demo`, image builds) run on GitHub's
+runners, not on the contributor's machine, unless the owner says otherwise.
+
 ## Secrets
 
 No secret in the repository, not even in examples: only `.env.example`, with
