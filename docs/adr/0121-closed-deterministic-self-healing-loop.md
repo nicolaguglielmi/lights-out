@@ -106,6 +106,12 @@ Both through `subprocess.Popen` with an explicit argv list, no shell, stdin clos
 
 No other numeric threshold is introduced. Perimeter size is deliberately unbounded: a very large merge gives a very large perimeter, which `core/spec.py` and the human who reads the ticket judge, rather than a cut-off picking arbitrary files out of it.
 
+## Alternatives
+
+- **Verbatim unredacted log capture or dropping secret-bearing lines.** Passing raw logs unredacted leaks `*_TOKEN=` or `Authorization` lines into incident JSON and model prompts, while dropping lines shifts `log:<n>` line anchors referenced by `core/postmortem.py`. Guessing arbitrary high-entropy strings would also false-positive on commit SHAs and digests. Rewriting only the three credential suffix shapes and `Authorization` header preserves line numbering and avoids false positives.
+- **Skipping perimeter derivation or bypassing `core/spec.py` for post-mortem tickets.** Leaving tickets without a `## Perimeter` forces manual editing on every rollback, while guessing globs when no `chain["merge"]` exists risks wrong scope, and auto-opening tickets without `core/spec.py` would bypass testable acceptance criteria. Deriving perimeters strictly from the rolled-back merge diff and test edges, and reporting `readiness` via `core/spec.py` without mutating ticket state, keeps the spec gate intact.
+- **Giving the `ops-triage` role an active rollback or kill-switch tool.** Giving the model an executable tool would violate ADR 0020 §3 ("triage proposes, nothing acts"). Keeping proposals as passive data and enforcing deterministic policy checks in `triage.mitigate()` (opt-in `AUTO_MITIGATE_ON_TRIAGE=on`, canary-only verification against `RELEASE_RECORD`, explicit `argv` execution, and append-only `MITIGATIONS_LOG`) preserves the safety boundary.
+
 ## Consequences
 
 - An automatic incident now carries the tail of the canary log (when one exists) and the failing stage's numbers in structured form, with secrets rewritten. The post-mortem role cites `log:<n>` anchors into a log that cannot leak a key.

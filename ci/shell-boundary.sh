@@ -18,18 +18,7 @@ name=shell-boundary
 
 limit=30
 host='core/doctor.sh core/attach.sh core/preflight.sh core/progress.sh'
-debt='
-core/crew.sh 87
-core/egress.sh 42
-core/launchpad.sh 70
-core/mutation-baseline.sh 32
-core/postmortem.sh 49
-core/promote.sh 84
-core/steps/ci.sh 85
-core/steps/release.sh 56
-core/steps/review.sh 71
-core/steps/rework.sh 51
-'
+debt=''
 
 # flaws ROOT HOST DEBT: what is wrong under ROOT/core and ROOT/gates, one
 # line each, or nothing.

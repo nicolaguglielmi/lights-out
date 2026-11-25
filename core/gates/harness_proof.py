@@ -114,8 +114,8 @@ def build_tree(t, root="."):
     shutil.copy(src("gates/harness-conformance.sh"), t + "/gates/")
     shutil.copytree(src(SUITE), t + "/" + SUITE)
     shutil.copy(src("ci/lib.sh"), t + "/ci/")
-    for f in ("__init__.py", "harness-check.sh", "egress.sh", "egress.py", "agents.py", "map.py", "tower.py",
-              "gates/__init__.py", "gates/harness.py"):
+    for f in ("__init__.py", "cmd_util.py", "harness-check.sh", "egress.sh", "egress_cmd.py", "egress.py",
+              "agents.py", "map.py", "tower.py", "gates/__init__.py", "gates/harness.py"):
         shutil.copy(src("core/" + f), t + "/core/" + f)
     shutil.copy(src(FAKE + "/egress_wrap.py"), t + "/proof-egress.py")
     shutil.copytree(src("roles/dev-worker"), t + "/roles/dev-worker")
