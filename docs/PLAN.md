@@ -1376,7 +1376,7 @@ Oggi il wrapper si installa con un `curl` e il light tier con `uv tool install l
 
 #### Sprint 6 Wave 7 — Parità delle Porte, Attestazioni CodeHost, Governance delle Soglie e Ratchet `ci/` (`M91`–`M94`)
 
-*Stato 2026-11-25 (quattro tracce parallele integrate su `main` in `e89d4ed`, verificate in Podman con `57/57` check di `make ci` e `2,791` test unitari):*
+*Stato 2026-11-25 (quattro tracce parallele integrate su `main` in `d4f47f9`, verificate in Podman con `57/57` check di `make ci` e `2,791` test unitari):*
 - **Conformità `11/11` delle porte (`M91`, [ADR 0133](adr/0133-unleash-antigravity-sdk-and-full-port-conformance.md)):** aggiunte le suite `Metrics` (`gates/metrics-conformance.sh`, `core/gates/metrics.py`) e `Orchestrator` (`gates/orchestrator-conformance.sh`, `core/gates/orchestrator.py`) con fixture `outside/*`, l'adapter `Flags` `adapters/unleash/` e l'`AgentHarness` Python non containerizzato `adapters/antigravity-sdk/`.
 - **Attestazioni di merge sul CodeHost (`M92`, [ADR 0134](adr/0134-codehost-merge-attestations.md)):** `attest.sh` in `adapters/github/`, `adapters/gitlab/` e `adapters/gitea/` (quest'ultimo con una ricevuta locale onesta), cablato in `core/provenance.py` come `attach` / `--attach` / `--attach-required` con file `.attestation-receipt.json` additivi che non toccano gli statement firmati.
 - **Governance delle soglie e ledger completo dei worker (`M93`, chiude `M17`, [ADR 0135](adr/0135-m17-thresholds-and-complete-worker-ledger.md)):** `core/thresholds.py` (`./go thresholds`) su `43` chiavi con provenienza e precedenza degli override, spesa parziale e budget-stop dei membri della rete, `.crew/releases.jsonl`, vista TUI `6` e vista console `#thresholds`.

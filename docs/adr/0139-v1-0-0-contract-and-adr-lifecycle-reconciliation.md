@@ -23,7 +23,7 @@ Ahead of cutting `v1.0.0` GA across Sprints 6–7 (`M91`–`M97`), auditing `doc
 ## Decision
 
 1. **Pre-`0112` ADR Lifecycle Reconciliation (`0001`–`0111`):**
-   - Update `60` files across `docs/adr/0001`–`0111` after inspecting each ADR against `main` (`e89d4ed`), `ci/logbook.sh`, `core/map.py`, and `package/wiki.py` (confirmed zero tests assert literal `proposed` on committed repo ADRs):
+   - Update `60` files across `docs/adr/0001`–`0111` after inspecting each ADR against `main` (`d4f47f9`), `ci/logbook.sh`, `core/map.py`, and `package/wiki.py` (confirmed zero tests assert literal `proposed` on committed repo ADRs):
      - Reconcile `53` previously `proposed` shipped ADRs (`0042`, `0044`, `0045`, `0047`, `0048`, `0049`, `0051`–`0056`, `0059`–`0063`, `0065`, `0066`, `0068`, `0069`, `0071`–`0095`, `0097`, `0099`, `0100`, `0103`, `0105`, `0108`, `0111`) plus `0036` to `- Status: accepted` while preserving existing amendment notes.
      - Normalize `0098` and `0101` from `- **Status**: Accepted` to `- Status: accepted` so `core/map.py` and `package/wiki.py` index every ADR consistently.
      - Mark `0028` as `- Status: superseded by ADR 0057 (...)` and `0031` as `- Status: superseded in part (...)`.
@@ -41,14 +41,14 @@ Ahead of cutting `v1.0.0` GA across Sprints 6–7 (`M91`–`M97`), auditing `doc
 
 ## Provenance
 
-Every count and status decision in this ADR was measured directly from committed files and Podman checks at `e89d4ed` on `2026-11-25` (`adr_gov`, `ci/logbook.sh`, `ci/wiki.sh`, `ci/map.sh`, `ci/docs-drift.sh`, `ci/authors.sh`, and `gitleaks`):
+Every count and status decision in this ADR was measured directly from committed files and Podman checks at `d4f47f9` on `2026-11-25` (`adr_gov`, `ci/logbook.sh`, `ci/wiki.sh`, `ci/map.sh`, `ci/docs-drift.sh`, `ci/authors.sh`, and `gitleaks`):
 
 | Quantity / Scope | Measured Value | Provenance / Source |
 | :--- | :--- | :--- |
-| Audited `0001`–`0111` ADRs | `108` files (`0067`, `0070`, `0096` absent) | Direct directory inspection of `docs/adr/` at `e89d4ed` |
+| Audited `0001`–`0111` ADRs | `108` files (`0067`, `0070`, `0096` absent) | Direct directory inspection of `docs/adr/` at `d4f47f9` |
 | Reconciled `0001`–`0111` distribution | `105` `accepted`, `2` `superseded`, `1` `experimental`, `0` `proposed` | Status header scan verified against `ROADMAP.md`, `docs/ARCHITECTURE.md`, and `core/map.py` |
 | `ADR 0112`–`0136` audit (read-only) | `25` files: `17` `accepted`, `8` `proposed` | Inspected `docs/adr/0112`–`0136`; left unmodified to preserve `M97` file boundaries |
-| Baseline CI checks at `e89d4ed` | `57/57` `CI_CHECKS`, `2,791/2,791` `ci/core-tests.sh` tests | Verified in Sprint 6 integration & independent audit (`make ci`, `ci/core-tests.sh`) |
+| Baseline CI checks at `d4f47f9` | `57/57` `CI_CHECKS`, `2,791/2,791` `ci/core-tests.sh` tests | Verified in Sprint 6 integration & independent audit (`make ci`, `ci/core-tests.sh`) |
 | Tracked enterprise farm milestones | `25` milestones (`M72`–`M89` plus `M91`–`M97`) | Recorded in `docs/plans/enterprise-farm-roadmap.md` (`M90` retired as core shell-debt milestone) |
 
 ## Alternatives
