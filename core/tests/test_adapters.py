@@ -19,6 +19,7 @@ import stat
 import tempfile
 import unittest
 from pathlib import Path
+from unittest import mock
 
 from core import adapters
 
@@ -161,11 +162,15 @@ class AdmitTest(AdaptersCase):
         env = dict(self.env, STATE_STORE="sqlite", EVENT_BUS="outside/json-files")
         self.assertIn("EVENT_BUS=outside/json-files", self.refusal(env))
 
+    def test_all_eleven_ports_have_conformance_suites(self):
+        self.assertEqual(adapters.NO_SUITE, ())
+        self.assertEqual(len(adapters.SUITES), 11)
+
     def test_a_port_without_a_suite_is_refused(self):
-        for port in ("ORCHESTRATOR", "METRICS"):
-            env = dict(self.env, STATE_STORE="sqlite", **{port: "outside/json-files"})
+        with mock.patch.object(adapters, "NO_SUITE", ("CUSTOM_PORT",)):
+            env = dict(self.env, STATE_STORE="sqlite", CUSTOM_PORT="outside/json-files")
             line = self.refusal(env)
-            self.assertIn(f"{port}=outside/json-files", line)
+            self.assertIn("CUSTOM_PORT=outside/json-files", line)
             self.assertIn("no conformance suite", line)
 
     def test_every_port_with_a_suite_can_be_admitted(self):
@@ -173,7 +178,9 @@ class AdmitTest(AdaptersCase):
                   "STATE_STORE": "statestore-conformance", "EVENT_BUS": "eventbus-conformance",
                   "TRACKER": "tracker-conformance", "AGENT_HARNESS": "harness-conformance",
                   "REGISTRY": "registry-conformance", "FLAGS": "flags-conformance",
-                  "CHARTS": "charts-conformance"}
+                  "CHARTS": "charts-conformance", "ORCHESTRATOR": "orchestrator-conformance",
+                  "METRICS": "metrics-conformance"}
+        self.assertEqual(set(suites), set(adapters.SUITES))
         for port, suite in suites.items():
             env = dict(self.env, STATE_STORE="sqlite")
             env[port] = "outside/json-files"
@@ -288,11 +295,16 @@ class TrialTest(AdaptersCase):
         self.assertEqual(self.call("register", "STATE_STORE", "statestore-conformance", env=env)[:2], (0, ""))
         self.assertFalse(Path(".crew/adapters/register").exists())
 
-    def test_trial_of_a_port_without_a_suite_is_refused(self):
-        env = dict(self.env, ORCHESTRATOR="outside/json-files")
-        code, out, err = self.call("trial", "ORCHESTRATOR", env=env)
+    def test_trial_of_an_unknown_port_or_port_without_a_suite_is_refused(self):
+        code, out, err = self.call("trial", "UNKNOWN_PORT", env=self.env)
         self.assertEqual(code, 1)
-        self.assertIn("no conformance suite", err)
+        self.assertEqual(out, "")
+        self.assertIn("is not a port", err)
+        with mock.patch.object(adapters, "NO_SUITE", ("CUSTOM_PORT",)):
+            env = dict(self.env, CUSTOM_PORT="outside/json-files")
+            code, out, err = self.call("trial", "CUSTOM_PORT", env=env)
+            self.assertEqual(code, 1)
+            self.assertIn("no conformance suite", err)
 
     def test_tracker_can_be_tried_registered_and_admitted(self):
         env = dict(self.env, STATE_STORE="sqlite", TRACKER="outside/json-files")
@@ -304,6 +316,18 @@ class TrialTest(AdaptersCase):
         env = dict(self.env, STATE_STORE="sqlite", CHARTS="outside/json-files")
         self.assertIn("charts-conformance", self.refusal(env))
         self.prove("CHARTS", "charts-conformance", env)
+        self.assertTrue(self.admitted(env))
+
+    def test_metrics_can_be_tried_registered_and_admitted(self):
+        env = dict(self.env, STATE_STORE="sqlite", METRICS="outside/json-files")
+        self.assertIn("metrics-conformance", self.refusal(env))
+        self.prove("METRICS", "metrics-conformance", env)
+        self.assertTrue(self.admitted(env))
+
+    def test_orchestrator_can_be_tried_registered_and_admitted(self):
+        env = dict(self.env, STATE_STORE="sqlite", ORCHESTRATOR="outside/json-files")
+        self.assertIn("orchestrator-conformance", self.refusal(env))
+        self.prove("ORCHESTRATOR", "orchestrator-conformance", env)
         self.assertTrue(self.admitted(env))
 
 
