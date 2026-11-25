@@ -7,7 +7,7 @@
 
 ## Context
 
-Two public interface gaps remained between single-repository operation and `v1.0.0` ecosystem adoption:
+Two public interface gaps remained between single-repository operation and adoption across many repositories:
 
 1. **Multi-repository federation boundary (`docs/PLAN.md` §14):** [ADR 0029](0029-focus-governed-autonomy-app-as-a-port.md) established the boundary rule that multi-engagement portfolio management lives in an external consumer rather than inside `lights-out`, and that any hook required by external consumers enters openly as a public, read-only port. Without a dedicated read-only aggregation hook (`core/portfolio.py` and `core/portfolio.sh`), external fleet consumers had no versioned schema (`lights-out/portfolio/1.0`) summarizing contract health, open tickets, held canaries, human-turn queues, mainline status, spend, and measured DORA metrics across multiple repositories.
 2. **Contract `v1.0` freeze ([adoption-roadmap-2026-11.md](../plans/adoption-roadmap-2026-11.md) §5):** Adopters building workflows, GitHub Actions, and attached contracts against `.lights-out/workload.env`, the `TOOLCHAIN_IMAGE` forms, and the `1`-line gate stdout contract (`ci/lib.sh`) needed a formal `v1.0` specification (`core/contract_spec.py`) and an automated CI gate (`ci/contract-v1.sh`, `ci/checks/contract_v1.py`) guaranteeing backward compatibility when `CONTRACT_VERSION` is omitted and catching breaking schema/version drift.

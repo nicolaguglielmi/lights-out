@@ -10,7 +10,7 @@
 //
 // The agent needs git, curl, iconv, a container engine (docker or podman)
 // and the wrapper on PATH as `lights-out`:
-//   curl -fsSLo /usr/local/bin/lights-out https://raw.githubusercontent.com/nicolaguglielmi/lights-out/v1.0.0/lights-out
+//   curl -fsSLo /usr/local/bin/lights-out https://raw.githubusercontent.com/nicolaguglielmi/lights-out/v0.9.0/lights-out
 // and the checkout's full history (the base must be in it). The status goes
 // to a GitHub-shaped statuses endpoint, GitHub's or Gitea's, without the sha:
 //   LIGHTS_OUT_STATUSES=https://api.github.com/repos/<owner>/<repo>/statuses

@@ -78,7 +78,7 @@
 # ~/.local/state/lights-out/<repository>. Keys are passed by name only.
 set -eu
 
-version=1.0.0
+version=0.9.0
 gates_image=${LIGHTS_OUT_IMAGE:-ghcr.io/nicolaguglielmi/lights-out-gates:$version}
 full_image=${LIGHTS_OUT_IMAGE:-ghcr.io/nicolaguglielmi/lights-out:$version}
 keys="GEMINI_API_KEY ANTHROPIC_API_KEY OPENAI_API_KEY ZAI_API_KEY"

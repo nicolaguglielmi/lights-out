@@ -1,6 +1,6 @@
 # ADR 0036 — The dev-worker step as a network: a `network` AgentHarness adapter fans one ticket out to members with disjoint perimeters, and the harness governs what they produce together as one PR
 
-- Status: accepted (reconciled at v1.0.0: `adapters/network/run.sh` shipped, L0 ticket 0012 fixtures remain hand-written, opt-in autonomous `## Network` spec-split + parallel execution added by ADR 0120, and per-member spend accounting added by ADR 0135; adds `network` to plan §4's `AgentHarness` row, which lists `replay`, `gemini-cli`, `antigravity-sdk` and `adk` — see decision 1; amends ADR 0017 §4 [crew picks its harness from `CREW_HARNESS` first]; consistent with ADR 0021 §5 [the perimeter], ADR 0029 [six roles, the harness is the product] and ADR 0035 [no tower state is added])
+- Status: accepted (reconciled at 0.9.0: `adapters/network/run.sh` shipped, L0 ticket 0012 fixtures remain hand-written, opt-in autonomous `## Network` spec-split + parallel execution added by ADR 0120, and per-member spend accounting added by ADR 0135; adds `network` to plan §4's `AgentHarness` row, which lists `replay`, `gemini-cli`, `antigravity-sdk` and `adk` — see decision 1; amends ADR 0017 §4 [crew picks its harness from `CREW_HARNESS` first]; consistent with ADR 0021 §5 [the perimeter], ADR 0029 [six roles, the harness is the product] and ADR 0035 [no tower state is added])
 - Date: 2026-11-03
 - Milestone: none yet; a branch for the owner's review (`docs/plans/agentic-network.md`)
 

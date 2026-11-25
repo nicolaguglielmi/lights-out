@@ -1,4 +1,4 @@
-# Live Validation Report — `v1.0.0` Reviewer Catch-Rate & `MAP_BRIEF` Evaluation
+# Live validation report: the reviewer's catch rate and `MAP_BRIEF`
 
 - **Date:** 2026-11-25
 - **Workbench image:** `localhost/lights-out-workbench:4150781479` (Podman, Python `3.13.5`, `google-adk 2.14.0`, `gitleaks 8.30.1`)

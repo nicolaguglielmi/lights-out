@@ -139,16 +139,16 @@ steps:
   - uses: actions/checkout@v7
     with:
       fetch-depth: 0
-  - uses: nicolaguglielmi/lights-out@v1.0.0
+  - uses: nicolaguglielmi/lights-out@v0.9.0
 ```
 
 The gates read a contract committed in your repository, `.lights-out/`: the test command, the mutation scope and baseline, the runners. A range is judged by the contract at its base, so a pull request cannot loosen what judges it. On a repository with none, the first check is NO-GO, because nothing may judge without a contract at the base ([ADR 0064](docs/adr/0064-the-first-run-drafts-the-contract.md)). After 0.3.0 that check also carries the fix: the Action drafts the contract from the base with `lights-out init`, puts its three small files in the check's summary for review, and attaches the whole draft to the run as an artifact, with the two commands that commit it. One commit, and the next check is judged. The 0.3.0 check prints the NO-GO line only; until the next release, draft the contract with the wrapper below.
 
-`gates: test-proof` or `gates: test-integrity` runs one part. Those two are also standalone Actions, `nicolaguglielmi/lights-out/actions/test-proof@v1.0.0` and `nicolaguglielmi/lights-out/actions/test-integrity@v1.0.0`; each also has a repository of its own for its Marketplace page, `nicolaguglielmi/test-proof@v1.0.0` and `nicolaguglielmi/test-integrity@v1.0.0`. [The guide](docs/use-on-your-repo.md#the-action) has the details, and [the hook recipes](docs/use-on-your-repo.md#hook-recipes-for-coding-agents) run the gates before a coding agent commits.
+`gates: test-proof` or `gates: test-integrity` runs one part. Those two are also standalone Actions, `nicolaguglielmi/lights-out/actions/test-proof@v0.9.0` and `nicolaguglielmi/lights-out/actions/test-integrity@v0.9.0`; each also has a repository of its own for its Marketplace page, `nicolaguglielmi/test-proof@v0.9.0` and `nicolaguglielmi/test-integrity@v0.9.0`. [The guide](docs/use-on-your-repo.md#the-action) has the details, and [the hook recipes](docs/use-on-your-repo.md#hook-recipes-for-coding-agents) run the gates before a coding agent commits.
 
 On a pull request of a repository that is not lights-out ([the probe](https://github.com/nicolaguglielmi/lights-out-probe/pull/1)), each in a job of its own so that the first pull of the image is inside the time, the Action posted its check in 27 s, `test-proof` in 14 s and `test-integrity` in 25 s.
 
-On your machine, the `lights-out` wrapper runs init and the gates from the gates image, `ghcr.io/nicolaguglielmi/lights-out-gates:1.0.0` (amd64 and arm64), inside your repository. You need podman or docker, and git. The image is 508 MB unpacked (amd64), with no cloud toolchain in it. `lights-out init` and `gates` took 48 s on a clean runner (`./go demo-package`). The full image, `ghcr.io/nicolaguglielmi/lights-out:1.0.0` (1,246 MB, 1.77 GB before gcloud and terraform left it), runs `triage`, `postmortem`, the socket-free state commands (`next`, `dora`, `spend`, `cloud-setup`) and the opt-in plane and workflow commands ([ADR 0105](docs/adr/0105-plane-and-workflow-from-wrapper.md)).
+On your machine, the `lights-out` wrapper runs init and the gates from the gates image, `ghcr.io/nicolaguglielmi/lights-out-gates:0.9.0` (amd64 and arm64), inside your repository. You need podman or docker, and git. The image is 508 MB unpacked (amd64), with no cloud toolchain in it. `lights-out init` and `gates` took 48 s on a clean runner (`./go demo-package`). The full image, `ghcr.io/nicolaguglielmi/lights-out:0.9.0` (1,246 MB, 1.77 GB before gcloud and terraform left it), runs `triage`, `postmortem`, the socket-free state commands (`next`, `dora`, `spend`, `cloud-setup`) and the opt-in plane and workflow commands ([ADR 0105](docs/adr/0105-plane-and-workflow-from-wrapper.md)).
 
 Version 0.3.0 was published on 2026-11-09 by the tag `v0.3.0`. From a clone, `./go package-gates` builds the same image, and `LIGHTS_OUT_IMAGE=localhost/lights-out-gates:dev` points the wrapper at it.
 
@@ -162,7 +162,7 @@ From `0.9.0`, PyPI `lights-out-gates` ships both `lights-out` and `lights-out-ga
 
 ```sh
 mkdir -p ~/.local/bin   # any directory on your PATH
-curl -fsSL -o ~/.local/bin/lights-out https://raw.githubusercontent.com/nicolaguglielmi/lights-out/v1.0.0/lights-out
+curl -fsSL -o ~/.local/bin/lights-out https://raw.githubusercontent.com/nicolaguglielmi/lights-out/v0.9.0/lights-out
 chmod +x ~/.local/bin/lights-out
 ```
 
@@ -180,7 +180,7 @@ lights-out test-integrity          # only: no test weakened, the changed lines' 
 Each command prints one line, named for itself. The images are signed keyless with Sigstore, through GitHub's OIDC token. There is no key to trust. To check one:
 
 ```sh
-cosign verify ghcr.io/nicolaguglielmi/lights-out-gates:1.0.0 \
+cosign verify ghcr.io/nicolaguglielmi/lights-out-gates:0.9.0 \
   --certificate-identity-regexp '^https://github.com/nicolaguglielmi/lights-out/.github/workflows/package.yml@refs/tags/v' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
 ```
