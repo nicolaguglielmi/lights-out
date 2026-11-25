@@ -1,0 +1,8 @@
+# name: traffic
+sum by (service_version) (rate(http_server_request_duration_seconds_count[1m]) * on (job, instance) group_left (service_version) max by (job, instance, service_version) (target_info))
+
+# name: error_rate
+sum by (service_version) (rate(http_server_request_duration_seconds_count{http_response_status_code=~"5.."}[1m]) * on (job, instance) group_left (service_version) max by (job, instance, service_version) (target_info)) / sum by (service_version) (rate(http_server_request_duration_seconds_count[1m]) * on (job, instance) group_left (service_version) max by (job, instance, service_version) (target_info))
+
+# name: latency_p95
+histogram_quantile(0.95, sum by (service_version, le) (rate(http_server_request_duration_seconds_bucket[1m]) * on (job, instance) group_left (service_version) max by (job, instance, service_version) (target_info)))

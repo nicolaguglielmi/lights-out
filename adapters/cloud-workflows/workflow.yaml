@@ -1,0 +1,71 @@
+# Google Cloud Workflows definition for lights-out L3 step orchestration (ADR 0128).
+main:
+  params: [args]
+  steps:
+    - validate_input:
+        switch:
+          - condition: ${not("ticket" in args and "step" in args)}
+            raise:
+              message: "cloud-workflows requires args.ticket and args.step"
+    - resolve_target:
+        assign:
+          - job_name: ${default(map.get(args, "tower_job"), sys.get_env("CLOUD_RUN_TOWER_JOB", ""))}
+          - tower_url: ${default(map.get(args, "tower_url"), sys.get_env("CLOUD_WORKFLOW_TOWER_URL", ""))}
+          - project_id: ${sys.get_env("GOOGLE_CLOUD_PROJECT_ID")}
+          - region: ${default(map.get(args, "region"), "us-central1")}
+    - dispatch_mode:
+        switch:
+          - condition: ${tower_url != ""}
+            next: call_http_step
+          - condition: ${job_name != ""}
+            next: run_cloud_run_job
+        next: missing_target
+    - call_http_step:
+        try:
+          call: http.post
+          args:
+            url: ${tower_url + "/tower/step"}
+            auth:
+              type: OIDC
+            body:
+              ticket: ${args.ticket}
+              step: ${args.step}
+            timeout: 300
+          result: step_response
+        retry:
+          predicate: ${http.default_retry_predicate}
+          max_retries: 2
+          backoff:
+            initial_delay: 2
+            max_delay: 16
+            multiplier: 2
+        next: finish_http
+    - finish_http:
+        return:
+          status: "SUCCEEDED"
+          ticket: ${args.ticket}
+          step: ${args.step}
+          response: ${step_response.body}
+    - run_cloud_run_job:
+        call: googleapis.run.v2.projects.locations.jobs.run
+        args:
+          name: ${"projects/" + project_id + "/locations/" + region + "/jobs/" + job_name}
+          body:
+            overrides:
+              containerOverrides:
+                - env:
+                    - name: TICKET
+                      value: ${args.ticket}
+                    - name: STEP
+                      value: ${args.step}
+        result: job_result
+        next: finish_job
+    - finish_job:
+        return:
+          status: "SUCCEEDED"
+          ticket: ${args.ticket}
+          step: ${args.step}
+          execution: ${job_result.name}
+    - missing_target:
+        raise:
+          message: "set tower_url/CLOUD_WORKFLOW_TOWER_URL or tower_job/CLOUD_RUN_TOWER_JOB"

@@ -10,7 +10,8 @@ otherwise one NO-GO naming every item that fails, `item (why)` joined by
               ($CONFORMANCE_DIR/delivery-<adapter>.env, written by the
               delivery suite on GO, docs/adr/0057 §9) whose HASH is the
               adapter's hash today: changed since it passed is not passed
-  metrics     METRICS=promql with METRICS_URL set, and that endpoint answers
+  metrics     METRICS=promql (with METRICS_URL) or METRICS=managed-prometheus
+              (with METRICS_URL or GCP_PROJECT), and that endpoint answers
               the derived readiness query from active slo.promql with >= 1 sample
   secrets     the env file holds no value, other than empty or replace-me,
               for a key ending in _KEY, _TOKEN, _SECRET or _PASSWORD, or for
@@ -29,6 +30,7 @@ equal).
 
 import hashlib
 import json
+import math
 import os
 import re
 
@@ -65,9 +67,10 @@ def env_values(path, key):
         return [ln.rstrip("\n")[len(key) + 1:] for ln in fh if ln.startswith(key + "=")]
 
 
-def query_promql(expr):
-    """The promql adapter's answer to EXPR, or None when it fails."""
-    got = proc(["sh", "adapters/promql/query.sh", expr], capture_output=True, text=True)
+def query_promql(expr, adapter="promql", env=None):
+    """The metrics adapter's answer to EXPR, or None when it fails."""
+    run_env = os.environ if env is None else env
+    got = proc(["sh", f"adapters/{adapter}/query.sh", expr], env=run_env, capture_output=True, text=True)
     return got.stdout if got.returncode == 0 else None
 
 
@@ -77,7 +80,7 @@ def samples(answer):
         total = sum(float(r["value"][1]) for r in json.loads(answer)["data"]["result"])
     except (TypeError, ValueError, KeyError, IndexError):
         return 0
-    return int(total) if total == int(total) and total > 0 else 0
+    return int(total) if math.isfinite(total) and total > 0 and total == int(total) else 0
 
 
 def delivery(env, records):
@@ -128,18 +131,25 @@ def _readiness_query(env):
 
 
 def metrics(env, query):
-    if env.get("METRICS", "") != "promql":
-        return False, f"METRICS={env.get('METRICS', '')} is not promql on an endpoint you name"
-    if not env.get("METRICS_URL"):
+    m = env.get("METRICS", "")
+    if m not in ("promql", "managed-prometheus"):
+        return False, f"METRICS={m} is not promql or managed-prometheus on an endpoint you name"
+    url = (env.get("METRICS_URL") or "").strip()
+    proj = (env.get("GCP_PROJECT") or env.get("GOOGLE_CLOUD_PROJECT") or "").strip()
+    if m == "promql" and not url:
         return False, "METRICS_URL is not set"
+    if m == "managed-prometheus" and not url and (not proj or proj == "replace-me"):
+        return False, "METRICS_URL or GCP_PROJECT is not set"
     try:
         metric_name, expr = _readiness_query(env)
     except (OSError, ValueError) as exc:
         return False, str(exc)
-    n = samples(query(expr) or "")
+    raw = query(expr, adapter=m, env=env) if query is query_promql else query(expr)
+    n = samples(raw or "")
+    source = "METRICS_URL" if url else f"managed-prometheus ({proj})"
     if n > 0:
-        return True, f"metrics from METRICS_URL, {n} {metric_name} series"
-    return False, f"METRICS_URL answers no {metric_name} series, or does not answer"
+        return True, f"metrics from {source}, {n} {metric_name} series"
+    return False, f"{source} answers no {metric_name} series, or does not answer"
 
 
 def secrets(envfile):
