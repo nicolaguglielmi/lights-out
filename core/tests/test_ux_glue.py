@@ -96,12 +96,12 @@ def _extract_env_flags(argv: list[str]) -> list[str]:
 
 
 class PromoteHintAndShellBoundaryTests(unittest.TestCase):
-    """ADR 0108 §3: promote_hint.py emits clear stderr guidance; promote.sh stays at 84 code lines."""
+    """ADR 0108 §3: promote_hint.py emits clear stderr guidance; promote.sh is a thin wrapper."""
 
     def test_promote_sh_code_line_count_respects_shell_boundary(self) -> None:
         lines = (ROOT / "core" / "promote.sh").read_text(encoding="utf-8").splitlines()
         code_lines = [ln for ln in lines if ln.strip() and not ln.lstrip().startswith("#")]
-        self.assertEqual(len(code_lines), 84, f"core/promote.sh has {len(code_lines)} code lines, want 84")
+        self.assertLessEqual(len(code_lines), 25, f"core/promote.sh has {len(code_lines)} code lines, want <= 25")
 
     def test_promote_hint_stdout_empty_and_guides_local_proxy_vs_external(self) -> None:
         hint_py = ROOT / "core" / "promote_hint.py"

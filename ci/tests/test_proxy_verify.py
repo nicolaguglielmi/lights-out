@@ -365,13 +365,16 @@ class ProxyVerifySpecTest(unittest.TestCase):
             core_dir = tmp_path / "core"
             core_dir.mkdir()
             shutil_src = (ROOT / "core/launchpad.sh").read_text(encoding="utf-8")
+            cmd_src = (ROOT / "core/launchpad_cmd.py").read_text(encoding="utf-8")
             (core_dir / "launchpad.sh").write_text(shutil_src, encoding="utf-8")
             # Stub rollback/deploy/etc. using PATH or checking before rollback fails:
             # launchpad checks STABLE_VERSION only after deploy/verify/promote exist;
-            # confirm core/launchpad.sh source itself no longer curls /healthz.
+            # confirm core/launchpad.sh and core/launchpad_cmd.py no longer curl /healthz.
             self.assertNotIn("/healthz", shutil_src)
-            self.assertIn('delivery="adapters/$DELIVERY"', shutil_src)
-            self.assertRegex(shutil_src, r"\$delivery/status\.sh")
+            self.assertNotIn("/healthz", cmd_src)
+            self.assertIn("core/launchpad_cmd.py", shutil_src)
+            self.assertIn('delivery_dir = Path("adapters") / delivery_name', cmd_src)
+            self.assertRegex(cmd_src, r'delivery_dir / "status\.sh"')
 
     def test_plain_workload_has_no_instrumentation_and_broken_patch(self) -> None:
         plain = ROOT / "workloads/plain"

@@ -695,22 +695,22 @@ fi
 cd "$repo"
 
 # The patch is stored for a worker's attempt, never for a reviewer's run
-# (docs/adr/0071 §1): assign.sh and rework.sh call `tower.py task --patch`,
-# review.sh calls `tower.py task` without it. Read with awk; the matcher is
+# (docs/adr/0071 §1): assign.sh and step_rework.py call `tower.py task --patch`,
+# step_review.py calls `tower.py task` without it. Read with awk; the matcher is
 # tried first on a planted line each way, so it can say no and can say yes.
-asks_for_patch() { awk '/tower\.py task/ && /--patch/ { found = 1 } END { exit found ? 0 : 1 }'; }
-calls_task() { awk '/tower\.py task/ { found = 1 } END { exit found ? 0 : 1 }'; }
+asks_for_patch() { awk '/tower\.py.*task/ && /--patch/ { found = 1 } END { exit found ? 0 : 1 }'; }
+calls_task() { awk '/tower\.py.*task/ { found = 1 } END { exit found ? 0 : 1 }'; }
 # shellcheck disable=SC2016 # the planted lines are text, not expansions
 printf 'task=$(python3 core/tower.py task --patch "$d/run.json")\n' | asks_for_patch || fail_case patch-matcher "the matcher misses a call with --patch"
 # shellcheck disable=SC2016 # the planted lines are text, not expansions
 ! printf 'task=$(python3 core/tower.py task "$d/run.json")\n' | asks_for_patch || fail_case patch-matcher "the matcher sees --patch in a call without it"
 ! printf '# --patch is for workers\n' | asks_for_patch || fail_case patch-matcher "the matcher sees --patch away from a tower.py task call"
-for step in assign rework; do
-  calls_task < "$repo/core/steps/$step.sh" || fail_case "patch-$step" "core/steps/$step.sh does not call tower.py task at all; this check proves nothing"
-  asks_for_patch < "$repo/core/steps/$step.sh" || fail_case "patch-$step" "core/steps/$step.sh does not ask tower.py task for the patch (--patch)"
-done
-calls_task < "$repo/core/steps/review.sh" || fail_case patch-review "core/steps/review.sh does not call tower.py task at all; this check proves nothing"
-! asks_for_patch < "$repo/core/steps/review.sh" || fail_case patch-review "core/steps/review.sh asks tower.py task for a patch: a reviewer's run must store none"
+calls_task < "$repo/core/steps/assign.sh" || fail_case "patch-assign" "core/steps/assign.sh does not call tower.py task at all; this check proves nothing"
+asks_for_patch < "$repo/core/steps/assign.sh" || fail_case "patch-assign" "core/steps/assign.sh does not ask tower.py task for the patch (--patch)"
+calls_task < "$repo/core/step_rework.py" || fail_case "patch-rework" "core/step_rework.py does not call tower.py task at all; this check proves nothing"
+asks_for_patch < "$repo/core/step_rework.py" || fail_case "patch-rework" "core/step_rework.py does not ask tower.py task for the patch (--patch)"
+calls_task < "$repo/core/step_review.py" || fail_case patch-review "core/step_review.py does not call tower.py task at all; this check proves nothing"
+! asks_for_patch < "$repo/core/step_review.py" || fail_case patch-review "core/step_review.py asks tower.py task for a patch: a reviewer's run must store none"
 
 # (h) docs/adr/0033, ticket 0007: the real core/steps/ci.sh on a real git
 # range, a stub CodeHost and a stub Tracker. The base is this checkout's
@@ -736,7 +736,7 @@ if [ -z "$mismatch" ]; then
   printf '#!/bin/sh\nname=go-demo\n. ci/lib.sh\ngo_with "planted, always GO"\n' > "$g/host/gates/go-demo.sh"
   printf '#!/bin/sh\nname=nogo-demo\n. ci/lib.sh\nnogo "planted, always NO-GO" "a detail line"\n' > "$g/host/gates/nogo-demo.sh"
   cp ci/lib.sh "$g/host/ci/"
-  cp core/__init__.py core/risk.py core/policy.py core/perimeter.sh "$g/host/core/"
+  cp core/__init__.py core/cmd_util.py core/risk.py core/policy.py core/perimeter.sh core/step_ci.py "$g/host/core/"
   # gates/risk.sh judges through core/gates/ (docs/adr/0084).
   cp -R core/gates "$g/host/core/"
   rm -rf "$g/host/core/gates/__pycache__"

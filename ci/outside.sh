@@ -554,9 +554,22 @@ refused "eventbus symlink in tree" "EVENT_BUS=outside/file-eventbus-linked is re
 
 # --- b: a surface is never a judge (ADR 0058 §6, ADR 0095 §10) -------------------
 # The contexts the tower posts: the third argument of every status.sh call in core/.
-tower=$(awk '!/^[[:space:]]*#/ && /adapters\/\$CODE_HOST\/status\.sh"/ {
-    for (i = 1; i <= NF; i++) if ($i == "\"$status\"") { print $(i + 1); break }
-  }' core/*.sh core/steps/*.sh | sort -u)
+tower=$({
+  awk '!/^[[:space:]]*#/ && /adapters\/\$CODE_HOST\/status\.sh"/ {
+      for (i = 1; i <= NF; i++) if ($i == "\"$status\"") { print $(i + 1); break }
+    }' core/*.sh core/steps/*.sh
+  python3 - <<'PY'
+import ast, glob
+for path in sorted(glob.glob("core/*.py")):
+    tree = ast.parse(open(path, encoding="utf-8").read(), filename=path)
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Call) and len(node.args) >= 4:
+            if "status.sh" in ast.dump(node.args[0]):
+                arg = node.args[3]
+                if isinstance(arg, ast.Constant) and isinstance(arg.value, str):
+                    print(arg.value)
+PY
+} | sort -u)
 [ -n "$tower" ] || nogo "b: found no context the tower posts in core/; the check reads nothing"
 # The tower reads no commit status at all: no core file awaits one. The
 # conformance suites in core/gates/ drive await.sh to prove it, and are not
