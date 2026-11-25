@@ -11,8 +11,18 @@
 # (PATH, and git's safe.directory, workbench/Containerfile's ENV; without
 # it ci/attach.sh's probe ran git blind). The exit code is the verdict
 # (docs/adr/0042 §1).
+#
+# The checks run in a clone of their own, outside /tmp/lights-out/attached,
+# where the gates image keeps the checkout under judgment: some of the
+# tests run package/entrypoint.sh from a copy, and the entrypoint clones
+# into that path, which deleted the running checkout mid-suite (self,
+# 2026-11-25, runs 45695306774 and 45698750939).
 set -eu
 
+work=$(mktemp -d)
+# A copy, not a clone: test-proof runs this on a tree with uncommitted files.
+cp -a "$(pwd -P)/." "$work/repo"
+cd "$work/repo"
 exec env -i PATH="$PATH" HOME=/tmp NO_COLOR=1 \
   GIT_CONFIG_COUNT=1 GIT_CONFIG_KEY_0=safe.directory GIT_CONFIG_VALUE_0='*' \
   WORKBENCH_IMAGE="${WORKBENCH_IMAGE:?WORKBENCH_IMAGE not set; this runs inside the lights-out image}" \

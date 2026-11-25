@@ -131,11 +131,21 @@ jobs:
           head: ${{ steps.first.outputs.c2 }}
           image: localhost/lights-out-gates:dev
           name: "lights-out gates (Action test: first run, a NO-GO and a draft expected)"
+      # The artifact is listed a few seconds after the upload finalizes:
+      # twice the download right after it said "not found" (runs
+      # 45649324416 and 45698751190). Read it again, 60 s at most (a decision).
       - name: The draft the first run uploaded
-        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        with:
-          name: lights-out-draft-${{ github.job }}
-          path: ${{ runner.temp }}/first-draft
+        env:
+          GH_TOKEN: ${{ github.token }}
+          ART: lights-out-draft-${{ github.job }}
+          DEST: ${{ runner.temp }}/first-draft
+        run: |
+          set -u
+          i=0
+          until gh run download "$GITHUB_RUN_ID" -R "$GITHUB_REPOSITORY" -n "$ART" -D "$DEST"; do
+            i=$((i + 1)); [ "$i" -lt 12 ] || { echo "the artifact $ART is not there after 60 s"; exit 1; }
+            sleep 5
+          done
       - name: The draft is .lights-out/ and nothing else, names c1; committed as c3, then a good change as c4
         id: second
         env:
