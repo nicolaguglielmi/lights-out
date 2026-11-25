@@ -50,6 +50,7 @@ try:
     from . import dora as delivery
     from . import spend as ledger
     from . import network as contract_network
+    from . import thresholds as contract_thresholds
 except ImportError:  # run as a script: core/ is sys.path[0]
     from policy import PolicyError, effective
     from spec import fields
@@ -59,6 +60,7 @@ except ImportError:  # run as a script: core/ is sys.path[0]
     import dora as delivery
     import spend as ledger
     import network as contract_network
+    import thresholds as contract_thresholds
 
 SCHEMA = "lights-out/logbook/1.8"
 # The kanban's columns, the tower's states in its table's order (docs/adr/
@@ -347,6 +349,103 @@ def outcome(doc, tid, rels):
     return {"verdict": "pending", "judge": None, "line": None}
 
 
+_SAFE_ID = re.compile(r"^[A-Za-z0-9._-]+$")
+_JURY_FIELDS = ("mode", "cross_vendor", "author_provider", "reviewer_provider", "reviewer_model", "reviewer_harness", "reason")
+
+
+def _normalize_jury(raw):
+    if not isinstance(raw, dict):
+        return None
+    out = {}
+    for key in _JURY_FIELDS:
+        if key in raw and raw[key] is not None:
+            val = raw[key]
+            if isinstance(val, (str, bool)):
+                out[key] = val
+    return out or None
+
+
+def ticket_jury(doc, tid):
+    """Cross-provider review jury metadata from ticket doc or crew review output."""
+    for candidate in (
+        doc.get("jury") if isinstance(doc, dict) else None,
+        (doc.get("review") or {}).get("jury") if isinstance(doc, dict) and isinstance(doc.get("review"), dict) else None,
+    ):
+        norm = _normalize_jury(candidate)
+        if norm is not None:
+            return norm
+    crew_base = env("CREW_DIR", ".crew")
+    if crew_base and tid and _SAFE_ID.match(tid) and not tid.startswith("."):
+        run_obj = read_json(os.path.join(crew_base, tid, "review", "out", "run.json"))
+        if isinstance(run_obj, dict) and not is_unread(run_obj):
+            for candidate in (
+                run_obj.get("jury"),
+                (run_obj.get("recorded") or {}).get("jury") if isinstance(run_obj.get("recorded"), dict) else None,
+            ):
+                norm = _normalize_jury(candidate)
+                if norm is not None:
+                    return norm
+    return None
+
+
+def ticket_provenance_summary(doc, tid):
+    """Compact deterministic SLSA/in-toto receipt summary when present."""
+    if isinstance(doc, dict):
+        direct = doc.get("provenance_summary")
+        if isinstance(direct, dict):
+            return direct
+    prov_dir = env("PROVENANCE_DIR", ".crew/provenance")
+    version = (doc.get("release") or {}).get("version") if isinstance(doc, dict) and isinstance(doc.get("release"), dict) else None
+    for subject_id in (version, tid):
+        if not isinstance(subject_id, str) or not subject_id or not _SAFE_ID.match(subject_id) or subject_id.startswith("."):
+            continue
+        stmt_path = os.path.join(prov_dir, f"{subject_id}.intoto.json")
+        if not os.path.isfile(stmt_path):
+            continue
+        try:
+            with open(stmt_path, "rb") as fh:
+                stmt_bytes = fh.read()
+            stmt = json.loads(stmt_bytes.decode("utf-8"))
+        except (OSError, ValueError):
+            continue
+        if not isinstance(stmt, dict) or stmt.get("_type") != "https://in-toto.io/Statement/v1":
+            continue
+        pred = stmt.get("predicate") if isinstance(stmt.get("predicate"), dict) else {}
+        bundle_path = f"{stmt_path}.bundle"
+        has_bundle = os.path.isfile(bundle_path) and os.path.getsize(bundle_path) > 0
+        bundle_sha = None
+        if has_bundle:
+            try:
+                with open(bundle_path, "rb") as bfh:
+                    bundle_sha = hashlib.sha256(bfh.read()).hexdigest()
+            except OSError:
+                has_bundle = False
+        missing_list = [str(m) for m in (pred.get("missing") or []) if m is not None]
+        review_pred = pred.get("review") if isinstance(pred.get("review"), dict) else {}
+        summary = {
+            "subject": subject_id,
+            "statement": stmt_path,
+            "statement_sha256": hashlib.sha256(stmt_bytes).hexdigest(),
+            "predicate_type": stmt.get("predicateType"),
+            "signed": has_bundle,
+            "bundle": bundle_path if has_bundle else None,
+            "bundle_sha256": bundle_sha,
+            "missing": missing_list,
+            "missing_count": len(missing_list),
+            "complete": len(missing_list) == 0,
+            "adrs_count": len(pred.get("adrs") or []) if isinstance(pred.get("adrs"), list) else 0,
+            "agents_count": len(pred.get("agents") or []) if isinstance(pred.get("agents"), list) else 0,
+            "gates_count": len(pred.get("gates") or []) if isinstance(pred.get("gates"), list) else 0,
+        }
+        review_jury = _normalize_jury(review_pred.get("jury"))
+        if review_jury is not None:
+            summary["review_jury"] = review_jury
+        if isinstance(pred.get("attestation"), dict):
+            summary["codehost_attestation"] = pred["attestation"]
+        return summary
+    return None
+
+
 def tickets(rels, docs=None):
     """The tickets the tower holds; DOCS, when given, collects each one's tower document by id."""
     store = env("STATE_STORE")
@@ -374,7 +473,7 @@ def tickets(rels, docs=None):
             declared = fields(fh.read())
         history = doc.get("history") or []
         spec = pick(doc.get("spec"), ("title", "sha256", "criteria", "by", "verdict", "line", "at"))
-        out.append({
+        entry = {
             "id": tid,
             "title": (spec or {}).get("title") or file_title or tid,
             "origin": origin,
@@ -404,7 +503,14 @@ def tickets(rels, docs=None):
             "live": live(doc, tid),
             "intake": doc.get("intake") if isinstance(doc.get("intake"), str) else None,
             "screen": pick(doc.get("screen"), SCREEN_KEYS),
-        })
+        }
+        prov_sum = ticket_provenance_summary(doc, tid)
+        if prov_sum is not None:
+            entry["provenance_summary"] = prov_sum
+        jury_info = ticket_jury(doc, tid)
+        if jury_info is not None:
+            entry["jury"] = jury_info
+        out.append(entry)
     return out
 
 
@@ -466,15 +572,17 @@ def intakes(docs=None):
 
 def spend(held, docs):
     """`./go spend`'s report and words over the documents read for `tickets`
-    (docs/adr/0083, amendment §2); the tickets' error when they are unread."""
+    and optional `release` brief runs from RELEASES_LOG (docs/adr/0083, 0135);
+    the tickets' error when they are unread."""
     if is_unread(held):
         return held
-    got = ledger.report(docs)
+    rel_runs = ledger.release_ledger(env("RELEASES_LOG", ".crew/releases.jsonl"))
+    got = ledger.report(docs, release_runs=rel_runs)
     try:
         lim = ledger.limits()
     except ValueError as exc:
         lim = str(exc)
-    b = ledger.burn(docs, lim)
+    b = ledger.burn(docs, lim, release_runs=rel_runs)
     got.update(limits=unread(lim) if isinstance(lim, str) else lim, lines=ledger.lines(got, lim, b),
                summary=ledger.summary(got), burn=b)
     return got
@@ -898,6 +1006,8 @@ def roles(docs, held):
     known = contract_network.TABLE["roles"]
     order = [r for r in known if r in names] + [r for r in names if r not in known]
     runs = [(str(e.get("at") or ""), tid, e) for tid, doc in sorted(docs.items()) for e in ledger.ledger(doc)]
+    for e in ledger.release_ledger(env("RELEASES_LOG", ".crew/releases.jsonl")):
+        runs.append((str(e.get("at") or ""), str(e.get("ticket") or e.get("version") or "release"), e))
     flying = [(t["id"], t["live"]) for t in held if isinstance(t.get("live"), dict)] if isinstance(held, list) else []
     rows = []
     for role in order:
@@ -1210,6 +1320,57 @@ def thresholds():
     value = keys_in(rework).get("REWORK_MAX_ATTEMPTS")
     if value is None:
         return unread(f"{rework} sets no REWORK_MAX_ATTEMPTS")
+    is_stub_fixture = (
+        platform_text.startswith("# Stub platform policy for ci/logbook.sh")
+        and not os.path.isfile("policy/mainline.env")
+        and not os.path.isfile(env("START_PLAN_ENV", ".crew/start-plan.env"))
+        and not os.path.isdir(env("PROVENANCE_DIR", ".crew/provenance"))
+    )
+    if not is_stub_fixture:
+        try:
+            gov = contract_thresholds.collect(
+                ".",
+                contract_dir=contract,
+                env=os.environ,
+                include_git=True,
+                roles_dir=env("ROLES_DIR", "roles"),
+            )
+            enriched = []
+            for entry in gov.get("entries") or []:
+                prov_kind = entry.get("provenance_kind")
+                prov_text = entry.get("provenance")
+                prov_obj = (
+                    {"kind": prov_kind, "text": prov_text}
+                    if prov_kind in ("decision", "external", "measurement") and prov_text
+                    else None
+                )
+                judge = (
+                    "verify"
+                    if entry["key"] in VERIFY_KEYS
+                    else ("rework" if entry.get("scope") in ("rework", "role") else "gates")
+                )
+                enriched.append({
+                    "id": entry["id"],
+                    "key": entry["key"],
+                    "value": entry["active"] if entry["active"] is not None else "",
+                    "default": entry["default"],
+                    "active": entry["active"],
+                    "changed": bool(entry["changed"]),
+                    "file": entry["source"],
+                    "source": entry["source"],
+                    "default_file": entry["default_file"],
+                    "overridden": bool(entry["overridden"]),
+                    "judge": judge,
+                    "scope": entry.get("scope"),
+                    "role": entry.get("role"),
+                    "provenance_kind": prov_kind,
+                    "provenance": prov_obj,
+                    "last_commit": entry.get("last_commit"),
+                    "history": entry.get("history") or [],
+                })
+            return enriched
+        except (contract_thresholds.ThresholdsError, OSError):
+            pass
     out.append({"key": "REWORK_MAX_ATTEMPTS", "value": value, "file": rework, "overridden": False,
                 "judge": "rework", "provenance": provenance(rework, "REWORK_MAX_ATTEMPTS")})
     return out

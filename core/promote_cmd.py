@@ -3,6 +3,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 import json
 import os
 import shutil
@@ -12,10 +13,158 @@ from typing import Any, Sequence
 
 try:
     from . import cmd_util
+    from . import releases as releases_mod
 except ImportError:
     import cmd_util
+    import releases as releases_mod
 
 _GATE = "go-for-launch"
+_SAFE_RUN_KEYS = (
+    "harness",
+    "model",
+    "provider",
+    "thinking",
+    "turns",
+    "tokens",
+    "duration_s",
+    "input_sha256",
+    "replayed",
+    "failed",
+    "stop",
+    "source",
+)
+
+
+def _utc_now() -> str:
+    return datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _sanitize_tokens(raw: Any) -> dict[str, int] | None:
+    if not isinstance(raw, dict):
+        return None
+    clean: dict[str, int] = {}
+    for k in ("input", "output", "cached", "total"):
+        val = raw.get(k)
+        if isinstance(val, int) and not isinstance(val, bool):
+            clean[k] = val
+    return clean or None
+
+
+def sanitize_brief_run(raw: Any, *, at: str | None = None) -> dict[str, Any] | None:
+    """Copy safe telemetry fields from a release role `run.json` without secrets."""
+    if not isinstance(raw, dict):
+        return None
+    out: dict[str, Any] = {"role": "release"}
+    for key in _SAFE_RUN_KEYS:
+        if key not in raw:
+            continue
+        if key == "tokens":
+            toks = _sanitize_tokens(raw.get("tokens"))
+            if toks is not None:
+                out["tokens"] = toks
+        else:
+            val = raw.get(key)
+            if isinstance(val, (str, int, float, bool)) or val is None:
+                out[key] = val
+    recorded = raw.get("recorded")
+    if isinstance(recorded, dict):
+        rec_clean = {k: recorded[k] for k in _SAFE_RUN_KEYS if k in recorded and k != "tokens"}
+        rec_tokens = _sanitize_tokens(recorded.get("tokens"))
+        if rec_tokens is not None:
+            rec_clean["tokens"] = rec_tokens
+        if rec_clean:
+            out["recorded"] = rec_clean
+    if "replayed" not in out:
+        out["replayed"] = out.get("harness") == "replay"
+    stamp = raw.get("at")
+    out["at"] = stamp if isinstance(stamp, str) and stamp else (at or _utc_now())
+    return out
+
+
+def _capture_brief_run(promote_dir: Path) -> dict[str, Any] | None:
+    """Read, sanitize, and persist `promote_dir/out/run.json` to `brief_run.json`."""
+    run_path = promote_dir / "out" / "run.json"
+    if not run_path.is_file():
+        return None
+    try:
+        raw = cmd_util.read_json(run_path)
+    except (OSError, ValueError):
+        return None
+    brief_run = sanitize_brief_run(raw)
+    if brief_run is None:
+        return None
+    (promote_dir / "brief_run.json").write_text(
+        json.dumps(brief_run, ensure_ascii=False, separators=(",", ":")) + "\n",
+        encoding="utf-8",
+    )
+    return brief_run
+
+
+def _load_brief_run(promote_dir: Path) -> dict[str, Any] | None:
+    saved = promote_dir / "brief_run.json"
+    if saved.is_file():
+        try:
+            data = cmd_util.read_json(saved)
+            if isinstance(data, dict):
+                return data
+        except (OSError, ValueError):
+            pass
+    return _capture_brief_run(promote_dir)
+
+
+def _record_brief_run(
+    cur_env: dict[str, str],
+    version: str,
+    brief_run: dict[str, Any] | None,
+) -> None:
+    """Attach optional ``brief_run`` to the version's latest release entry in ``RELEASES_LOG``."""
+    if not brief_run:
+        return
+    log_path = Path(cur_env.get("RELEASES_LOG") or ".crew/releases.jsonl")
+    if not log_path.is_file():
+        return
+    try:
+        with releases_mod.ReleaseTrainLock(env=dict(cur_env)):
+            raw_lines = log_path.read_text(encoding="utf-8").splitlines()
+            parsed: list[dict[str, Any] | None] = []
+            release_idx: int | None = None
+            answer_idx: int | None = None
+            for idx, line in enumerate(raw_lines):
+                if not line.strip():
+                    parsed.append(None)
+                    continue
+                try:
+                    obj = json.loads(line)
+                except ValueError:
+                    return
+                parsed.append(obj)
+                if isinstance(obj, dict):
+                    if (
+                        obj.get("kind") == "release"
+                        and isinstance(obj.get("record"), dict)
+                        and str(obj["record"].get("version")) == version
+                    ):
+                        release_idx = idx
+                    elif obj.get("kind") == "answer" and str(obj.get("version")) == version:
+                        answer_idx = idx
+            target_idx = release_idx if release_idx is not None else answer_idx
+            if target_idx is None:
+                return
+            target = parsed[target_idx]
+            if not isinstance(target, dict) or target.get("brief_run") == brief_run:
+                return
+            updated = dict(target, brief_run=brief_run)
+            out_lines = [
+                json.dumps(updated, ensure_ascii=False, separators=(",", ":"))
+                if idx == target_idx
+                else raw_lines[idx]
+                for idx in range(len(raw_lines))
+            ]
+            tmp = log_path.with_name(f".{log_path.name}.{os.getpid()}.tmp")
+            tmp.write_text("\n".join(out_lines) + "\n", encoding="utf-8")
+            os.replace(tmp, log_path)
+    except (OSError, releases_mod.ReleaseTrainTimeout):
+        return
 
 
 def _first_call_arg(calls: Any, tool_name: str, arg_name: str) -> str:
@@ -78,9 +227,13 @@ def _resolve_brief(
     run_env["OUT"] = str(promote_dir / "out")
     run_env["THINKING"] = role_env.get("THINKING") or "low"
     run_env["TIMEOUT_S"] = role_env.get("TIMEOUT_S") or "900"
-    if cmd_util.run_sh(
+    rc = cmd_util.run_sh(
         Path("adapters") / harness / "run.sh", env=run_env, stdout_to_stderr=True
-    ).returncode != 0:
+    ).returncode
+    brief_run = _capture_brief_run(promote_dir)
+    if brief_run is not None:
+        _record_brief_run(cur_env, version, brief_run)
+    if rc != 0:
         cmd_util.nogo(_GATE, f"the release role did not produce a brief ({harness})")
 
     calls_path = promote_dir / "out" / "calls.json"
@@ -165,6 +318,7 @@ def main(argv: Sequence[str] | None = None, env: dict[str, str] | None = None) -
     if not answered_sha:
         (promote_dir / "brief.md").write_text(f"{brief}\n", encoding="utf-8")
         (promote_dir / "brief.author").write_text(f"{author}\n", encoding="utf-8")
+        _record_brief_run(cur_env, str(version), _load_brief_run(promote_dir))
 
     sys.stderr.write(f"[go-for-launch] promotion brief for {version} (by {author}):\n\n{brief}\n\n")
     sys.stderr.flush()
@@ -183,6 +337,7 @@ def main(argv: Sequence[str] | None = None, env: dict[str, str] | None = None) -
         ans_proc = cmd_util.run_py("core/releases.py", "answer", "NO-GO", env=cur_env)
         if ans_proc.returncode != 0:
             raise SystemExit(ans_proc.returncode)
+        _record_brief_run(cur_env, str(version), _load_brief_run(promote_dir))
         cmd_util.nogo(_GATE, "human said NO-GO", f"{version} rolled back")
     if answer == "":
         cmd_util.nogo(
@@ -199,6 +354,7 @@ def main(argv: Sequence[str] | None = None, env: dict[str, str] | None = None) -
     ans_proc = cmd_util.run_py("core/releases.py", "answer", "GO", env=cur_env)
     if ans_proc.returncode != 0:
         raise SystemExit(ans_proc.returncode)
+    _record_brief_run(cur_env, str(version), _load_brief_run(promote_dir))
     cmd_util.run_py("core/promote_hint.py", str(version), env=cur_env)
     return cmd_util.go(_GATE)
 

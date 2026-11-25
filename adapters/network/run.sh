@@ -138,6 +138,68 @@ for id in $ids; do
   printf '[network] %s: member %s started (%s)\n' "$TICKET" "$id" "$AGENT_HARNESS" >&2
 done
 
+collect_members() {
+  include_pr="${1:-0}"
+  members='[]'
+  for id in $ids; do
+    m="$net_dir/$id"
+    run='{}'
+    if [ -f "$m/out/run.json" ] && run_tmp=$(jq -c 'if type == "object" then . else {} end' "$m/out/run.json" 2>/dev/null); then
+      run="$run_tmp"
+    fi
+    member_failed=0
+    stop_reason=""
+    if [ -f "$m/out/stop" ]; then
+      stop_reason=$(head -n1 "$m/out/stop" 2>/dev/null | tr -d '\r' || true)
+      member_failed=1
+    fi
+    if grep -qx "$id" "$net_dir/failed" 2>/dev/null; then
+      member_failed=1
+    fi
+    if [ "$member_failed" -eq 1 ]; then
+      run=$(printf '%s' "$run" | jq -c --arg stop "$stop_reason" '
+        . + {failed: true} + (if $stop != "" then {stop: $stop} else {} end)')
+    fi
+    if [ "$include_pr" -eq 1 ] && [ -f "$m/out/pr.json" ]; then
+      members=$(printf '%s' "$members" | jq -c --arg id "$id" --argjson run "$run" \
+        --arg globs "$(globs_of "$id")" --argjson failed "$member_failed" --arg stop "$stop_reason" \
+        --slurpfile pr "$m/out/pr.json" \
+        '. + [{id: $id, perimeter: ($globs | split("\n")), run: $run, pr: $pr[0]}
+          + (if $failed == 1 then {failed: true} + (if $stop != "" then {stop: $stop} else {} end) else {} end)]')
+    else
+      members=$(printf '%s' "$members" | jq -c --arg id "$id" --argjson run "$run" \
+        --arg globs "$(globs_of "$id")" --argjson failed "$member_failed" --arg stop "$stop_reason" \
+        '. + [{id: $id, perimeter: ($globs | split("\n")), run: $run}
+          + (if $failed == 1 then {failed: true} + (if $stop != "" then {stop: $stop} else {} end) else {} end)]')
+    fi
+  done
+}
+
+write_run_json() {
+  collect_members "${1:-0}"
+  printf '%s' "$members" | jq '{
+    harness: "network",
+    model: ([.[] | .run.model // .run.recorded.model] | unique | if length == 1 then .[0] else null end),
+    members: map({id, perimeter, run}
+      + (if .failed then {failed: true} else {} end)
+      + (if .stop then {stop: .stop} else {} end))
+  }' > "$OUT/run.json"
+  if [ ! -f "$OUT/stop" ]; then
+    for id in $ids; do
+      if [ -s "$net_dir/$id/out/stop" ]; then
+        cp "$net_dir/$id/out/stop" "$OUT/stop"
+        break
+      fi
+    done
+  fi
+}
+
+fail_after_run() {
+  [ -n "${2:-}" ] && printf '%s\n' "$2" >> "$net_dir/failed"
+  write_run_json 0
+  refuse "$1"
+}
+
 : > "$net_dir/failed"
 while read -r id pid; do
   wait "$pid" || printf '%s\n' "$id" >> "$net_dir/failed"
@@ -150,37 +212,29 @@ done
 for id in $ids; do
   m="$net_dir/$id"
   if grep -qx "$id" "$net_dir/failed"; then
-    refuse "member $id failed: $(tail -n1 "$m/log")"
+    fail_after_run "member $id failed: $(tail -n1 "$m/log")"
   fi
   why=$(sh "$here/core/harness-check.sh" "$m/out" "$m/workspace" "$BASE" 2>&1) \
-    || refuse "member $id: $why"
+    || fail_after_run "member $id: $why" "$id"
   why=$(git -C "$m/workspace" diff --no-renames --name-only "$BASE"..HEAD \
     | sh "$here/core/perimeter.sh" "$m/ticket.md" 2>&1) \
-    || refuse "member $id: $why of its part"
+    || fail_after_run "member $id: $why of its part" "$id"
   git -C "$m/workspace" diff --no-renames --name-only "$BASE"..HEAD | sed "s|^|$id |" >> "$net_dir/paths"
 done
 shared=$(awk '{ if ($2 in by && by[$2] != $1) { print $2 " (" by[$2] ", " $1 ")"; exit } by[$2] = $1 }' "$net_dir/paths")
-[ -z "$shared" ] || refuse "one path changed by two members: $shared"
+[ -z "$shared" ] || fail_after_run "one path changed by two members: $shared"
 
 for id in $ids; do
   if ! git -C "$net_dir/$id/workspace" format-patch --stdout "$BASE"..HEAD \
       | git -C "$WORKSPACE" -c user.name=lights-out-crew -c user.email=crew@lights-out.invalid am >&2; then
     git -C "$WORKSPACE" -c user.name=lights-out-crew -c user.email=crew@lights-out.invalid am --abort >&2 || true
     git -C "$WORKSPACE" -c user.name=lights-out-crew -c user.email=crew@lights-out.invalid reset -q --hard "$BASE"
-    refuse "member $id does not apply after the members before it"
+    fail_after_run "member $id does not apply after the members before it" "$id"
   fi
 done
 git -C "$WORKSPACE" format-patch --stdout "$BASE"..HEAD > "$OUT/patch"
 
-members='[]'
-for id in $ids; do
-  m="$net_dir/$id"
-  run='{}'
-  [ -f "$m/out/run.json" ] && run=$(cat "$m/out/run.json")
-  members=$(printf '%s' "$members" | jq -c --arg id "$id" --argjson run "$run" \
-    --arg globs "$(globs_of "$id")" --slurpfile pr "$m/out/pr.json" \
-    '. + [{id: $id, perimeter: ($globs | split("\n")), run: $run, pr: $pr[0]}]')
-done
+write_run_json 1
 
 title=$(head -n1 "$TICKET_FILE" | sed 's/^# *//')
 printf '%s' "$members" | jq --arg title "$title" '{
@@ -191,12 +245,6 @@ printf '%s' "$members" | jq --arg title "$title" '{
       + (if .run.recorded.hand_written then " (hand-written, no model ran)" else "" end)
       + "\n\n\(.pr.title // "")\n\n\(.pr.body // "")") | join("\n\n")))
 }' > "$OUT/pr.json"
-
-printf '%s' "$members" | jq '{
-  harness: "network",
-  model: ([.[] | .run.model // .run.recorded.model] | unique | if length == 1 then .[0] else null end),
-  members: map({id, perimeter, run})
-}' > "$OUT/run.json"
 
 {
   printf 'Network of %s members, integrated in this order: %s.\n' "$count" "$all"

@@ -26,13 +26,14 @@ import urllib.request
 from dataclasses import dataclass, replace
 from typing import Any, Callable
 
-VIEWS: tuple[str, ...] = ("overview", "tickets", "workers", "gates", "canary")
+VIEWS: tuple[str, ...] = ("overview", "tickets", "workers", "gates", "canary", "thresholds")
 VIEW_TITLES: tuple[str, ...] = (
     "1:Overview",
     "2:Tickets",
     "3:Workers",
     "4:Gates",
     "5:Canary",
+    "6:Thresholds",
 )
 
 # Provenance, decision: ADR 0047 §4 / ADR 0035 §3 console 2.0 s poll cadence;
@@ -301,11 +302,11 @@ def parse_view_arg(view: str | int) -> int:
             return view
         raise ValueError(f"view index out of range: {view}")
     token = str(view).strip().lower()
-    if token in ("1", "2", "3", "4", "5"):
+    if token in ("1", "2", "3", "4", "5", "6"):
         return int(token) - 1
     if token in VIEWS:
         return VIEWS.index(token)
-    raise ValueError(f"unknown view {view!r}; choose 1..5 or {', '.join(VIEWS)}")
+    raise ValueError(f"unknown view {view!r}; choose 1..6 or {', '.join(VIEWS)}")
 
 
 def _tickets_list(book: dict[str, Any]) -> list[dict[str, Any]]:
@@ -440,7 +441,7 @@ def reduce_key(state: TuiState, raw_key: str | int) -> TuiState:
             return _sync_selection(replace(state, search_query=q, selected_ticket_id=None, scroll_offset=0))
         return state
 
-    if key in ("1", "2", "3", "4", "5"):
+    if key in ("1", "2", "3", "4", "5", "6"):
         return replace(state, view=int(key) - 1, scroll_offset=0)
     if key == "TAB":
         return replace(state, view=(state.view + 1) % len(VIEWS), scroll_offset=0)
@@ -1330,6 +1331,95 @@ def _render_canary_body(state: TuiState) -> list[FrameRow]:
     return rows
 
 
+def _summarize_thresholds(book: dict[str, Any]) -> dict[str, Any]:
+    raw = book.get("thresholds")
+    items = [t for t in raw if isinstance(t, dict)] if isinstance(raw, list) else []
+    overridden = sum(1 for t in items if t.get("overridden"))
+    changed = sum(1 for t in items if t.get("changed"))
+    with_prov = sum(1 for t in items if isinstance(t.get("provenance"), dict))
+    tickets = _tickets_list(book)
+    jury_n = sum(1 for t in tickets if isinstance(t.get("jury"), dict))
+    prov_n = sum(1 for t in tickets if isinstance(t.get("provenance_summary"), dict))
+    return {
+        "count": len(items),
+        "overridden": overridden,
+        "changed": changed,
+        "with_provenance": with_prov,
+        "jury_tickets": jury_n,
+        "provenance_tickets": prov_n,
+    }
+
+
+def _render_thresholds_body(state: TuiState) -> list[FrameRow]:
+    book = state.book
+    rows: list[FrameRow] = []
+    raw_thresholds = book.get("thresholds")
+    if is_unread(raw_thresholds):
+        rows.append(FrameRow("Thresholds & Provenance:", "section"))
+        rows.append(FrameRow(f"  Thresholds unread: {unread_reason(raw_thresholds)}", "nogo"))
+        return rows
+
+    items = [t for t in raw_thresholds if isinstance(t, dict)] if isinstance(raw_thresholds, list) else []
+    stats = _summarize_thresholds(book)
+    rows.append(
+        FrameRow(
+            f"Thresholds & Provenance: {stats['count']} keys, {stats['overridden']} overridden, {stats['with_provenance']} with provenance",
+            "section",
+        )
+    )
+    if not items:
+        rows.append(FrameRow("  (no threshold entries in logbook)", "muted"))
+    else:
+        ordered = sorted(
+            items,
+            key=lambda t: (0 if (t.get("changed") or t.get("overridden")) else 1, str(t.get("id") or t.get("key") or "")),
+        )
+        for item in ordered[:14]:
+            name = clean_text(item.get("id") or item.get("key") or "?")
+            active = clean_text(item.get("active") if "active" in item else item.get("value"))
+            default = item.get("default")
+            changed = bool(item.get("changed"))
+            overridden = bool(item.get("overridden"))
+            src = clean_text(item.get("source") or item.get("file") or "-")
+            prov = item.get("provenance") if isinstance(item.get("provenance"), dict) else None
+            p_kind = clean_text(prov.get("kind")) if prov else (clean_text(item.get("provenance_kind")) if item.get("provenance_kind") else "none")
+            tag = "[MOD]" if changed else ("[OVR]" if overridden else "[DEF]")
+            val_txt = f"{clean_text(default)} -> {active}" if (changed and default not in (None, "")) else (active or "(empty)")
+            commit = item.get("last_commit") if isinstance(item.get("last_commit"), dict) else None
+            sha_txt = f" @{clean_text(commit.get('short') or '')}" if commit and commit.get("short") else ""
+            style = "wait" if (changed or overridden) else ("body" if prov else "muted")
+            rows.append(FrameRow(f"  {tag} {name} = {val_txt} | {p_kind} | {src}{sha_txt}", style))
+        if len(ordered) > 14:
+            rows.append(FrameRow(f"  ... and {len(ordered) - 14} more threshold keys", "muted"))
+
+    rows.append(FrameRow("Ticket Jury & Attestation Receipts:", "section"))
+    tickets = filtered_tickets(state)
+    att_rows = 0
+    for t in tickets:
+        tid = clean_text(t.get("id") or "?")
+        jury = t.get("jury") if isinstance(t.get("jury"), dict) else None
+        ps = t.get("provenance_summary") if isinstance(t.get("provenance_summary"), dict) else None
+        if not jury and not ps:
+            continue
+        att_rows += 1
+        parts: list[str] = [f"  {tid}:"]
+        if jury:
+            cross = "cross-vendor" if jury.get("cross_vendor") else clean_text(jury.get("mode") or "jury")
+            ap = clean_text(jury.get("author_provider") or "-")
+            rp = clean_text(jury.get("reviewer_provider") or "-")
+            parts.append(f"jury={cross}({ap}->{rp})")
+        if ps:
+            status_lbl = "complete" if ps.get("complete") else f"missing={ps.get('missing_count', 0)}"
+            sig_lbl = "signed" if ps.get("signed") else "unsigned"
+            sha_lbl = clean_text(ps.get("statement_sha256") or "")[:12]
+            parts.append(f"prov={status_lbl}/{sig_lbl}" + (f" sha={sha_lbl}" if sha_lbl else ""))
+        row_style = "go" if (ps and ps.get("complete") and ps.get("signed")) else ("wait" if jury else "body")
+        rows.append(FrameRow("  ".join(parts), row_style))
+    if att_rows == 0:
+        rows.append(FrameRow("  (no ticket provenance receipts or cross-provider jury records)", "muted"))
+    return rows
+
+
 def render_frame(state: TuiState, width: int = MIN_COLS, height: int = MIN_ROWS) -> Frame:
     w = max(1, int(width))
     h = max(1, int(height))
@@ -1363,7 +1453,7 @@ def render_frame(state: TuiState, width: int = MIN_COLS, height: int = MIN_ROWS)
     if state.search_editing:
         footer_text = f"/{state.search_query}_  (Enter:apply  Esc:clear)"
     else:
-        footer_text = "1-5/Tab:view  j/k:move  /:filter  Esc:clear  r:refresh  q:quit"
+        footer_text = "1-6/Tab:view  j/k:move  /:filter  Esc:clear  r:refresh  q:quit"
 
     # Tiny terminal resize safety (< 6 rows)
     if h < 6:
@@ -1389,8 +1479,10 @@ def render_frame(state: TuiState, width: int = MIN_COLS, height: int = MIN_ROWS)
         body = _render_workers_body(state)
     elif vname == "gates":
         body = _render_gates_body(state, body_slots)
-    else:
+    elif vname == "canary":
         body = _render_canary_body(state)
+    else:
+        body = _render_thresholds_body(state)
 
     max_scroll = max(0, len(body) - body_slots)
     scroll = max(0, min(state.scroll_offset, max_scroll))
@@ -1486,6 +1578,7 @@ def build_summary_json(state: TuiState) -> dict[str, Any]:
             "rollbacks": rollbacks,
             "postmortems_count": len(pms),
         },
+        "thresholds_governance": _summarize_thresholds(book),
         "unread_sections": compute_unread_sections(book),
     }
 
@@ -1627,7 +1720,7 @@ def build_parser() -> argparse.ArgumentParser:
     src_group.add_argument("--url", help="HTTP(S) logbook endpoint URL (e.g. http://127.0.0.1:8098/v1/logbook.json)")
     p.add_argument("--header", action="append", default=[], help="Extra HTTP header 'Name: Value' for --url")
     p.add_argument("--poll-s", type=float, default=DEFAULT_POLL_S, help=f"Poll cadence in seconds (default: {DEFAULT_POLL_S})")
-    p.add_argument("--view", default="overview", help="Initial view: 1..5 or overview|tickets|workers|gates|canary")
+    p.add_argument("--view", default="overview", help="Initial view: 1..6 or overview|tickets|workers|gates|canary|thresholds")
     p.add_argument("--ticket", default=None, help="Pre-selected ticket ID")
     p.add_argument("--width", type=int, default=None, help="Viewport width override for --once")
     p.add_argument("--height", type=int, default=None, help="Viewport height override for --once")

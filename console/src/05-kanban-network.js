@@ -103,7 +103,7 @@ function drawer(t) {
     stageStrip(t),
     flowDetail(t),
     liveLine(t),
-    h("div", {cls: "badges"}, whoBadge(t), age(t), pips(t)),
+    h("div", {cls: "badges"}, whoBadge(t), age(t), pips(t), juryBadge(t), provenanceBadge(t)),
     // No verdict yet: the now line says what is awaited, and no empty row stands in.
     dl([["State", t.state + " · " + bandName(bandOf(t.state))],
       t.outcome.verdict !== "pending" ? ["Outcome", h("span", {}, chip(t.outcome.verdict), " ", shown(t.outcome.judge))] : null,
@@ -111,6 +111,8 @@ function drawer(t) {
       ["Perimeter", unread(t.perimeter) ? err(t.perimeter) : h("span", {cls: "mono"}, (t.perimeter || []).join("  ·  ") || "—")],
       ["Waits", t.wait ? waitLine(t.wait) : "no"],
       t.screen ? ["Screen", screenLine(t.screen)] : null,
+      t.jury ? ["Cross-provider jury", jurySummaryLine(t)] : null,
+      t.provenance_summary ? ["Provenance receipt", provenanceReceiptLine(t)] : null,
       ...agentRows(t)]),
     h("h3", {}, "Timeline"),
     rows.length ? h("ol", {cls: "compact"}, rows.map((r) => h("li", {"data-phase": r.phase},
