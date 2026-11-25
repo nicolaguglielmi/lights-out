@@ -8,6 +8,15 @@ name=thresholds
 . ci/lib.sh
 
 here=$(CDPATH='' cd -- "$(dirname -- "$0")" && pwd -P)
+if [ -n "${LIGHTS_OUT_CLI_ARGS:-}" ]; then
+  old_ifs=$IFS
+  IFS=$(printf '\037')
+  set -f
+  # shellcheck disable=SC2086 # deliberate splitting on ASCII unit separator \037
+  set -- $LIGHTS_OUT_CLI_ARGS "$@"
+  set +f
+  IFS=$old_ifs
+fi
 for a in "$@"; do
   if [ "$a" = "--json" ]; then
     exec python3 -B "$here/thresholds.py" "$@"

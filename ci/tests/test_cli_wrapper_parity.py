@@ -33,7 +33,7 @@ READONLY = ("init", "genesis", "gates", "test-proof", "test-integrity", "adr-che
             "triage", "postmortem")
 STATE = ("next", "dora", "spend", "cloud-setup", "map", "network", "scoreboard",
          "auto-incident", "incident", "alert-webhook", "top", "epics", "spec-split", "m24-check",
-         "map-brief-eval", "demo-loop", "jury", "live-preflight")
+         "map-brief-eval", "demo-loop", "jury", "live-preflight", "thresholds")
 PLANE = ("start", "intake", "answer", "intake-confirm", "assign", "up", "down", "smoke", "release",
          "promote", "console", "evidence", "provenance", "try", "watch", "request", "resume", "audit",
          "production-readiness")
@@ -129,6 +129,9 @@ class WrapperGrammarParityTests(WrapperParityBase):
             ["config", "jury", "select-env", "--ticket", "0007", "--author-provider", "p", "--risk", "high"],
             ["repo", "map-brief-eval", "--rev", "HEAD", "--write-map", "--no-determinism-check"],
             ["config", "live-preflight", "--repo", ".", "--strict"],
+            ["config", "thresholds", "--no-git", "--root", ".", "--contract-dir", "c"],
+            ["release", "provenance", "--version", "0.9.0", "--attach", "--attach-required"],
+            ["release", "provenance", "attach", "--statement", "s.intoto.json", "--bundle", "s.bundle", "--sha", "abc"],
         )
         for argv in cases:
             plan = cli.parse(argv)
@@ -188,7 +191,8 @@ class WrapperUsageTests(WrapperParityBase):
         for argv in (
             ["frobnicate"], ["ticket"], ["ticket", "frobnicate"], ["ticket", "assign", "--bogus", "x"],
             ["ticket", "assign", "--ticket"], ["repo", "corpus"], ["config", "agents"],
-            ["config", "tracker-conformance"], ["ops", "charts-conformance"], ["config", "console-build"],
+            ["config", "tracker-conformance"], ["ops", "charts-conformance"], ["ops", "metrics-conformance"],
+            ["ops", "orchestrator-conformance"], ["config", "console-build"],
             ["repo", "gates", "--apply"], ["repo", "init", "--branch"],
             ["ticket", "assign", "DEMO_SERVICE_TOKEN=abc"], ["ticket", "assign", "--demo-service-token", "abc"],
             ["ops", "alert-webhook"], ["up", "--engine"], ["config", "start", "--jsonl"],
@@ -677,6 +681,37 @@ class EntrypointParityTests(unittest.TestCase):
         self.assertIn("WATCH O=1 W=4 RW=3", lines)
         self.assertIn("ASSIGN NAS=on", lines)
         self.assertIn("INTAKE INS=on", lines)
+
+    def test_entrypoint_sprint6_thresholds_and_provenance_attach_parity(self):
+        call_log = self.tmp / "sprint6-calls.log"
+        (self.img / "Makefile").write_text(
+            "GATES := risk\n"
+            "thresholds:\n"
+            f"\t@printf 'THR J=%s CLI=%s\\n' \"$(JSON)\" \"$(LIGHTS_OUT_CLI_ARGS)\" >> {call_log}\n"
+            "\t@printf 'GO: thresholds — 43 keys (0 overridden)\\n'\n"
+            "provenance:\n"
+            f"\t@printf 'PROV PD=%s V=%s CLI=%s\\n' \"$(PROVENANCE_DIR)\" \"$(VERSION)\" \"$(LIGHTS_OUT_CLI_ARGS)\" >> {call_log}\n"
+            "\t@printf 'GO: provenance — attached\\n'\n",
+            encoding="utf-8",
+        )
+        res_thr = self.run_e(["config", "thresholds", "--no-git", "--json"], plane=False)
+        self.assertEqual(res_thr.returncode, 0, res_thr.stdout + res_thr.stderr)
+        env_thr = json.loads(res_thr.stdout)
+        self.assertEqual((env_thr["command"], env_thr["flat"], env_thr["verdict"]), ("config thresholds", "thresholds", "GO"))
+
+        res_prov_b = self.run_e(["release", "provenance", "--version", "0.9.0", "--attach", "--json"])
+        self.assertEqual(res_prov_b.returncode, 0, res_prov_b.stdout + res_prov_b.stderr)
+        env_pb = json.loads(res_prov_b.stdout)
+        self.assertEqual((env_pb["command"], env_pb["flat"], env_pb["verdict"]), ("release provenance", "provenance", "GO"))
+
+        (self.repo / "s.intoto.json").write_text("{}\n", encoding="utf-8")
+        res_prov_a = self.run_e(["release", "provenance", "attach", "--statement", "s.intoto.json", "--required"])
+        self.assertEqual(res_prov_a.returncode, 0, res_prov_a.stdout + res_prov_a.stderr)
+
+        lines = call_log.read_text(encoding="utf-8").splitlines()
+        self.assertIn("THR J= CLI=--no-git", lines)
+        self.assertIn("PROV PD= V=0.9.0 CLI=--attach", lines)
+        self.assertTrue(any(f"attach\x1f--statement\x1f{self.repo}/s.intoto.json\x1f--required" in ln for ln in lines), lines)
 
 
 class WaveBWrapperMountAndParityTests(unittest.TestCase):

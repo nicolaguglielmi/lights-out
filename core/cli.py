@@ -46,7 +46,8 @@ EXTRA_KEYS = (
     "INTAKE_NETWORK_SPLIT", "NETWORK_AUTO_SPLIT", "ALERT_FILE", "RELEASE_RECORD",
     "NAME", "FROM", "TO", "LOGS", "MAP_FILE", "SLO_MODE", "CORPUS_FULL",
     "LOGBOOK_FILE", "LOGBOOK", "URL", "JSON", "VIEW", "WIDTH", "HEIGHT", "TICKET_FILE",
-    "PROVENANCE_DIR", "TRACKER", "CHARTS",
+    "PROVENANCE_DIR", "PROVENANCE_ATTACH", "PROVENANCE_ATTACH_REQUIRED",
+    "TRACKER", "CHARTS", "METRICS", "ORCHESTRATOR",
 )
 
 START_NATIVE = (
@@ -97,6 +98,14 @@ MAP_BRIEF_EVAL_NATIVE = (
 LIVE_PREFLIGHT_NATIVE = (
     ("--repo", True), ("--strict", False),
 )
+THRESHOLDS_NATIVE = (
+    ("--root", True), ("--contract-dir", True), ("--no-git", False),
+)
+PROVENANCE_NATIVE = (
+    ("--attach", False), ("--attach-required", False), ("--required", False),
+    ("--statement", True), ("--bundle", True), ("--sha", True),
+    ("--out-receipt", True), ("--key", True), ("--out-dir", True), ("--repo", True),
+)
 NATIVE_FLAGS = (
     "--json", "--jsonl", "--help", "--engine", "--non-interactive", "--mode", "--preset", "--provider",
     "--harness", "--delivery", "--profile", "--ticket-budget-usd", "--day-budget-usd", "--level",
@@ -108,12 +117,16 @@ NATIVE_FLAGS = (
     "--kind", "--phase", "--replace", "--budget", "--inject-break", "--author-provider", "--author-harness",
     "--risk", "--role", "--run-json", "--review-run-json", "--doc", "--providers", "--rev", "--map",
     "--exclude", "--worker-brief", "--write-map", "--no-determinism-check", "--strict",
+    "--root", "--contract-dir", "--no-git",
+    "--attach", "--attach-required", "--required", "--statement", "--bundle", "--sha", "--out-receipt",
+    "--key", "--out-dir",
 )
 BOOL_FLAGS = {"--staged": "STAGED", "--once": "ONCE"}
 ENGINE_FLAT = ("init", "gates", "test-proof", "test-integrity", "adr-check", "migration-safety")
 GLOBAL_OPTS = ("--json", "--jsonl", "--dry-run")
 GATE_SHAPED = ("init", "try", "gates", "test-proof", "test-integrity", "adr-check", "migration-safety",
-               "doctor", "map", "corpus", "production-readiness", "tracker-conformance", "charts-conformance")
+               "doctor", "map", "corpus", "production-readiness", "tracker-conformance", "charts-conformance",
+               "metrics-conformance", "orchestrator-conformance")
 NATIVE_JSON = ("start", "next", "top")
 TAIL_FLAT = ("console", "version")
 
@@ -168,7 +181,8 @@ COMMANDS = (
     _c("release", "deploy", "release"),
     _c("release", "promote"),
     _c("release", "evidence"),
-    _c("release", "provenance", keys=("PROVENANCE_DIR",)),
+    _c("release", "provenance", keys=("PROVENANCE_DIR", "PROVENANCE_ATTACH", "PROVENANCE_ATTACH_REQUIRED"),
+       positional=2, native=PROVENANCE_NATIVE),
     _c("release", "production-readiness"),
     _c("ops", "watch", keys=("ONCE", "POLL_S", "RUNNER_WORKERS", "WORKERS")),
     _c("ops", "alert-webhook", keys=("ALERT_FILE",)),
@@ -180,6 +194,8 @@ COMMANDS = (
     _c("ops", "spend"),
     _c("ops", "top", keys=("LOGBOOK_FILE", "LOGBOOK", "URL", "ONCE", "JSON", "POLL_S", "VIEW", "WIDTH", "HEIGHT")),
     _c("ops", "charts-conformance", keys=("CHARTS",), surface="clone"),
+    _c("ops", "metrics-conformance", keys=("METRICS",), surface="clone"),
+    _c("ops", "orchestrator-conformance", keys=("ORCHESTRATOR",), surface="clone"),
     _c("ops", "m24-check", positional=8, native=M24_CHECK_NATIVE),
     _c("ops", "demo-loop", positional=1, native=DEMO_LOOP_NATIVE),
     _c("config", "start", native=START_NATIVE),
@@ -191,6 +207,7 @@ COMMANDS = (
     _c("config", "console-build", native=(("--check", False),), surface="clone"),
     _c("config", "jury", positional=1, native=JURY_NATIVE),
     _c("config", "live-preflight", native=LIVE_PREFLIGHT_NATIVE),
+    _c("config", "thresholds", keys=("JSON",), native=THRESHOLDS_NATIVE),
 )
 FLAT_ONLY = (Command("", "console", "console"),)
 FLAT = {c.flat: c for c in (*COMMANDS, *FLAT_ONLY)}

@@ -12,6 +12,8 @@ name=provenance
 . ci/lib.sh
 : "${COSIGN_KEY:=.crew/cosign.key}"
 pub=${COSIGN_KEY%.key}.pub
+# shellcheck disable=SC2086 # deliberate splitting on ASCII unit separator \037
+if [ -n "${LIGHTS_OUT_CLI_ARGS:-}" ]; then old_ifs=$IFS; IFS=$(printf '\037'); set -f; set -- $LIGHTS_OUT_CLI_ARGS "$@"; set +f; IFS=$old_ifs; fi
 
 if [ "${1:-}" = verify ] || [ "${1:-}" = attach ]; then
   cmd=$1; shift

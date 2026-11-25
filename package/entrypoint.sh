@@ -34,7 +34,7 @@
 #   promote [GO_FOR_LAUNCH=GO|NO-GO REASON=] go-for-launch brief and human promotion gate
 #   console                                  serve the console on CONSOLE_PUBLISH:CONSOLE_PORT
 #   evidence VERSION=<v>                     build, sign and verify release evidence pack
-#   provenance [VERSION= TICKET= PROVENANCE_DIR=]  build, sign and verify in-toto provenance attestation (ADR 0117)
+#   provenance [VERSION= TICKET= PROVENANCE_DIR=] [--attach] [attach ...]  build, sign, verify and attach in-toto provenance attestation (ADR 0117, 0134)
 #   map [MAP_FILE=]                          build the project map of /repo
 #   network [TICKET= ATTEMPT=]               one ticket's agent network in text
 #   scoreboard                               per provider and harness: first-attempt merges, reworks, cost
@@ -54,6 +54,7 @@
 #   jury <select-env|inspect> [flags]        cross-provider jury reviewer selection and inspection (ADR 0130)
 #   map-brief-eval [flags]                   measure MAP_BRIEF=off vs MAP_BRIEF=on brief footprint (ADR 0054)
 #   live-preflight [--strict] [flags]        non-destructive live L1/CodeHost/Cloud readiness audit
+#   thresholds [JSON=1] [--no-git]           audit effective policy/role thresholds, provenance, and overrides (ADR 0135)
 #   production-readiness                     GO only with a conformant delivery, metrics and a human gate
 #   version
 #
@@ -90,8 +91,8 @@ verbs_of() {
     repo) echo "init try gates test-proof test-integrity adr-check migration-safety doctor map corpus genesis map-brief-eval" ;;
     ticket) echo "intake request answer intake-confirm assign resume network audit epics spec-split" ;;
     release) echo "up down smoke deploy promote evidence provenance production-readiness" ;;
-    ops) echo "watch alert-webhook triage auto-incident incident postmortem dora spend top charts-conformance m24-check demo-loop" ;;
-    config) echo "start next cloud-setup scoreboard agents tracker-conformance console-build jury live-preflight" ;;
+    ops) echo "watch alert-webhook triage auto-incident incident postmortem dora spend top charts-conformance metrics-conformance orchestrator-conformance m24-check demo-loop" ;;
+    config) echo "start next cloud-setup scoreboard agents tracker-conformance console-build jury live-preflight thresholds" ;;
   esac
 }
 
@@ -99,7 +100,7 @@ verbs_of() {
 extra_keys_for() {
   case "$1" in
     migration-safety) echo "TICKET_FILE" ;;
-    provenance) echo "PROVENANCE_DIR" ;;
+    provenance) echo "PROVENANCE_DIR PROVENANCE_ATTACH PROVENANCE_ATTACH_REQUIRED" ;;
     intake|answer) echo "INTAKE_NETWORK_SPLIT" ;;
     assign) echo "NETWORK_AUTO_SPLIT" ;;
     resume) echo "INTAKE_NETWORK_SPLIT NETWORK_AUTO_SPLIT" ;;
@@ -112,6 +113,7 @@ extra_keys_for() {
     map) echo "MAP_FILE" ;;
     cloud-setup) echo "SLO_MODE" ;;
     top) echo "LOGBOOK_FILE LOGBOOK URL ONCE JSON POLL_S VIEW WIDTH HEIGHT" ;;
+    thresholds) echo "JSON" ;;
   esac
 }
 
@@ -126,6 +128,8 @@ native_flag() {
     jury:--author-provider|jury:--author-harness|jury:--risk|jury:--role|jury:--run-json|jury:--review-run-json|jury:--doc|jury:--providers) return 0 ;;
     map-brief-eval:--repo|map-brief-eval:--rev|map-brief-eval:--map|map-brief-eval:--tickets|map-brief-eval:--exclude|map-brief-eval:--worker-brief|map-brief-eval:--write-map|map-brief-eval:--no-determinism-check) return 0 ;;
     live-preflight:--repo|live-preflight:--strict) return 0 ;;
+    thresholds:--root|thresholds:--contract-dir|thresholds:--no-git) return 0 ;;
+    provenance:--attach|provenance:--attach-required|provenance:--required|provenance:--statement|provenance:--bundle|provenance:--sha|provenance:--out-receipt|provenance:--key|provenance:--out-dir|provenance:--repo) return 0 ;;
   esac
   return 1
 }
@@ -143,7 +147,7 @@ case "$sub" in
       shift
       case "$domain:$verb" in
         release:deploy) sub=release ;;
-        repo:corpus|config:agents|config:tracker-conformance|ops:charts-conformance|config:console-build) nogo "$domain $verb needs a clone of lights-out, not the image: run ./go $verb" ;;
+        repo:corpus|config:agents|config:tracker-conformance|ops:charts-conformance|ops:metrics-conformance|ops:orchestrator-conformance|config:console-build) nogo "$domain $verb needs a clone of lights-out, not the image: run ./go $verb" ;;
         *) sub=$verb ;;
       esac
       # shellcheck disable=SC2034 # consumed by nogo in sourced ci/lib.sh
@@ -154,7 +158,7 @@ esac
 # --json / --jsonl on a non-gate command: run it again, capture its stdout, and wrap that
 # in the envelope of core/cli.py (docs/adr/0112 §4); its exit code is the taxonomy's.
 for f in $lead; do set -- "$@" "$f"; done
-json_cmds="triage postmortem dora spend cloud-setup network scoreboard auto-incident incident alert-webhook intake answer intake-confirm assign up down smoke release promote evidence provenance watch request resume audit genesis epics spec-split m24-check demo-loop jury map-brief-eval live-preflight"
+json_cmds="triage postmortem dora spend cloud-setup network scoreboard auto-incident incident alert-webhook intake answer intake-confirm assign up down smoke release promote evidence provenance watch request resume audit genesis epics spec-split m24-check demo-loop jury map-brief-eval live-preflight thresholds"
 json_mode=""
 if [ -z "${LIGHTS_OUT_JSON_INNER:-}" ] && member "$sub" "$json_cmds"; then
   nargs=$#
@@ -181,7 +185,7 @@ fi
 
 case "$sub" in
   init|gates|test-proof|test-integrity|adr-check|migration-safety) ;;
-  genesis|epics|spec-split|m24-check|demo-loop|jury|map-brief-eval|live-preflight|triage|postmortem|next|dora|spend|cloud-setup|map|network|scoreboard|auto-incident|incident|alert-webhook|top|start|intake|answer|intake-confirm|assign|up|down|smoke|release|promote|console|evidence|provenance|try|watch|request|resume|audit|production-readiness)
+  genesis|epics|spec-split|m24-check|demo-loop|jury|map-brief-eval|live-preflight|thresholds|triage|postmortem|next|dora|spend|cloud-setup|map|network|scoreboard|auto-incident|incident|alert-webhook|top|start|intake|answer|intake-confirm|assign|up|down|smoke|release|promote|console|evidence|provenance|try|watch|request|resume|audit|production-readiness)
     # The gates image has no ADK, compose, cosign, or full platform runtime (docs/adr/0057 §3, 0105).
     [ "${LIGHTS_OUT_FLAVOUR:-full}" != gates ] \
       || nogo "this is the gates image; $sub runs in ghcr.io/nicolaguglielmi/lights-out:${LIGHTS_OUT_VERSION:-<version>} (LIGHTS_OUT_IMAGE)" ;;
@@ -192,7 +196,7 @@ case "$sub" in
     sed -n 's/^#   //p' "$0" >&2
     # shellcheck disable=SC2034 # consumed by nogo in sourced ci/lib.sh
     name=lights-out
-    nogo "unknown command '$sub'; one of: init genesis gates test-proof test-integrity adr-check migration-safety triage postmortem version next dora spend cloud-setup map network scoreboard auto-incident incident alert-webhook top epics spec-split m24-check demo-loop jury map-brief-eval live-preflight start intake answer intake-confirm assign up down smoke release promote console evidence provenance try watch request resume audit production-readiness; or a domain (repo ticket release ops config) and a verb" ;;
+    nogo "unknown command '$sub'; one of: init genesis gates test-proof test-integrity adr-check migration-safety triage postmortem version next dora spend cloud-setup map network scoreboard auto-incident incident alert-webhook top epics spec-split m24-check demo-loop jury map-brief-eval live-preflight thresholds start intake answer intake-confirm assign up down smoke release promote console evidence provenance try watch request resume audit production-readiness; or a domain (repo ticket release ops config) and a verb" ;;
 esac
 
 host_out=${LIGHTS_OUT_HOST_OUT:-/out}
@@ -229,7 +233,7 @@ while [ "$i" -lt "$nargs" ]; do
   shift
   i=$((i + 1))
   case "$a" in
-    --json|--jsonl|--engine|--non-interactive|--apply|--commit|--force|--workspace|--no-commit|--no-publish|--in-place|--allow-incomplete|--replace|--write-map|--no-determinism-check|--strict) set -- "$@" "$a" ;;
+    --json|--jsonl|--engine|--non-interactive|--apply|--commit|--force|--workspace|--no-commit|--no-publish|--in-place|--allow-incomplete|--replace|--write-map|--no-determinism-check|--strict|--no-git|--attach|--attach-required|--required) set -- "$@" "$a" ;;
     --staged) set -- "$@" STAGED=1 ;;
     --once) set -- "$@" ONCE=1 ;;
     --*=*)
@@ -489,6 +493,56 @@ while [ "$i" -lt "$nargs" ]; do
       [ "$sub" = live-preflight ] || nogo "'$a' is only valid with live-preflight"
       cli_args="$cli_args${cli_args:+$cli_sep}$a"
       continue ;;
+    --no-git)
+      [ "$sub" = thresholds ] || nogo "'$a' is only valid with thresholds"
+      cli_args="$cli_args${cli_args:+$cli_sep}$a"
+      continue ;;
+    --root=*)
+      [ "$sub" = thresholds ] || nogo "'$a' is only valid with thresholds"
+      cli_args="$cli_args${cli_args:+$cli_sep}$a"
+      continue ;;
+    --root)
+      [ "$sub" = thresholds ] || nogo "'$a' is only valid with thresholds"
+      [ "$i" -lt "$nargs" ] || nogo "'$a' requires a value"
+      v=$1; shift; i=$((i + 1))
+      cli_args="$cli_args${cli_args:+$cli_sep}$a${cli_sep}$v"
+      continue ;;
+    --contract-dir=*)
+      [ "$sub" = thresholds ] || nogo "'$a' is only valid with thresholds"
+      v=${a#--contract-dir=}
+      [ -e "$v" ] || [ ! -e "$repo_dir/$v" ] || v=$(resolve_repo_path "$v")
+      cli_args="$cli_args${cli_args:+$cli_sep}--contract-dir=$v"
+      continue ;;
+    --contract-dir)
+      [ "$sub" = thresholds ] || nogo "'$a' is only valid with thresholds"
+      [ "$i" -lt "$nargs" ] || nogo "'$a' requires a value"
+      v=$1; shift; i=$((i + 1))
+      [ -e "$v" ] || [ ! -e "$repo_dir/$v" ] || v=$(resolve_repo_path "$v")
+      cli_args="$cli_args${cli_args:+$cli_sep}$a${cli_sep}$v"
+      continue ;;
+    --attach|--attach-required|--required|--sha=*|--out-dir=*)
+      [ "$sub" = provenance ] || nogo "'$a' is only valid with provenance"
+      cli_args="$cli_args${cli_args:+$cli_sep}$a"
+      continue ;;
+    --sha|--out-dir)
+      [ "$sub" = provenance ] || nogo "'$a' is only valid with provenance"
+      [ "$i" -lt "$nargs" ] || nogo "'$a' requires a value"
+      v=$1; shift; i=$((i + 1))
+      cli_args="$cli_args${cli_args:+$cli_sep}$a${cli_sep}$v"
+      continue ;;
+    --statement=*|--bundle=*|--out-receipt=*|--key=*)
+      [ "$sub" = provenance ] || nogo "'$a' is only valid with provenance"
+      name=${a%%=*}; v=${a#*=}
+      [ -e "$v" ] || [ ! -e "$repo_dir/$v" ] || v=$(resolve_repo_path "$v")
+      cli_args="$cli_args${cli_args:+$cli_sep}$name=$v"
+      continue ;;
+    --statement|--bundle|--out-receipt|--key)
+      [ "$sub" = provenance ] || nogo "'$a' is only valid with provenance"
+      [ "$i" -lt "$nargs" ] || nogo "'$a' requires a value"
+      v=$1; shift; i=$((i + 1))
+      [ -e "$v" ] || [ ! -e "$repo_dir/$v" ] || v=$(resolve_repo_path "$v")
+      cli_args="$cli_args${cli_args:+$cli_sep}$a${cli_sep}$v"
+      continue ;;
     --in-place)
       [ "$sub" = spec-split ] || nogo "'$a' is only valid with spec-split"
       cli_args="$cli_args${cli_args:+$cli_sep}$a"
@@ -517,18 +571,20 @@ while [ "$i" -lt "$nargs" ]; do
       cli_args="$cli_args${cli_args:+$cli_sep}$a${cli_sep}$v"
       continue ;;
     --repo=*)
-      case "$sub" in genesis|epics|map-brief-eval|live-preflight) ;; *) nogo "'$a' is only valid with genesis, epics, map-brief-eval, or live-preflight" ;; esac
+      case "$sub" in genesis|epics|map-brief-eval|live-preflight|provenance) ;; *) nogo "'$a' is only valid with genesis, epics, map-brief-eval, live-preflight, or provenance" ;; esac
       v=${a#--repo=}
       if [ "$sub" = genesis ]; then
         has_genesis_repo=1
         v=$(resolve_repo_path "$v")
       elif [ "$sub" = map-brief-eval ] || [ "$sub" = live-preflight ]; then
         v=$(resolve_repo_path "$v")
+      elif [ "$sub" = provenance ]; then
+        [ -e "$v" ] || [ ! -e "$repo_dir/$v" ] || v=$(resolve_repo_path "$v")
       fi
       cli_args="$cli_args${cli_args:+$cli_sep}--repo=$v"
       continue ;;
     --repo)
-      case "$sub" in genesis|epics|map-brief-eval|live-preflight) ;; *) nogo "'$a' is only valid with genesis, epics, map-brief-eval, or live-preflight" ;; esac
+      case "$sub" in genesis|epics|map-brief-eval|live-preflight|provenance) ;; *) nogo "'$a' is only valid with genesis, epics, map-brief-eval, live-preflight, or provenance" ;; esac
       [ "$i" -lt "$nargs" ] || nogo "'$a' requires a value"
       v=$1; shift; i=$((i + 1))
       if [ "$sub" = genesis ]; then
@@ -536,6 +592,8 @@ while [ "$i" -lt "$nargs" ]; do
         v=$(resolve_repo_path "$v")
       elif [ "$sub" = map-brief-eval ] || [ "$sub" = live-preflight ]; then
         v=$(resolve_repo_path "$v")
+      elif [ "$sub" = provenance ]; then
+        [ -e "$v" ] || [ ! -e "$repo_dir/$v" ] || v=$(resolve_repo_path "$v")
       fi
       cli_args="$cli_args${cli_args:+$cli_sep}$a${cli_sep}$v"
       continue ;;
@@ -584,6 +642,14 @@ while [ "$i" -lt "$nargs" ]; do
           case "$a" in
             evaluate|ingest-logbook) ;;
             *) [ ! -e "$repo_dir/$a" ] || v=$(resolve_repo_path "$a") ;;
+          esac
+          cli_args="$cli_args${cli_args:+$cli_sep}$v"
+          continue ;;
+        provenance)
+          v=$a
+          case "$a" in
+            build|verify|attach) ;;
+            *) [ -e "$a" ] || [ ! -e "$repo_dir/$a" ] || v=$(resolve_repo_path "$a") ;;
           esac
           cli_args="$cli_args${cli_args:+$cli_sep}$v"
           continue ;;
@@ -736,13 +802,13 @@ fi
 case "$sub" in
   cloud-setup|scoreboard|auto-incident|incident|alert-webhook|top|m24-check|demo-loop|jury|live-preflight)
     run_make "$sub" "$@" ;;
-  next|dora|spend|map|network|epics|spec-split|map-brief-eval)
+  next|dora|spend|map|network|epics|spec-split|map-brief-eval|thresholds)
     attached=/tmp/lights-out/attached
     mkdir -p /tmp/lights-out
     if sh core/await-head.sh "$repo_dir" 15; then
       rm -rf "$attached"
       sh core/attach.sh "$repo_dir" "$attached" || nogo "could not clone the repository (see above)"
-      if member "$sub" "next map epics spec-split map-brief-eval" || [ -f "$attached/.lights-out/workload.env" ]; then
+      if member "$sub" "next map epics spec-split map-brief-eval thresholds" || [ -f "$attached/.lights-out/workload.env" ]; then
         run_make "$sub" WORKLOAD="$attached" ATTACHED="$attached" "$@"
       fi
       run_make "$sub" WORKLOAD=app ATTACHED=/tmp/lights-out/no-attached "$@"

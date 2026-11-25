@@ -134,7 +134,8 @@ exit 0
         go_text = (self.ws / "go").read_text(encoding="utf-8")
         for target in (
             "registry-conformance", "flags-conformance", "tracker-conformance", "charts-conformance",
-            "watch", "alert-webhook", "auto-incident", "cli", "top",
+            "metrics-conformance", "orchestrator-conformance",
+            "watch", "alert-webhook", "auto-incident", "cli", "top", "thresholds",
             "adr-check", "migration-safety", "provenance", "console-build",
         ):
             self.assertRegex(help_res.stdout, rf"(?m)^\s*{target}\s+", f"make help missing {target}")
@@ -854,6 +855,82 @@ exit 0
             argv_ah[-4:],
             ["make", "harness-conformance", "AGENT_HARNESS=outside/file-harness", f"ADAPTERS_PATH={ext_dir}"],
         )
+
+    def test_sprint6_thresholds_metrics_orchestrator_and_provenance_attach_wiring(self) -> None:
+        base_env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "HOME": str(self.tmp)}
+        missing_wl = self.tmp / "empty-contract-s6"
+        missing_wl.mkdir(exist_ok=True)
+
+        # Standalone thresholds works even without workload.env
+        res_thr = subprocess.run(
+            ["make", "--no-print-directory", "thresholds", f"WORKLOAD_CONTRACT={missing_wl}", "THRESHOLDS_ARGS=--no-git"],
+            cwd=self.ws, env=base_env, capture_output=True, text=True, check=False,
+        )
+        self.assertEqual(res_thr.returncode, 0, res_thr.stdout + res_thr.stderr)
+        self.assertRegex(res_thr.stdout.strip(), r"^GO: thresholds — \d+ keys \(\d+ overridden\)$")
+
+        # make thresholds against bundled app contract preserves app/policy.env source (not env)
+        res_thr_json = subprocess.run(
+            ["make", "--no-print-directory", "thresholds", "JSON=1", "THRESHOLDS_ARGS=--no-git"],
+            cwd=self.ws, env=base_env, capture_output=True, text=True, check=False,
+        )
+        self.assertEqual(res_thr_json.returncode, 0, res_thr_json.stdout + res_thr_json.stderr)
+        thr_doc = json.loads(res_thr_json.stdout)
+        by_id = {e["id"]: e for e in thr_doc["entries"]}
+        self.assertEqual(by_id["MUTATION_BASELINE"]["source"], "app/workload.env")
+        self.assertEqual(by_id["RISK_HIGH_AUTH"]["source"], "app/policy.env")
+
+        # metrics-conformance & orchestrator-conformance via Makefile
+        ext_dir = (self.ws / "fixtures" / "outside-adapters").resolve()
+        reg_file = self.tmp / "reg-state-s6"
+        res_mc = subprocess.run(
+            [
+                "make", "--no-print-directory", "metrics-conformance",
+                "METRICS=outside/file-metrics", f"ADAPTERS_PATH={ext_dir}", f"ADAPTERS_REGISTER={reg_file}",
+            ],
+            cwd=self.ws, env=base_env, capture_output=True, text=True, check=False,
+        )
+        self.assertEqual(res_mc.returncode, 0, res_mc.stdout + res_mc.stderr)
+        self.assertEqual(res_mc.stdout.strip(), "GO: metrics-conformance — outside/file-metrics, 5 cases")
+
+        res_oc = subprocess.run(
+            [
+                "make", "--no-print-directory", "orchestrator-conformance",
+                "ORCHESTRATOR=outside/file-orchestrator", f"ADAPTERS_PATH={ext_dir}", f"ADAPTERS_REGISTER={reg_file}",
+            ],
+            cwd=self.ws, env=base_env, capture_output=True, text=True, check=False,
+        )
+        self.assertEqual(res_oc.returncode, 0, res_oc.stdout + res_oc.stderr)
+        self.assertEqual(res_oc.stdout.strip(), "GO: orchestrator-conformance — outside/file-orchestrator, 5 cases")
+
+        # ./go forwarding for thresholds --no-git and provenance --attach
+        bindir, tools, go_log = self._setup_fake_podman()
+        go_env = {
+            "PATH": f"{bindir}:{tools}",
+            "HOME": str(self.tmp),
+            "PROVENANCE_ATTACH": "1",
+            "UNLEASH_URL": "http://127.0.0.1:4242",
+        }
+        res_go_thr = subprocess.run(
+            ["sh", "./go", "thresholds", "--no-git"],
+            cwd=self.ws, env=go_env, capture_output=True, text=True, check=False,
+        )
+        self.assertEqual(res_go_thr.returncode, 0, res_go_thr.stderr)
+        argv_thr = next(c for c in _read_calls(go_log) if c and c[0] == "run")
+        self.assertIn("LIGHTS_OUT_CLI_ARGS", _extract_env_flags(argv_thr))
+        self.assertEqual(argv_thr[-2:], ["make", "thresholds"])
+
+        go_log.unlink(missing_ok=True)
+        res_go_prov = subprocess.run(
+            ["sh", "./go", "provenance", "--attach", "VERSION=0.9.0"],
+            cwd=self.ws, env=go_env, capture_output=True, text=True, check=False,
+        )
+        self.assertEqual(res_go_prov.returncode, 0, res_go_prov.stderr)
+        argv_prov = next(c for c in _read_calls(go_log) if c and c[0] == "run")
+        envs_prov = _extract_env_flags(argv_prov)
+        self.assertIn("LIGHTS_OUT_CLI_ARGS", envs_prov)
+        self.assertIn("PROVENANCE_ATTACH", envs_prov)
+        self.assertEqual(argv_prov[-3:], ["make", "provenance", "VERSION=0.9.0"])
 
 
 if __name__ == "__main__":

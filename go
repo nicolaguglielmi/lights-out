@@ -42,7 +42,7 @@
 #   ./go e2e            run the full tower: ticket → PR → CI → merge → canary → verify NO-GO → rollback, audited
 #   ./go audit          rebuild the chain from a ticket's state: TICKET=<id>
 #   ./go evidence       the evidence pack of a release and its frozen console, signed with the plane's key and verified: VERSION=<v> (ADR 0081, 0089)
-#   ./go provenance     build, sign and verify an in-toto provenance attestation: [VERSION=<v>] [TICKET=<id>] [PROVENANCE_DIR=] (ADR 0117)
+#   ./go provenance     build, sign and verify an in-toto provenance attestation: [VERSION=<v>] [TICKET=<id>] [PROVENANCE_DIR=] [--attach] [attach ...] (ADR 0117, 0134)
 #   ./go resume         request again the step a ticket failed, history kept: TICKET=<id>
 #   ./go request        start a ticket at requested: the product role asks or confirms, then the spec gate: TICKET=<id> [REQUEST_BY=<who>]
 #   ./go answer         answer a ticket's open question, then the product role again: TICKET=<id> ANSWER=<text>
@@ -67,6 +67,7 @@
 #   ./go network        one ticket's agent network in text, the console's #network in the same words: [TICKET=] [ATTEMPT=]
 #   ./go dora           the four delivery measures (DORA) over the last WINDOW_DAYS days, from the logbook (ADR 0082)
 #   ./go spend          cost and time per ticket, per role and per day, from the tower's spend ledger (ADR 0083)
+#   ./go thresholds     audit effective policy and role thresholds, provenance, overrides, and commit history: [JSON=1] [--no-git] (ADR 0135)
 #   ./go scoreboard     per provider and harness: merged at the first attempt, reworks, NO-GOs, budget stops, cost; every row sourced (ADR 0088)
 #   ./go demo-console   prove go-for-launch pressed from the console: held canary, POST GO → 100%, then the un-promote
 #   ./go promote        go-for-launch: the brief, the human answer, then 100% or rollback
@@ -84,6 +85,8 @@
 #   ./go flags-conformance  six-case Flags suite on FLAGS (flags-file daemonless JSON, flags-http OFREP, or flagd) (ADR 0107)
 #   ./go tracker-conformance  six-case Tracker suite on TRACKER (file, github-issues, linear, or outside/*) (ADR 0116)
 #   ./go charts-conformance  five-case Charts suite on CHARTS (grafana, cloud-monitoring, or outside/*) (ADR 0122)
+#   ./go metrics-conformance  five-case Metrics suite on METRICS (promql, or outside/*) (ADR 0133)
+#   ./go orchestrator-conformance  five-case Orchestrator suite on ORCHESTRATOR (inproc, or outside/*) (ADR 0133)
 #   ./go engine-compat  host-side engine gate: versions, then up and smoke
 #   ./go doctor         engine, versions, ports, the key: one line each, then GO or NO-GO (host-side)
 #   ./go doctor --level <l0|l1|l2|l3>   what that level still lacks, one line per item (host-side, ADR 0057)
@@ -525,13 +528,15 @@ for v in POLL_S ONCE ALERT_FILE ALERT_WEBHOOK_TOKEN ALERT_WEBHOOK_OUT WEBHOOK_AR
          FLAGS_AUTH_HEADER OCI_REGISTRY_TOKEN OCI_REGISTRY_PASSWORD \
          LOGBOOK_FILE LOGBOOK_URL URL JSON VIEW WIDTH HEIGHT NO_COLOR TICKET_FILE \
          PROVENANCE_DIR COSIGN_KEY COSIGN_PUB RELEASES_LOG SUBJECT_SHA256 IMAGE \
+         PROVENANCE_ATTACH PROVENANCE_ATTACH_REQUIRED \
          TRACKER GITHUB_API_URL LINEAR_TEAM_ID LINEAR_API_URL LINEAR_TOKEN \
          CHARTS CHARTS_URL GRAFANA_URL GRAFANA_TOKEN \
+         UNLEASH_URL UNLEASH_API_TOKEN UNLEASH_PROJECT UNLEASH_ENVIRONMENT METRICS_URL \
          MONITORING_API_URL MONITORING_ACCESS_TOKEN MONITORING_AUTH_HEADER \
          SSE_HEARTBEAT_S CONSOLE_SSE_HEARTBEAT_S \
          DEMO_LOOP_OUT DEMO_LOOP_BUDGET_SECONDS \
          JURY_CROSS_PROVIDER JURY_PROVIDER JURY_MODEL JURY_HARNESS \
-         GITHUB_REPO GOOGLE_CLOUD_PROJECT GCP_PROJECT GOOGLE_CLOUD_LOCATION CLOUDSDK_CORE_PROJECT; do
+         GITHUB_REPO GITLAB_URL GITLAB_PROJECT_PATH GOOGLE_CLOUD_PROJECT GCP_PROJECT GOOGLE_CLOUD_LOCATION CLOUDSDK_CORE_PROJECT; do
   if env | grep -q "^$v="; then port_flags="$port_flags -e $v"; fi
 done
 if [ "$cmd" = top ] && env | grep -q "^TERM="; then
@@ -707,7 +712,7 @@ elif [ "$cmd" = genesis ]; then
     export LIGHTS_OUT_CLI_ARGS
     port_flags="$port_flags -e LIGHTS_OUT_CLI_ARGS"
   fi
-elif [ "$cmd" = start ] || [ "$cmd" = next ] || [ "$cmd" = top ] || [ "$cmd" = epics ] || [ "$cmd" = spec-split ] || [ "$cmd" = m24-check ] || [ "$cmd" = demo-loop ] || [ "$cmd" = jury ] || [ "$cmd" = map-brief-eval ] || [ "$cmd" = live-preflight ]; then
+elif [ "$cmd" = start ] || [ "$cmd" = next ] || [ "$cmd" = top ] || [ "$cmd" = epics ] || [ "$cmd" = spec-split ] || [ "$cmd" = m24-check ] || [ "$cmd" = demo-loop ] || [ "$cmd" = jury ] || [ "$cmd" = map-brief-eval ] || [ "$cmd" = live-preflight ] || [ "$cmd" = thresholds ] || [ "$cmd" = provenance ]; then
   cli_sep=$(printf '\037')
   cli_args=""
   for a in "$@"; do
@@ -816,7 +821,7 @@ fi
 
 if [ "$cmd" = shell ]; then
   run sh
-elif [ "$cmd" = init ] || [ "$cmd" = start ] || [ "$cmd" = next ] || [ "$cmd" = top ] || [ "$cmd" = cli ] || [ "$cmd" = genesis ] || [ "$cmd" = epics ] || [ "$cmd" = spec-split ] || [ "$cmd" = m24-check ] || [ "$cmd" = demo-loop ] || [ "$cmd" = jury ] || [ "$cmd" = map-brief-eval ] || [ "$cmd" = live-preflight ]; then
+elif [ "$cmd" = init ] || [ "$cmd" = start ] || [ "$cmd" = next ] || [ "$cmd" = top ] || [ "$cmd" = cli ] || [ "$cmd" = genesis ] || [ "$cmd" = epics ] || [ "$cmd" = spec-split ] || [ "$cmd" = m24-check ] || [ "$cmd" = demo-loop ] || [ "$cmd" = jury ] || [ "$cmd" = map-brief-eval ] || [ "$cmd" = live-preflight ] || [ "$cmd" = thresholds ] || [ "$cmd" = provenance ]; then
   if [ -n "$make_args" ]; then
     old_ifs=$IFS
     IFS=$(printf '\037')

@@ -32,13 +32,14 @@ SPEC = {
                "spec-split"],
     "release": ["up", "down", "smoke", "deploy", "promote", "evidence", "provenance", "production-readiness"],
     "ops": ["watch", "alert-webhook", "triage", "auto-incident", "incident", "postmortem", "dora", "spend", "top",
-            "charts-conformance", "m24-check", "demo-loop"],
+            "charts-conformance", "metrics-conformance", "orchestrator-conformance", "m24-check", "demo-loop"],
     "config": ["start", "next", "cloud-setup", "scoreboard", "agents", "tracker-conformance", "console-build",
-               "jury", "live-preflight"],
+               "jury", "live-preflight", "thresholds"],
 }
 SHELLS = ["bash", "zsh", "fish"]
 GATE_SHAPED = {"init", "try", "gates", "test-proof", "test-integrity", "adr-check", "migration-safety",
-               "doctor", "map", "corpus", "production-readiness", "tracker-conformance", "charts-conformance"}
+               "doctor", "map", "corpus", "production-readiness", "tracker-conformance", "charts-conformance",
+               "metrics-conformance", "orchestrator-conformance"}
 SECRET = "canary-secret-value-90210"
 
 
@@ -120,7 +121,11 @@ class GrammarTests(unittest.TestCase):
 
     def test_clone_only_commands_are_marked(self):
         clone_only = {c.flat for c in cli.COMMANDS if c.surface == "clone"}
-        self.assertEqual(clone_only, {"corpus", "agents", "tracker-conformance", "charts-conformance", "console-build"})
+        self.assertEqual(
+            clone_only,
+            {"corpus", "agents", "tracker-conformance", "charts-conformance", "metrics-conformance",
+             "orchestrator-conformance", "console-build"},
+        )
 
 
 class FlagTranslationTests(unittest.TestCase):
@@ -176,6 +181,11 @@ class FlagTranslationTests(unittest.TestCase):
         self.assertEqual(cli.parse(["config", "console-build", "--check"]).tail, ["--check"])
         self.assertEqual(cli.parse(["config", "tracker-conformance", "--tracker", "file"]).tail, ["TRACKER=file"])
         self.assertEqual(cli.parse(["ops", "charts-conformance", "--charts", "grafana"]).tail, ["CHARTS=grafana"])
+        self.assertEqual(cli.parse(["ops", "metrics-conformance", "--metrics", "promql"]).tail, ["METRICS=promql"])
+        self.assertEqual(
+            cli.parse(["ops", "orchestrator-conformance", "--orchestrator", "inproc"]).tail,
+            ["ORCHESTRATOR=inproc"],
+        )
 
     def test_engine_is_kept_for_the_gate_tier(self):
         for flat in ("gates", "adr-check", "migration-safety"):
@@ -728,6 +738,43 @@ class WaveBCLITests(unittest.TestCase):
                 self.assertIn(cmd, comp)
             flag_prefix = "-l " if sh_name == "fish" else "--"
             for flag in ("budget", "inject-break", "author-provider", "write-map", "strict"):
+                self.assertIn(f"{flag_prefix}{flag}", comp)
+
+    def test_sprint6_thresholds_provenance_attach_and_conformance_parse(self):
+        p_thr = cli.parse(["config", "thresholds", "--no-git", "--root", ".", "--contract-dir", "c"])
+        self.assertEqual(p_thr.command.flat, "thresholds")
+        self.assertEqual(p_thr.tail, ["--no-git", "--root", ".", "--contract-dir", "c"])
+        self.assertEqual(cli.parse(["thresholds", "JSON=1"]).tail, ["JSON=1"])
+
+        rc, out, _ = run_main(
+            ["--json", "config", "thresholds", "--no-git"],
+            runner=FakeRunner(["GO: thresholds — 43 keys (0 overridden)"]),
+        )
+        self.assertEqual(rc, 0)
+        env = json.loads(out)
+        self.assertEqual((env["command"], env["flat"], env["verdict"]), ("config thresholds", "thresholds", "GO"))
+        self.assertIn("43 keys", env["line"])
+
+        p_prov_b = cli.parse(["release", "provenance", "--version", "0.9.0", "--attach", "--attach-required"])
+        self.assertEqual(p_prov_b.tail, ["VERSION=0.9.0", "--attach", "--attach-required"])
+
+        p_prov_a = cli.parse([
+            "release", "provenance", "attach", "--statement", "s.intoto.json",
+            "--bundle", "s.bundle", "--sha", "abc123", "--out-receipt", "r.json", "--required",
+        ])
+        self.assertEqual(p_prov_a.positional, ["attach"])
+        self.assertEqual(
+            p_prov_a.tail,
+            ["--statement", "s.intoto.json", "--bundle", "s.bundle", "--sha", "abc123",
+             "--out-receipt", "r.json", "--required"],
+        )
+
+        for sh_name in SHELLS:
+            comp = cli.completion(sh_name)
+            for cmd in ("thresholds", "metrics-conformance", "orchestrator-conformance"):
+                self.assertIn(cmd, comp)
+            flag_prefix = "-l " if sh_name == "fish" else "--"
+            for flag in ("no-git", "contract-dir", "attach", "attach-required", "statement"):
                 self.assertIn(f"{flag_prefix}{flag}", comp)
 
 

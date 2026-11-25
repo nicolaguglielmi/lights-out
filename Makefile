@@ -75,7 +75,7 @@ CORPUS_FULL ?= 0
 # `init`/`try` draft one (docs/adr/0042 §6, 0093 §5), `cloud-setup` stages
 # cloud infrastructure templates (docs/adr/0104), and `start`/`next` guide a
 # repo from Stage 1 before a contract exists (docs/adr/0103).
-ifneq ($(filter $(MAKECMDGOALS),init genesis epics spec-split m24-check demo-loop jury map-brief-eval live-preflight try cloud-setup start next cli top alert-webhook auto-incident console-build),)
+ifneq ($(filter $(MAKECMDGOALS),init genesis epics spec-split m24-check demo-loop jury map-brief-eval live-preflight try cloud-setup start next cli top alert-webhook auto-incident console-build thresholds),)
 -include $(WORKLOAD_CONTRACT)/workload.env
 else
 include $(WORKLOAD_CONTRACT)/workload.env
@@ -89,7 +89,7 @@ export
 # goals only tries the adapter instead: its recipe goes through `conform`.
 OUTSIDE_PORTS := AGENT_HARNESS CODE_HOST DELIVERY STATE_STORE EVENT_BUS TRACKER ORCHESTRATOR METRICS FLAGS REGISTRY CHARTS
 ifneq ($(filter outside/%,$(foreach p,$(OUTSIDE_PORTS),$($(p)))),)
-ifneq ($(filter-out %-conformance genesis epics spec-split m24-check demo-loop jury map-brief-eval live-preflight start next cli top cloud-setup alert-webhook auto-incident console-build,$(or $(MAKECMDGOALS),help)),)
+ifneq ($(filter-out %-conformance genesis epics spec-split m24-check demo-loop jury map-brief-eval live-preflight start next cli top cloud-setup alert-webhook auto-incident console-build thresholds,$(or $(MAKECMDGOALS),help)),)
 ADMIT := $(shell python3 core/adapters.py admit 2>&1)
 ifneq ($(ADMIT),)
 $(error $(ADMIT))
@@ -484,6 +484,13 @@ scoreboard: ## Per provider and harness: tickets, merged at the first attempt, r
 .PHONY: spend
 spend: ## Cost and time per ticket, per role and per day, from the tower's spend ledger; a model with no price is cost unknown (docs/adr/0083)
 	@sh core/spend.sh
+
+# Threshold drift and override governance (docs/adr/0135): compares platform
+# policy/*.env and roles/*/role.env defaults against workload, start-plan,
+# and active env overrides, with provenance and commit history.
+.PHONY: thresholds
+thresholds: ## Audit effective policy/role thresholds, provenance, overrides, and commit history: [JSON=1] [THRESHOLDS_ARGS=] (docs/adr/0135)
+	@env $(foreach k,MUTATION_BASELINE MUTATION_MARGIN RISK_SIZE_MEDIUM_LINES RISK_AUTO_MERGE_LEVELS RISK_HIGH_MIGRATIONS RISK_HIGH_AUTH RISK_HIGH_PAYMENTS ERROR_RATE_MAX_DELTA LATENCY_P95_MAX_DELTA RISK_REQUIRE_ADR REWORK_MAX_ATTEMPTS SPEND_BUDGET_TICKET_USD SPEND_BUDGET_DAY_USD MAINLINE_GROUP_MAX,$(if $(filter file,$(origin $(k))),-u $(k))) sh core/thresholds.sh $(THRESHOLDS_ARGS)
 
 # The console (docs/adr/0047, 0055, 0059, 0071): the client's eleven screens over the
 # logbook and three writes, go-for-launch through core/promote.sh, the
@@ -1150,7 +1157,7 @@ evidence: ## Build, sign and verify the evidence pack of a release and its froze
 	@VERSION="$(VERSION)" EVIDENCE_LOGBOOK="$(EVIDENCE_LOGBOOK)" sh core/evidence.sh
 
 .PHONY: provenance
-provenance: ## Build, sign and verify an in-toto provenance attestation: [VERSION=<v>] [TICKET=<id>] [PROVENANCE_DIR=.crew/provenance] (docs/adr/0117)
+provenance: ## Build, sign and verify an in-toto provenance attestation: [VERSION=<v>] [TICKET=<id>] [PROVENANCE_DIR=.crew/provenance] [--attach] [attach ...] (docs/adr/0117, 0134)
 	@TICKET="$(if $(filter command line environment,$(origin TICKET)),$(TICKET))" sh core/provenance.sh $(PROVENANCE_ARGS)
 
 # A ticket whose last step failed stays at that step's starting state
@@ -1873,7 +1880,7 @@ codehost-conformance: ## Ten-case CodeHost conformance suite on the CODE_HOST se
 # profile's adapters, through their verbs only. At L0 they need no plane
 # (sqlite and spool are files under .crew/); an emulator needs `./go up`
 # with it named first. The bus suite refuses a bus that is not idle.
-.PHONY: statestore-conformance eventbus-conformance registry-conformance flags-conformance tracker-conformance charts-conformance
+.PHONY: statestore-conformance eventbus-conformance registry-conformance flags-conformance tracker-conformance charts-conformance metrics-conformance orchestrator-conformance
 statestore-conformance: ## Eight-case StateStore conformance suite on the STATE_STORE set: sqlite at L0, no plane (docs/adr/0060 §4)
 	$(call conform,STATE_STORE,statestore-conformance)
 eventbus-conformance: ## Six-case EventBus conformance suite on the EVENT_BUS set, an idle bus: spool at L0, no plane; the redelivery case needs CONFORMANCE_ACK_DEADLINE (docs/adr/0060 §4)
@@ -1886,6 +1893,10 @@ tracker-conformance: ## Six-case Tracker conformance suite on TRACKER (file, git
 	$(call conform,TRACKER,tracker-conformance)
 charts-conformance: ## Five-case Charts conformance suite on CHARTS (grafana, cloud-monitoring, or outside/*) (docs/adr/0122)
 	$(call conform,CHARTS,charts-conformance)
+metrics-conformance: ## Five-case Metrics conformance suite on METRICS (promql, or outside/*) (docs/adr/0133)
+	$(call conform,METRICS,metrics-conformance)
+orchestrator-conformance: ## Five-case Orchestrator conformance suite on ORCHESTRATOR (inproc, or outside/*) (docs/adr/0133)
+	$(call conform,ORCHESTRATOR,orchestrator-conformance)
 
 .PHONY: delivery-conformance
 delivery-conformance: ## Six-case Delivery/Flags conformance suite, real releases on the plane (docs/adr/0026)
