@@ -32,7 +32,7 @@ IMAGE_PREFIX = "ghcr.io/nicolaguglielmi/lights-out"
 READONLY = ("init", "genesis", "gates", "test-proof", "test-integrity", "adr-check", "migration-safety",
             "triage", "postmortem")
 STATE = ("next", "dora", "spend", "cloud-setup", "map", "network", "scoreboard",
-         "auto-incident", "incident", "alert-webhook", "top", "epics")
+         "auto-incident", "incident", "alert-webhook", "top", "epics", "spec-split", "m24-check")
 PLANE = ("start", "intake", "answer", "intake-confirm", "assign", "up", "down", "smoke", "release",
          "promote", "console", "evidence", "provenance", "try", "watch", "request", "resume", "audit",
          "production-readiness")
@@ -118,6 +118,12 @@ class WrapperGrammarParityTests(WrapperParityBase):
             ["repo", "init", "--apply", "--branch", "lo/init", "--commit", "--force",
              "--baseline-mode", "incremental", "--baseline-max-files", "5"],
             ["release", "provenance", "--version", "0.2.0", "--ticket", "0001", "--provenance-dir", ".crew/prov"],
+            ["ticket", "spec-split", "split", "tickets/0001.md", "--in-place"],
+            ["ops", "m24-check", "--allow-incomplete", "--data", "d.json", "--logbook", "l.json"],
+            ["ops", "top", "--logbook", "l.json"],
+            ["ops", "watch", "--once", "--workers", "4", "--runner-workers", "3"],
+            ["ticket", "intake", "--intake-network-split", "on"],
+            ["ticket", "assign", "--network-auto-split", "on"],
         )
         for argv in cases:
             plan = cli.parse(argv)
@@ -125,7 +131,7 @@ class WrapperGrammarParityTests(WrapperParityBase):
             res = self.run_w(argv)
             self.assertEqual(res.returncode, 0, f"{argv}: {res.stderr}")
             got = image_args(self.last_run())
-            want = [plan.command.flat, *plan.tail, *(["--" + plan.json_mode] if plan.json_mode else [])]
+            want = [plan.command.flat, *plan.positional, *plan.tail, *(["--" + plan.json_mode] if plan.json_mode else [])]
             self.assertEqual(got, want, argv)
 
     def test_extension_keys_are_per_command(self):
@@ -593,6 +599,79 @@ class EntrypointParityTests(unittest.TestCase):
         lines = call_log.read_text(encoding="utf-8").splitlines()
         self.assertTrue(any(ln.startswith("GENESIS NO_SP=1 ") and str(empty_dir) in ln and "--no-commit" in ln for ln in lines), lines)
         self.assertTrue(any(ln.startswith("EPICS ") and "--id\x1fE1" in ln and "0001" in ln and "--no-publish" in ln for ln in lines), lines)
+
+    def test_entrypoint_sprint4_spec_split_m24_and_watch_workers_parity(self):
+        call_log = self.tmp / "sprint4-calls.log"
+        (self.img / "Makefile").write_text(
+            "GATES := risk\n"
+            "spec-split:\n"
+            f"\t@printf 'SPEC_SPLIT CLI=%s\\n' \"$(LIGHTS_OUT_CLI_ARGS)\" >> {call_log}\n"
+            "\t@printf 'splittable (impl=1, tests=1)\\n'\n"
+            "m24-check:\n"
+            f"\t@printf 'M24_CHECK CLI=%s\\n' \"$(LIGHTS_OUT_CLI_ARGS)\" >> {call_log}\n"
+            "\t@printf 'M24 evaluation: incomplete\\n'\n"
+            "watch:\n"
+            f"\t@printf 'WATCH O=%s W=%s RW=%s\\n' \"$(ONCE)\" \"$(WORKERS)\" \"$(RUNNER_WORKERS)\" >> {call_log}\n"
+            "\t@printf 'GO: watch\\n'\n"
+            "assign:\n"
+            f"\t@printf 'ASSIGN NAS=%s\\n' \"$(NETWORK_AUTO_SPLIT)\" >> {call_log}\n"
+            "\t@printf 'GO: assign\\n'\n"
+            "intake:\n"
+            f"\t@printf 'INTAKE INS=%s\\n' \"$(INTAKE_NETWORK_SPLIT)\" >> {call_log}\n"
+            "\t@printf 'GO: intake\\n'\n",
+            encoding="utf-8",
+        )
+        (self.repo / "t.md").write_text("# ticket\n", encoding="utf-8")
+        (self.repo / "book.json").write_text("{}\n", encoding="utf-8")
+
+        res_ss = self.run_e(
+            ["ticket", "spec-split", "split", "t.md", "--in-place", "--json"],
+            plane=False,
+            extra={"LIGHTS_OUT_CONTAINER_OUT": str(self.tmp / "out_ss")},
+        )
+        self.assertEqual(res_ss.returncode, 0, res_ss.stdout + res_ss.stderr)
+        env_ss = json.loads(res_ss.stdout)
+        self.assertEqual((env_ss["command"], env_ss["flat"], env_ss["verdict"]), ("ticket spec-split", "spec-split", "GO"))
+
+        res_m24 = self.run_e(
+            ["ops", "m24-check", "evaluate", "--logbook", "book.json", "--allow-incomplete", "--json"],
+            plane=False,
+            extra={"LIGHTS_OUT_CONTAINER_OUT": str(self.tmp / "out_m24")},
+        )
+        self.assertEqual(res_m24.returncode, 0, res_m24.stdout + res_m24.stderr)
+        env_m24 = json.loads(res_m24.stdout)
+        self.assertEqual((env_m24["command"], env_m24["flat"], env_m24["verdict"]), ("ops m24-check", "m24-check", "GO"))
+
+        # Plane commands (watch, assign, intake) require a git repo with .lights-out/workload.env
+        subprocess.run(["git", "-C", str(self.repo), "init", "-q"], check=True)
+        (self.repo / ".lights-out").mkdir(exist_ok=True)
+        (self.repo / ".lights-out" / "workload.env").write_text("WORKLOAD_PORT=8000\n", encoding="utf-8")
+        subprocess.run(["git", "-C", str(self.repo), "add", "-A"], check=True)
+        subprocess.run(
+            ["git", "-C", str(self.repo), "-c", "user.name=t", "-c", "user.email=t@invalid",
+             "-c", "commit.gpgsign=false", "commit", "-q", "-m", "contract"],
+            check=True,
+        )
+        (self.img / "core" / "attach.sh").write_text(
+            "#!/bin/sh\nrm -rf \"$2\"\ngit clone -q \"$1\" \"$2\"\n",
+            encoding="utf-8",
+        )
+
+        res_w = self.run_e(["ops", "watch", "--once", "--workers", "4", "--runner-workers", "3"])
+        self.assertEqual(res_w.returncode, 0, res_w.stdout + res_w.stderr)
+
+        res_a = self.run_e(["ticket", "assign", "--network-auto-split", "on"])
+        self.assertEqual(res_a.returncode, 0, res_a.stdout + res_a.stderr)
+
+        res_i = self.run_e(["ticket", "intake", "--intake-network-split", "on"])
+        self.assertEqual(res_i.returncode, 0, res_i.stdout + res_i.stderr)
+
+        lines = call_log.read_text(encoding="utf-8").splitlines()
+        self.assertTrue(any(f"split\x1f{self.repo}/t.md\x1f--in-place" in ln for ln in lines), lines)
+        self.assertTrue(any(f"--logbook\x1f{self.repo}/book.json\x1f--allow-incomplete" in ln for ln in lines), lines)
+        self.assertIn("WATCH O=1 W=4 RW=3", lines)
+        self.assertIn("ASSIGN NAS=on", lines)
+        self.assertIn("INTAKE INS=on", lines)
 
 
 class WaveBWrapperMountAndParityTests(unittest.TestCase):

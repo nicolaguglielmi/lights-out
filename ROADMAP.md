@@ -77,7 +77,7 @@ wins when the two disagree. Decisions behind each step are in
 | 0.7.0 | Tagged 2026-11-14, on the Marketplace 2026-11-15: the intake interview ([ADR 0090](docs/adr/0090-the-intake-interview.md)), the flow strip, the role matrix and the burn, the provider scoreboard and the frozen console ([ADR 0085](docs/adr/0085-the-flow-strip.md) to [0089](docs/adr/0089-a-read-only-console-snapshot.md)), outside adapters with GitLab and Jenkins ([ADR 0058](docs/adr/0058-outside-adapters-and-other-cis-as-surfaces.md)), the gates' logic in Python ([ADR 0084](docs/adr/0084-gates-under-the-shell-boundary.md)); [release notes](docs/releases/v0.7.0.md) |
 | 0.8.0 | Tagged 2026-11-16: the first run without friction (M60), GLM and a budget per provider (M59), closed decisions (M58), Flagger and the CI recipes (M62), the second Python slice (M61) |
 | 0.8.1 | Cut 2026-11-19, no new command or flag: a dev container and Open in Codespaces with the seven levels (M64, [ADR 0097](docs/adr/0097-from-zero-to-hero-and-a-start-with-nothing-installed.md)), the mutation runner stopping with one line on a coverage-hook failure ([ADR 0076](docs/adr/0076-a-mutant-runs-the-tests-that-reach-it.md) amendment), DAST scanning the stable again when its report lost whole paths ([ADR 0072](docs/adr/0072-security-scanning-sast-sca-dast-sbom.md) amendment), plain git hooks, the gates image waiting for a `.git` file a podman machine shows late; [release notes](docs/releases/v0.8.1.md) |
-| Agent network, built | The dev-worker step split between workers behind one harness port, governed like any PR (ADR 0036, still *proposed*; hand-written at L0) |
+| Agent network, built | The dev-worker step split between workers behind one harness port, governed like any PR (ADR 0036, still *proposed*; hand-written at L0; opt-in autonomous `## Network` split added in ADR 0120 via `./go spec-split` and `NETWORK_AUTO_SPLIT=on`) |
 | Cloud E2E bridge | `adapters/oci-registry/`, `adapters/flags-file/`, `adapters/flags-http/`, `gates/registry-conformance.sh`, `gates/flags-conformance.sh`, `./go registry-conformance`, `./go flags-conformance`, `plugins/cloud/*/slo-ingress.promql`, and `plugins/cloud/setup.py` `--slo-mode` (`SLO_MODE=proxy\|otel`), contract-tested locally against stub HTTP/CLI servers (`ci/tests/test_oci_registry_and_flags.py`); live remote cloud/registry conformance requires user accounts ([ADR 0107](docs/adr/0107-cloud-registry-flags-and-proxy-slos.md)) |
 | UX Glue | `.crew/start-plan.env` Make/`./go` precedence wiring (`core/start.py` discovering `oci-registry`, `flags-file`, `flags-http`, `slo-ingress.promql`, and `AUTO_INCIDENT_ON_ROLLBACK`), opt-in socket `lights-out gates --engine`, and non-blocking `core/promote_hint.py` guidance ([ADR 0108](docs/adr/0108-start-plan-wiring-wrapper-engine-gates-and-promote-clarity.md)) |
 | Continuous ops loop | `core/runner.py` (`./go watch`), `core/webhook.py` (`./go alert-webhook`), `core/ops_loop.py` (`./go auto-incident`, `AUTO_INCIDENT_ON_ROLLBACK` in `core/releases.py`), and orchestrator/alert recipes (`surfaces/github-actions/tower-orchestrator.yml`, `surfaces/gitlab-ci/tower-orchestrator.yml`, `surfaces/alerts/README.md`) ([ADR 0109](docs/adr/0109-continuous-orchestration-auto-incident-and-alert-webhook.md)) |
@@ -99,24 +99,16 @@ wins when the two disagree. Decisions behind each step are in
 | M86 | Adaptive `Guided` (junior) vs. `Cockpit` (senior) console persona mode (`console/src/`, `core/start.py`, `console/serve.py`), `CONSOLE_PERSONA` propagation, WCAG 2.1 AA solid CTA/border contrast tokens in both themes, unified six-dialog light-dismiss, coarse-pointer target sizing, and `1440x900` / `390x844` visual verification ([ADR 0126](docs/adr/0126-adaptive-persona-ux-and-impeccable-polish.md)) |
 | M87 | Cryptographic OIDC/JWT verification and four-tier console access control (`core/oidc_rbac.py`, `console/serve.py`, `core/gates/readiness.py`, `deploy/proxy/`): pure-stdlib RS256/ES256/HS256 + JWKS validation (`CONSOLE_VERIFY_JWT=`, `CONSOLE_JWKS_URL=`, `CONSOLE_JWKS_FILE=`), `CONSOLE_RBAC=`, four-tier route authorization (`viewer`, `developer`, `operator`, `launcher`), and redacted audit logging (`CONSOLE_AUDIT_LOG=`) ([ADR 0127](docs/adr/0127-cryptographic-oidc-jwt-and-console-rbac.md)) |
 | M89 | Polyglot enterprise stacks, `ci/` shell ratchet, and OSS hygiene (`stacks/dotnet/`, `stacks/kotlin/`, `stacks/swift/`, `stacks/php/`, `stacks/ruby/`, `core/corpus.py`, `ci/checks/`, `ci/outside.sh`): five new stacks, 36-shape corpus, `outside/*` `EventBus` conformance, Python-backed CI checks (`ADR 0094`), and release hygiene ([ADR 0129](docs/adr/0129-polyglot-enterprise-stacks-and-hygiene.md)) |
+| M80 | Autonomous `## Network` spec-split, bounded parallel fleet, and deterministic M24 harness (`core/spec_split.py`, `core/spec_split.sh`, `./go spec-split`, `INTAKE_NETWORK_SPLIT=`, `NETWORK_AUTO_SPLIT=` in `core/intake.py` and `adapters/network/run.sh`, `RUNNER_WORKERS=` in `core/runner.py`, `ReleaseTrainLock` in `core/releases.py`, and `core/m24_runner.py` / `core/m24_runner.sh` / `./go m24-check`); live `openai` (`codex`) and `zai` M24 runs remain honestly `not_run` in `docs/scoreboard/m24-tenacity.json` when no keys are run ([ADR 0120](docs/adr/0120-auto-spec-split-parallel-fleet-and-m24-harness.md)) |
+| M88 | Managed L2/L3 GCP adapters (`adapters/pubsub/`, `adapters/firestore/`, `adapters/artifact-registry/`, `adapters/managed-prometheus/`, `adapters/cloud-deploy/`, `adapters/cloud-workflows/`), `METRICS=managed-prometheus` readiness (`core/gates/readiness.py`), stdin-only Bearer auth, and keyless OIDC nightly conformance workflow (`.github/workflows/cloud-conformance.yml`), verified locally against HTTP/CLI mocks; live cloud execution requires user OIDC credentials ([ADR 0128](docs/adr/0128-managed-l2-l3-cloud-adapters-and-live-conformance.md)) |
 
 ## Next
 
-The third arc (plan §16) is built, except for the runs that are the
-owner's: the OpenAI recording, a committed Claude recording, the L1
-end-to-end on GitHub, live cloud/remote-registry runs (`./go delivery-conformance`
-and `./go registry-conformance` against real cloud accounts), live remote OIDC
-proxy validation behind `deploy/proxy/`, and the next release push (`version=0.8.1`
-remains untouched until the owner tags).
+The third arc (plan §16) and the enterprise farm roadmap (`M72`–`M89`) are built, except for the runs that require external accounts or owner keys: the OpenAI (`codex`) and GLM (`zai`) live recordings (`M16`/`M24`), a committed Claude recording, the L1 end-to-end on GitHub, live cloud/remote-registry runs (`./go delivery-conformance` and `./go registry-conformance` against real cloud accounts or `.github/workflows/cloud-conformance.yml` when `CLOUD_CONFORMANCE_ENABLED` is enabled), live remote OIDC proxy validation behind `deploy/proxy/`, and the next release push (`version=0.8.1` remains untouched until the owner tags).
 
-Left from the sprint of 2026-11-16: an outside AgentHarness, the full
-tower on GitLab and on a real Jenkins (after M62), and `ci/` under the
-shell-boundary ratchet (ADR 0094).
+Left from the sprint of 2026-11-16: an outside AgentHarness, the full tower on GitLab and on a real Jenkins (after M62), and `ci/` under the shell-boundary ratchet (ADR 0094, retired in M89).
 
-M24's remaining legs: OpenAI has not run, and GLM runs after M59. The
-exit criterion is plan §14's: if at least two tickets in three do not
-reach a mergeable PR without a human touching the code, the thesis is
-weaker than expected.
+M24's remaining live legs: `core/m24_runner.py` (`./go m24-check`) evaluates `docs/scoreboard/m24-tenacity.json` and ingests real run logbooks reproducibly (`ADR 0120`), while `openai` (`codex`) and `zai` remain `not_run` until executed with owner keys. The exit criterion remains plan §14's: if at least two tickets in three do not reach a mergeable PR without a human touching the code, the thesis is weaker than expected.
 
 The adoption roadmap behind M31, M34 and M35, with what to drop, what to
 change and the sequence after them (attestation, the jury, `./go
@@ -148,8 +140,8 @@ power-user CLI) is
   against stateful stub CLIs (`ci/tests/test_cloud_plugins.py`); live cloud
   conformance (`./go delivery-conformance DELIVERY=outside/<provider>`) runs
   against a user's own cloud account and OIDC identity without static keys.
-- **M8 cloud track (L2)**: Google Cloud with Terraform and Cloud Deploy.
-- **M10 (L3)**: Agent Engine and the nightly self-test.
+- **M8 cloud track (L2)**: Google Cloud with Terraform and Cloud Deploy (`adapters/artifact-registry/`, `adapters/cloud-deploy/`, `adapters/managed-prometheus/` implemented in `ADR 0128`; live GCP project runs require user OIDC credentials).
+- **M10 (L3)**: Managed `adapters/pubsub/`, `adapters/firestore/`, and `adapters/cloud-workflows/` plus `.github/workflows/cloud-conformance.yml` nightly OIDC conformance implemented in `ADR 0128` (live execution runs opt-in when `CLOUD_CONFORMANCE_ENABLED` and user cloud OIDC are configured).
 
 Each cloud adapter costs money on every run and needs a nightly to stay
 honest, so it is built when someone needs it.

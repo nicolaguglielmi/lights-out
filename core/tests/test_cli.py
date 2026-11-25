@@ -28,10 +28,11 @@ ROOT = Path(__file__).resolve().parents[2]
 SPEC = {
     "repo": ["init", "try", "gates", "test-proof", "test-integrity", "adr-check", "migration-safety",
              "doctor", "map", "corpus", "genesis"],
-    "ticket": ["intake", "request", "answer", "intake-confirm", "assign", "resume", "network", "audit", "epics"],
+    "ticket": ["intake", "request", "answer", "intake-confirm", "assign", "resume", "network", "audit", "epics",
+               "spec-split"],
     "release": ["up", "down", "smoke", "deploy", "promote", "evidence", "provenance", "production-readiness"],
     "ops": ["watch", "alert-webhook", "triage", "auto-incident", "incident", "postmortem", "dora", "spend", "top",
-            "charts-conformance"],
+            "charts-conformance", "m24-check"],
     "config": ["start", "next", "cloud-setup", "scoreboard", "agents", "tracker-conformance", "console-build"],
 }
 SHELLS = ["bash", "zsh", "fish"]
@@ -650,6 +651,45 @@ class WaveBCLITests(unittest.TestCase):
             flag_prefix = "-l " if sh_name == "fish" else "--"
             self.assertIn(f"{flag_prefix}workspace", comp)
             self.assertIn(f"{flag_prefix}no-publish", comp)
+
+    def test_sprint4_commands_and_flags_parse(self):
+        p_ss = cli.parse(["ticket", "spec-split", "split", "tickets/0012.md", "--in-place"])
+        self.assertEqual(p_ss.command.flat, "spec-split")
+        self.assertEqual(p_ss.positional, ["split", "tickets/0012.md"])
+        self.assertEqual(p_ss.tail, ["--in-place"])
+
+        p_m24 = cli.parse([
+            "ops", "m24-check", "evaluate", "--data", "d.json", "--logbook", "l.json",
+            "--logbooks", "a.json", "b.json", "--min-providers", "3", "--allow-incomplete",
+            "--out", "out.json", "--replace",
+        ])
+        self.assertEqual(p_m24.command.flat, "m24-check")
+        self.assertEqual(p_m24.positional, ["evaluate", "b.json"])
+        self.assertIn("--allow-incomplete", p_m24.tail)
+        self.assertIn("--logbook", p_m24.tail)
+
+        # --logbook stays KEY=VALUE on top while remaining native on m24-check
+        self.assertEqual(cli.parse(["ops", "top", "--logbook", "l.json"]).tail, ["LOGBOOK=l.json"])
+
+        p_watch = cli.parse(["ops", "watch", "--once", "--workers", "4", "--runner-workers", "4"])
+        self.assertEqual(p_watch.tail, ["ONCE=1", "WORKERS=4", "RUNNER_WORKERS=4"])
+        self.assertEqual(
+            cli.parse(["ticket", "intake", "--intake-network-split", "on"]).tail,
+            ["INTAKE_NETWORK_SPLIT=on"],
+        )
+        self.assertEqual(
+            cli.parse(["ticket", "assign", "--network-auto-split", "on"]).tail,
+            ["NETWORK_AUTO_SPLIT=on"],
+        )
+
+        for sh_name in SHELLS:
+            comp = cli.completion(sh_name)
+            self.assertIn("spec-split", comp)
+            self.assertIn("m24-check", comp)
+            flag_prefix = "-l " if sh_name == "fish" else "--"
+            for flag in ("in-place", "allow-incomplete", "workers", "runner-workers",
+                         "intake-network-split", "network-auto-split"):
+                self.assertIn(f"{flag_prefix}{flag}", comp)
 
 
 if __name__ == "__main__":

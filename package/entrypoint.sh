@@ -43,11 +43,13 @@
 #   alert-webhook ALERT_FILE=<path>          normalize an alert JSON file under /repo
 #   top [LOGBOOK_FILE= URL= ONCE=1 --json]   interactive terminal cockpit over the logbook
 #   try                                      draft the contract and judge the last commit, keep the draft
-#   watch [ONCE=1] [POLL_S=<sec>]            continuous tower orchestrator draining the event bus
+#   watch [ONCE=1] [POLL_S=<sec>] [RUNNER_WORKERS=<1..8>]  continuous tower orchestrator draining the event bus
 #   request TICKET=<id> [REQUEST_BY=]        start a ticket at requested
 #   resume TICKET=<id>                       request again the step a ticket failed
 #   audit TICKET=<id>                        rebuild the chain deploy to spec from the state store
 #   epics [--id <id>] [--title <text>] [--tickets <list>] [--baseline-mode full|incremental]  manage epics DAG and monorepo workspace manifest
+#   spec-split <check|split|compose> <file>  autonomous ## Network spec-split planner and validator (ADR 0120)
+#   m24-check [evaluate|ingest-logbook ...]  deterministic M24 benchmark evaluator and logbook ingester (ADR 0120)
 #   production-readiness                     GO only with a conformant delivery, metrics and a human gate
 #   version
 #
@@ -82,9 +84,9 @@ member() {
 verbs_of() {
   case "$1" in
     repo) echo "init try gates test-proof test-integrity adr-check migration-safety doctor map corpus genesis" ;;
-    ticket) echo "intake request answer intake-confirm assign resume network audit epics" ;;
+    ticket) echo "intake request answer intake-confirm assign resume network audit epics spec-split" ;;
     release) echo "up down smoke deploy promote evidence provenance production-readiness" ;;
-    ops) echo "watch alert-webhook triage auto-incident incident postmortem dora spend top charts-conformance" ;;
+    ops) echo "watch alert-webhook triage auto-incident incident postmortem dora spend top charts-conformance m24-check" ;;
     config) echo "start next cloud-setup scoreboard agents tracker-conformance console-build" ;;
   esac
 }
@@ -94,9 +96,12 @@ extra_keys_for() {
   case "$1" in
     migration-safety) echo "TICKET_FILE" ;;
     provenance) echo "PROVENANCE_DIR" ;;
+    intake|answer) echo "INTAKE_NETWORK_SPLIT" ;;
+    assign) echo "NETWORK_AUTO_SPLIT" ;;
+    resume) echo "INTAKE_NETWORK_SPLIT NETWORK_AUTO_SPLIT" ;;
     request) echo "REQUEST_BY REQUEST_VIA" ;;
     network) echo "ATTEMPT" ;;
-    watch) echo "ONCE POLL_S" ;;
+    watch) echo "ONCE POLL_S RUNNER_WORKERS WORKERS" ;;
     alert-webhook) echo "ALERT_FILE" ;;
     auto-incident) echo "RELEASE_RECORD" ;;
     incident) echo "NAME FROM TO LOGS" ;;
@@ -111,6 +116,8 @@ native_flag() {
     init:--branch|init:--baseline-mode|init:--baseline-max-files|start:--preset|start:--provider|start:--harness|start:--delivery|start:--profile|start:--ticket-budget-usd|start:--day-budget-usd|start:--mode|next:--mode) return 0 ;;
     genesis:--repo|genesis:--brief|genesis:--brief-file|genesis:--stack|genesis:--name|genesis:--port|genesis:--tickets-count|genesis:--today|genesis:--stacks) return 0 ;;
     epics:--id|epics:--title|epics:--tickets|epics:--tickets-dir|epics:--state-dir|epics:--repo|epics:--out|epics:--manifest|epics:--stacks|epics:--today|epics:--baseline-mode|epics:--changed) return 0 ;;
+    spec-split:--in-place) return 0 ;;
+    m24-check:--data|m24-check:--logbook|m24-check:--logbooks|m24-check:--min-providers|m24-check:--allow-incomplete|m24-check:--out|m24-check:--handoff|m24-check:--scope|m24-check:--repository|m24-check:--kind|m24-check:--phase|m24-check:--replace) return 0 ;;
   esac
   return 1
 }
@@ -139,7 +146,7 @@ esac
 # --json / --jsonl on a non-gate command: run it again, capture its stdout, and wrap that
 # in the envelope of core/cli.py (docs/adr/0112 §4); its exit code is the taxonomy's.
 for f in $lead; do set -- "$@" "$f"; done
-json_cmds="triage postmortem dora spend cloud-setup network scoreboard auto-incident incident alert-webhook intake answer intake-confirm assign up down smoke release promote evidence provenance watch request resume audit genesis epics"
+json_cmds="triage postmortem dora spend cloud-setup network scoreboard auto-incident incident alert-webhook intake answer intake-confirm assign up down smoke release promote evidence provenance watch request resume audit genesis epics spec-split m24-check"
 json_mode=""
 if [ -z "${LIGHTS_OUT_JSON_INNER:-}" ] && member "$sub" "$json_cmds"; then
   nargs=$#
@@ -166,7 +173,7 @@ fi
 
 case "$sub" in
   init|gates|test-proof|test-integrity|adr-check|migration-safety) ;;
-  genesis|epics|triage|postmortem|next|dora|spend|cloud-setup|map|network|scoreboard|auto-incident|incident|alert-webhook|top|start|intake|answer|intake-confirm|assign|up|down|smoke|release|promote|console|evidence|provenance|try|watch|request|resume|audit|production-readiness)
+  genesis|epics|spec-split|m24-check|triage|postmortem|next|dora|spend|cloud-setup|map|network|scoreboard|auto-incident|incident|alert-webhook|top|start|intake|answer|intake-confirm|assign|up|down|smoke|release|promote|console|evidence|provenance|try|watch|request|resume|audit|production-readiness)
     # The gates image has no ADK, compose, cosign, or full platform runtime (docs/adr/0057 §3, 0105).
     [ "${LIGHTS_OUT_FLAVOUR:-full}" != gates ] \
       || nogo "this is the gates image; $sub runs in ghcr.io/nicolaguglielmi/lights-out:${LIGHTS_OUT_VERSION:-<version>} (LIGHTS_OUT_IMAGE)" ;;
@@ -177,7 +184,7 @@ case "$sub" in
     sed -n 's/^#   //p' "$0" >&2
     # shellcheck disable=SC2034 # consumed by nogo in sourced ci/lib.sh
     name=lights-out
-    nogo "unknown command '$sub'; one of: init genesis gates test-proof test-integrity adr-check migration-safety triage postmortem version next dora spend cloud-setup map network scoreboard auto-incident incident alert-webhook top epics start intake answer intake-confirm assign up down smoke release promote console evidence provenance try watch request resume audit production-readiness; or a domain (repo ticket release ops config) and a verb" ;;
+    nogo "unknown command '$sub'; one of: init genesis gates test-proof test-integrity adr-check migration-safety triage postmortem version next dora spend cloud-setup map network scoreboard auto-incident incident alert-webhook top epics spec-split m24-check start intake answer intake-confirm assign up down smoke release promote console evidence provenance try watch request resume audit production-readiness; or a domain (repo ticket release ops config) and a verb" ;;
 esac
 
 host_out=${LIGHTS_OUT_HOST_OUT:-/out}
@@ -214,16 +221,16 @@ while [ "$i" -lt "$nargs" ]; do
   shift
   i=$((i + 1))
   case "$a" in
-    --json|--jsonl|--engine|--non-interactive|--apply|--commit|--force|--workspace|--no-commit|--no-publish) set -- "$@" "$a" ;;
+    --json|--jsonl|--engine|--non-interactive|--apply|--commit|--force|--workspace|--no-commit|--no-publish|--in-place|--allow-incomplete|--replace) set -- "$@" "$a" ;;
     --staged) set -- "$@" STAGED=1 ;;
     --once) set -- "$@" ONCE=1 ;;
     --*=*)
-      name=${a%%=*}
-      if native_flag "$sub" "$name"; then
+      flag_name=${a%%=*}
+      if native_flag "$sub" "$flag_name"; then
         set -- "$@" "$a"
       else
-        name=${name#--}
-        set -- "$@" "$(printf '%s' "$name" | tr 'a-z-' 'A-Z_')=${a#*=}"
+        flag_name=${flag_name#--}
+        set -- "$@" "$(printf '%s' "$flag_name" | tr 'a-z-' 'A-Z_')=${a#*=}"
       fi ;;
     --*)
       [ "$i" -lt "$nargs" ] || nogo "'$a' requires a value"
@@ -233,8 +240,8 @@ while [ "$i" -lt "$nargs" ]; do
       if native_flag "$sub" "$a"; then
         set -- "$@" "$a" "$v"
       else
-        name=${a#--}
-        set -- "$@" "$(printf '%s' "$name" | tr 'a-z-' 'A-Z_')=$v"
+        flag_name=${a#--}
+        set -- "$@" "$(printf '%s' "$flag_name" | tr 'a-z-' 'A-Z_')=$v"
       fi ;;
     *) set -- "$@" "$a" ;;
   esac
@@ -384,14 +391,51 @@ while [ "$i" -lt "$nargs" ]; do
       v=$(resolve_repo_path "$1"); shift; i=$((i + 1))
       cli_args="$cli_args${cli_args:+$cli_sep}$a${cli_sep}$v"
       continue ;;
-    --no-publish|--id=*|--title=*|--tickets=*|--tickets-dir=*|--state-dir=*|--out=*|--manifest=*|--changed=*)
+    --no-publish|--id=*|--title=*|--tickets=*|--tickets-dir=*|--state-dir=*|--manifest=*|--changed=*)
       [ "$sub" = epics ] || nogo "'$a' is only valid with epics"
       cli_args="$cli_args${cli_args:+$cli_sep}$a"
       continue ;;
-    --id|--title|--tickets|--tickets-dir|--state-dir|--out|--manifest|--changed)
+    --id|--title|--tickets|--tickets-dir|--state-dir|--manifest|--changed)
       [ "$sub" = epics ] || nogo "'$a' is only valid with epics"
       [ "$i" -lt "$nargs" ] || nogo "'$a' requires a value"
       v=$1; shift; i=$((i + 1))
+      cli_args="$cli_args${cli_args:+$cli_sep}$a${cli_sep}$v"
+      continue ;;
+    --out=*)
+      case "$sub" in epics|m24-check) ;; *) nogo "'$a' is only valid with epics or m24-check" ;; esac
+      cli_args="$cli_args${cli_args:+$cli_sep}$a"
+      continue ;;
+    --out)
+      case "$sub" in epics|m24-check) ;; *) nogo "'$a' is only valid with epics or m24-check" ;; esac
+      [ "$i" -lt "$nargs" ] || nogo "'$a' requires a value"
+      v=$1; shift; i=$((i + 1))
+      cli_args="$cli_args${cli_args:+$cli_sep}$a${cli_sep}$v"
+      continue ;;
+    --in-place)
+      [ "$sub" = spec-split ] || nogo "'$a' is only valid with spec-split"
+      cli_args="$cli_args${cli_args:+$cli_sep}$a"
+      continue ;;
+    --allow-incomplete|--replace|--min-providers=*|--handoff=*|--scope=*|--repository=*|--kind=*|--phase=*)
+      [ "$sub" = m24-check ] || nogo "'$a' is only valid with m24-check"
+      cli_args="$cli_args${cli_args:+$cli_sep}$a"
+      continue ;;
+    --min-providers|--handoff|--scope|--repository|--kind|--phase)
+      [ "$sub" = m24-check ] || nogo "'$a' is only valid with m24-check"
+      [ "$i" -lt "$nargs" ] || nogo "'$a' requires a value"
+      v=$1; shift; i=$((i + 1))
+      cli_args="$cli_args${cli_args:+$cli_sep}$a${cli_sep}$v"
+      continue ;;
+    --data=*|--logbook=*|--logbooks=*)
+      [ "$sub" = m24-check ] || nogo "'$a' is only valid with m24-check"
+      name=${a%%=*}; v=${a#*=}
+      [ ! -e "$repo_dir/$v" ] || v=$(resolve_repo_path "$v")
+      cli_args="$cli_args${cli_args:+$cli_sep}$name=$v"
+      continue ;;
+    --data|--logbook|--logbooks)
+      [ "$sub" = m24-check ] || nogo "'$a' is only valid with m24-check"
+      [ "$i" -lt "$nargs" ] || nogo "'$a' requires a value"
+      v=$1; shift; i=$((i + 1))
+      [ ! -e "$repo_dir/$v" ] || v=$(resolve_repo_path "$v")
       cli_args="$cli_args${cli_args:+$cli_sep}$a${cli_sep}$v"
       continue ;;
     --repo=*)
@@ -444,6 +488,22 @@ while [ "$i" -lt "$nargs" ]; do
           continue ;;
         epics)
           cli_args="$cli_args${cli_args:+$cli_sep}$a"
+          continue ;;
+        spec-split)
+          v=$a
+          case "$a" in
+            check|split|compose) ;;
+            *) [ ! -e "$repo_dir/$a" ] || v=$(resolve_repo_path "$a") ;;
+          esac
+          cli_args="$cli_args${cli_args:+$cli_sep}$v"
+          continue ;;
+        m24-check)
+          v=$a
+          case "$a" in
+            evaluate|ingest-logbook) ;;
+            *) [ ! -e "$repo_dir/$a" ] || v=$(resolve_repo_path "$a") ;;
+          esac
+          cli_args="$cli_args${cli_args:+$cli_sep}$v"
           continue ;;
         *) nogo "'${a%%=*}' is not an argument lights-out takes; one of BASE= HEAD= JUDGED= STAGED= ALERT= INCIDENT= PROFILE= MODEL_PROVIDER= MODEL= TICKET= TEXT= ANSWER= DECISIONS= VERSION= CANARY_VERSION= CANARY_TAG= GO_FOR_LAUNCH= REASON= MODE= PRESET= CLOUD= DELIVERY= CODE_HOST= AGENT_HARNESS= PROVIDER= ADAPTERS_PATH= WINDOW_DAYS= SPEND_BUDGET_TICKET_USD= SPEND_BUDGET_DAY_USD= $(extra_keys_for "$sub")" ;;
       esac ;;
@@ -592,15 +652,15 @@ fi
 # mounted from $out/crew. cloud-setup skips attach; next/dora/spend attach
 # $repo_dir when available.
 case "$sub" in
-  cloud-setup|scoreboard|auto-incident|incident|alert-webhook|top)
+  cloud-setup|scoreboard|auto-incident|incident|alert-webhook|top|m24-check)
     run_make "$sub" "$@" ;;
-  next|dora|spend|map|network|epics)
+  next|dora|spend|map|network|epics|spec-split)
     attached=/tmp/lights-out/attached
     mkdir -p /tmp/lights-out
     if sh core/await-head.sh "$repo_dir" 15; then
       rm -rf "$attached"
       sh core/attach.sh "$repo_dir" "$attached" || nogo "could not clone the repository (see above)"
-      if member "$sub" "next map epics" || [ -f "$attached/.lights-out/workload.env" ]; then
+      if member "$sub" "next map epics spec-split" || [ -f "$attached/.lights-out/workload.env" ]; then
         run_make "$sub" WORKLOAD="$attached" ATTACHED="$attached" "$@"
       fi
       run_make "$sub" WORKLOAD=app ATTACHED=/tmp/lights-out/no-attached "$@"

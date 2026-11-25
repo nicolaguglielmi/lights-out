@@ -42,7 +42,8 @@ GLOBAL_KEYS = (
 )
 # The per-command extension keys of ADR 0112 §2, in completion order.
 EXTRA_KEYS = (
-    "REQUEST_BY", "REQUEST_VIA", "ATTEMPT", "ONCE", "POLL_S", "ALERT_FILE", "RELEASE_RECORD",
+    "REQUEST_BY", "REQUEST_VIA", "ATTEMPT", "ONCE", "POLL_S", "RUNNER_WORKERS", "WORKERS",
+    "INTAKE_NETWORK_SPLIT", "NETWORK_AUTO_SPLIT", "ALERT_FILE", "RELEASE_RECORD",
     "NAME", "FROM", "TO", "LOGS", "MAP_FILE", "SLO_MODE", "CORPUS_FULL",
     "LOGBOOK_FILE", "LOGBOOK", "URL", "JSON", "VIEW", "WIDTH", "HEIGHT", "TICKET_FILE",
     "PROVENANCE_DIR", "TRACKER", "CHARTS",
@@ -71,13 +72,23 @@ EPICS_NATIVE = (
     ("--stacks", True), ("--today", True), ("--baseline-mode", True),
     ("--changed", True),
 )
+SPEC_SPLIT_NATIVE = (("--in-place", False),)
+M24_CHECK_NATIVE = (
+    ("--data", True), ("--logbook", True), ("--logbooks", True),
+    ("--min-providers", True), ("--allow-incomplete", False),
+    ("--out", True), ("--handoff", True), ("--scope", True),
+    ("--repository", True), ("--kind", True), ("--phase", True),
+    ("--replace", False),
+)
 NATIVE_FLAGS = (
     "--json", "--jsonl", "--help", "--engine", "--non-interactive", "--mode", "--preset", "--provider",
     "--harness", "--delivery", "--profile", "--ticket-budget-usd", "--day-budget-usd", "--level",
     "--staged", "--once", "--apply", "--branch", "--commit", "--force", "--workspace", "--baseline-mode",
     "--baseline-max-files", "--check", "--repo", "--brief", "--brief-file", "--stack", "--name", "--port",
     "--tickets-count", "--no-commit", "--today", "--stacks", "--id", "--title", "--tickets", "--tickets-dir",
-    "--state-dir", "--no-publish", "--out", "--manifest", "--changed",
+    "--state-dir", "--no-publish", "--out", "--manifest", "--changed", "--in-place", "--data", "--logbook",
+    "--logbooks", "--min-providers", "--allow-incomplete", "--handoff", "--scope", "--repository",
+    "--kind", "--phase", "--replace",
 )
 BOOL_FLAGS = {"--staged": "STAGED", "--once": "ONCE"}
 ENGINE_FLAT = ("init", "gates", "test-proof", "test-integrity", "adr-check", "migration-safety")
@@ -121,15 +132,16 @@ COMMANDS = (
     _c("repo", "map", keys=("MAP_FILE",)),
     _c("repo", "corpus", keys=("CORPUS_FULL",), surface="clone"),
     _c("repo", "genesis", positional=1, native=GENESIS_NATIVE),
-    _c("ticket", "intake"),
+    _c("ticket", "intake", keys=("INTAKE_NETWORK_SPLIT",)),
     _c("ticket", "request", keys=("REQUEST_BY", "REQUEST_VIA")),
-    _c("ticket", "answer"),
+    _c("ticket", "answer", keys=("INTAKE_NETWORK_SPLIT",)),
     _c("ticket", "intake-confirm"),
-    _c("ticket", "assign"),
-    _c("ticket", "resume"),
+    _c("ticket", "assign", keys=("NETWORK_AUTO_SPLIT",)),
+    _c("ticket", "resume", keys=("INTAKE_NETWORK_SPLIT", "NETWORK_AUTO_SPLIT")),
     _c("ticket", "network", keys=("ATTEMPT",)),
     _c("ticket", "audit"),
     _c("ticket", "epics", positional=8, native=EPICS_NATIVE),
+    _c("ticket", "spec-split", positional=2, native=SPEC_SPLIT_NATIVE),
     _c("release", "up"),
     _c("release", "down"),
     _c("release", "smoke"),
@@ -138,7 +150,7 @@ COMMANDS = (
     _c("release", "evidence"),
     _c("release", "provenance", keys=("PROVENANCE_DIR",)),
     _c("release", "production-readiness"),
-    _c("ops", "watch", keys=("ONCE", "POLL_S")),
+    _c("ops", "watch", keys=("ONCE", "POLL_S", "RUNNER_WORKERS", "WORKERS")),
     _c("ops", "alert-webhook", keys=("ALERT_FILE",)),
     _c("ops", "triage"),
     _c("ops", "auto-incident", keys=("RELEASE_RECORD",)),
@@ -148,6 +160,7 @@ COMMANDS = (
     _c("ops", "spend"),
     _c("ops", "top", keys=("LOGBOOK_FILE", "LOGBOOK", "URL", "ONCE", "JSON", "POLL_S", "VIEW", "WIDTH", "HEIGHT")),
     _c("ops", "charts-conformance", keys=("CHARTS",), surface="clone"),
+    _c("ops", "m24-check", positional=8, native=M24_CHECK_NATIVE),
     _c("config", "start", native=START_NATIVE),
     _c("config", "next", native=(("--mode", True),)),
     _c("config", "cloud-setup", keys=("SLO_MODE",)),

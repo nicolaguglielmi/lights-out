@@ -647,6 +647,94 @@ exit 0
                         "CONSOLE_JWT_SECRET", "CONSOLE_RBAC", "CONSOLE_VIEWERS", "CONSOLE_AUDIT_LOG"):
                 self.assertIn(key, flags_c, f"{key} missing on {cmd_name}")
 
+    def test_sprint4_wave_b_spec_split_m24_and_watch_workers_wiring(self) -> None:
+        help_res = subprocess.run(
+            ["make", "--no-print-directory", "help"],
+            cwd=self.ws, capture_output=True, text=True, check=True,
+        )
+        self.assertIn("spec-split", help_res.stdout)
+        self.assertIn("m24-check", help_res.stdout)
+        go_header = "\n".join((self.ws / "go").read_text(encoding="utf-8").splitlines()[:60])
+        self.assertIn("./go spec-split", go_header)
+        self.assertIn("./go m24-check", go_header)
+
+        for target, script in (("spec-split", "core/spec_split.sh"), ("m24-check", "core/m24_runner.sh")):
+            dry = subprocess.run(
+                ["make", "--no-print-directory", "-n", target],
+                cwd=self.ws, capture_output=True, text=True, check=True,
+            )
+            self.assertIn(script, dry.stdout)
+
+        dry_watch = subprocess.run(
+            ["make", "--no-print-directory", "-n", "watch", "ONCE=1", "RUNNER_WORKERS=3", "WORKERS=4"],
+            cwd=self.ws, capture_output=True, text=True, check=True,
+        )
+        self.assertIn('RUNNER_WORKERS="3"', dry_watch.stdout)
+        self.assertIn('--workers "4"', dry_watch.stdout)
+
+        base_env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "HOME": str(self.tmp)}
+        crew = self.ws / ".crew"
+        crew.mkdir(parents=True, exist_ok=True)
+        (crew / "start-plan.env").write_text(
+            "START_PROFILE=l0\nDELIVERY=outside/gcp-cloud-deploy\nADAPTERS_PATH="
+            + str((self.ws / "plugins" / "cloud").resolve())
+            + "\n",
+            encoding="utf-8",
+        )
+        missing_wl = self.tmp / "empty-contract-s4"
+        missing_wl.mkdir(exist_ok=True)
+
+        ticket_path = self.tmp / "s4-ticket.md"
+        ticket_path.write_text(
+            "# 0900: demo\n\n## Perimeter\n\n- src/app.py\n- tests/test_app.py\n",
+            encoding="utf-8",
+        )
+        res_ss = subprocess.run(
+            ["make", "--no-print-directory", "spec-split", f"WORKLOAD_CONTRACT={missing_wl}",
+             f"SPEC_SPLIT_ARGS=check {ticket_path} --json"],
+            cwd=self.ws, env=base_env, capture_output=True, text=True, check=False,
+        )
+        self.assertEqual(res_ss.returncode, 0, res_ss.stdout + res_ss.stderr)
+        self.assertTrue(json.loads(res_ss.stdout)["ok"])
+
+        res_m24 = subprocess.run(
+            ["make", "--no-print-directory", "m24-check", f"WORKLOAD_CONTRACT={missing_wl}",
+             "M24_ARGS=evaluate --allow-incomplete --json"],
+            cwd=self.ws, env=base_env, capture_output=True, text=True, check=False,
+        )
+        self.assertEqual(res_m24.returncode, 0, res_m24.stdout + res_m24.stderr)
+        self.assertEqual(json.loads(res_m24.stdout)["verdict"], "incomplete")
+
+        bindir, tools, go_log = self._setup_fake_podman()
+        go_env = {
+            "PATH": f"{bindir}:{tools}",
+            "HOME": str(self.tmp),
+            "RUNNER_WORKERS": "3",
+            "INTAKE_NETWORK_SPLIT": "on",
+            "NETWORK_AUTO_SPLIT": "on",
+        }
+        res_go_ss = subprocess.run(
+            ["sh", "./go", "spec-split", "check", "tickets/0001.md", "--json"],
+            cwd=self.ws, env=go_env, capture_output=True, text=True, check=False,
+        )
+        self.assertEqual(res_go_ss.returncode, 0, res_go_ss.stderr)
+        argv_ss = next(c for c in _read_calls(go_log) if c and c[0] == "run")
+        envs_ss = _extract_env_flags(argv_ss)
+        self.assertIn("LIGHTS_OUT_CLI_ARGS", envs_ss)
+        self.assertIn("RUNNER_WORKERS", envs_ss)
+        self.assertIn("INTAKE_NETWORK_SPLIT", envs_ss)
+        self.assertIn("NETWORK_AUTO_SPLIT", envs_ss)
+        self.assertEqual(argv_ss[-2:], ["make", "spec-split"])
+
+        go_log.unlink(missing_ok=True)
+        res_go_w = subprocess.run(
+            ["sh", "./go", "watch", "--once", "--workers", "4"],
+            cwd=self.ws, env=go_env, capture_output=True, text=True, check=False,
+        )
+        self.assertEqual(res_go_w.returncode, 0, res_go_w.stderr)
+        argv_w = next(c for c in _read_calls(go_log) if c and c[0] == "run")
+        self.assertEqual(argv_w[-4:], ["make", "watch", "ONCE=1", "WORKERS=4"])
+
 
 if __name__ == "__main__":
     unittest.main()

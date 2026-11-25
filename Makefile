@@ -75,7 +75,7 @@ CORPUS_FULL ?= 0
 # `init`/`try` draft one (docs/adr/0042 §6, 0093 §5), `cloud-setup` stages
 # cloud infrastructure templates (docs/adr/0104), and `start`/`next` guide a
 # repo from Stage 1 before a contract exists (docs/adr/0103).
-ifneq ($(filter $(MAKECMDGOALS),init genesis epics try cloud-setup start next cli top alert-webhook auto-incident console-build),)
+ifneq ($(filter $(MAKECMDGOALS),init genesis epics spec-split m24-check try cloud-setup start next cli top alert-webhook auto-incident console-build),)
 -include $(WORKLOAD_CONTRACT)/workload.env
 else
 include $(WORKLOAD_CONTRACT)/workload.env
@@ -89,7 +89,7 @@ export
 # goals only tries the adapter instead: its recipe goes through `conform`.
 OUTSIDE_PORTS := AGENT_HARNESS CODE_HOST DELIVERY STATE_STORE EVENT_BUS TRACKER ORCHESTRATOR METRICS FLAGS REGISTRY CHARTS
 ifneq ($(filter outside/%,$(foreach p,$(OUTSIDE_PORTS),$($(p)))),)
-ifneq ($(filter-out %-conformance genesis epics start next cli top cloud-setup alert-webhook auto-incident console-build,$(or $(MAKECMDGOALS),help)),)
+ifneq ($(filter-out %-conformance genesis epics spec-split m24-check start next cli top cloud-setup alert-webhook auto-incident console-build,$(or $(MAKECMDGOALS),help)),)
 ADMIT := $(shell python3 core/adapters.py admit 2>&1)
 ifneq ($(ADMIT),)
 $(error $(ADMIT))
@@ -1488,9 +1488,10 @@ incident: ## Build an incident document from the release record: NAME=<slug> FRO
 postmortem: ## Run the ops-triage role on an incident document: INCIDENT=<file> → .crew/postmortem/<name>/postmortem.md and one ticket per action item (docs/adr/0044 §5)
 	@INCIDENT="$(INCIDENT)" sh core/postmortem.sh
 
+RUNNER_WORKERS ?= 1
 .PHONY: watch
-watch: ## Continuous tower orchestrator draining EVENT_BUS: [ONCE=1] [POLL_S=<seconds>] (docs/adr/0109)
-	@python3 core/runner.py $(if $(filter 1 true yes,$(ONCE)),--once,$(if $(POLL_S),--poll-s $(POLL_S),))
+watch: ## Continuous tower orchestrator draining EVENT_BUS: [ONCE=1] [POLL_S=<seconds>] [RUNNER_WORKERS=<1..8>] (docs/adr/0109, 0120)
+	@RUNNER_WORKERS="$(RUNNER_WORKERS)" python3 core/runner.py $(if $(filter 1 true yes,$(ONCE)),--once,$(if $(POLL_S),--poll-s $(POLL_S),))$(if $(WORKERS), --workers "$(WORKERS)",)
 
 WEBHOOK_BIND ?= 127.0.0.1
 WEBHOOK_PORT ?= 8097
@@ -1762,6 +1763,14 @@ genesis: ## Greenfield 0->1 repository scaffold from brief: ADR 0001, starter ti
 .PHONY: epics
 epics: ## Manage multi-ticket epic DAGs (create|status|unblock) and monorepo workspaces (workspace) (docs/adr/0119)
 	@sh core/epics.sh
+
+.PHONY: spec-split
+spec-split: ## Plan or validate autonomous Network split for a ticket: [SPEC_SPLIT_ARGS="check|split|compose ..."] (docs/adr/0120)
+	@sh core/spec_split.sh $(SPEC_SPLIT_ARGS)
+
+.PHONY: m24-check
+m24-check: ## Evaluate M24 multi-provider benchmark criteria or ingest run logbooks: [M24_ARGS="evaluate|ingest-logbook ..."] (docs/adr/0120)
+	@sh core/m24_runner.sh $(M24_ARGS)
 
 # Your repository in one command (docs/adr/0093 §5): ./go attaches a clone
 # of its HEAD, then this drafts the contract in the clone (init, unchanged)

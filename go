@@ -25,6 +25,8 @@
 #   ./go init [<path>] [--apply] [--branch <name>] [--commit] [--force] [--workspace] [--baseline-mode full|incremental] [--baseline-max-files <n>]  draft .lights-out/ in the clone (or zero-copy into <path> with --apply), baseline measured (ADR 0042, 0113)
 #   ./go genesis        scaffold a greenfield repository from a brief with ADR 0001, starter tickets, tests and .lights-out/ (ADR 0118)
 #   ./go epics          manage multi-ticket epic DAGs (create|status|unblock) and monorepo workspaces (workspace) (ADR 0119)
+#   ./go spec-split     plan or validate autonomous ## Network spec-split for a ticket (ADR 0120)
+#   ./go m24-check      evaluate M24 multi-provider benchmark criteria or ingest real run logbooks (ADR 0120)
 #   ./go gates          judge a range of the workload: BASE=<ref> HEAD=<ref>, default the last commit; no plane needed
 #   ./go adr-check      check ADR lifecycle compliance on a range: [BASE=<ref> HEAD=<ref>] (ADR 0115)
 #   ./go migration-safety  check database expand/contract migration safety: [BASE=<ref> HEAD=<ref>] [TICKET_FILE=] (ADR 0123)
@@ -508,6 +510,7 @@ for v in $(awk '/^[A-Za-z0-9_]*(_KEY|_TOKEN|_SECRET|_PASSWORD)=/ || /^METRICS_AU
 done
 for v in POLL_S ONCE ALERT_FILE ALERT_WEBHOOK_TOKEN ALERT_WEBHOOK_OUT WEBHOOK_ARGS \
          AUTO_INCIDENT_ON_ROLLBACK AUTO_POSTMORTEM_ON_ROLLBACK \
+         RUNNER_WORKERS WORKERS INTAKE_NETWORK_SPLIT NETWORK_AUTO_SPLIT \
          SLO_PROMQL SLO_MODE INIT_SERVICE SMOKE_AUTH_HEADER \
          FLAGS_AUTH_HEADER OCI_REGISTRY_TOKEN OCI_REGISTRY_PASSWORD \
          LOGBOOK_FILE LOGBOOK_URL URL JSON VIEW WIDTH HEIGHT NO_COLOR TICKET_FILE \
@@ -691,7 +694,7 @@ elif [ "$cmd" = genesis ]; then
     export LIGHTS_OUT_CLI_ARGS
     port_flags="$port_flags -e LIGHTS_OUT_CLI_ARGS"
   fi
-elif [ "$cmd" = start ] || [ "$cmd" = next ] || [ "$cmd" = top ] || [ "$cmd" = epics ]; then
+elif [ "$cmd" = start ] || [ "$cmd" = next ] || [ "$cmd" = top ] || [ "$cmd" = epics ] || [ "$cmd" = spec-split ] || [ "$cmd" = m24-check ]; then
   cli_sep=$(printf '\037')
   cli_args=""
   for a in "$@"; do
@@ -716,6 +719,38 @@ elif [ "$cmd" = start ] || [ "$cmd" = next ] || [ "$cmd" = top ] || [ "$cmd" = e
     rm -f "$doc_out" "$doc_err"
     export LIGHTS_OUT_DOCTOR_RC LIGHTS_OUT_DOCTOR_OUT LIGHTS_OUT_DOCTOR_ERR
     port_flags="$port_flags -e LIGHTS_OUT_DOCTOR_RC -e LIGHTS_OUT_DOCTOR_OUT -e LIGHTS_OUT_DOCTOR_ERR"
+  fi
+fi
+
+if [ "$cmd" = watch ]; then
+  w_sep=$(printf '\037')
+  w_args=""
+  while [ $# -gt 0 ]; do
+    case "$1" in
+      --once) w_args="$w_args${w_args:+$w_sep}ONCE=1"; shift ;;
+      --poll-s=*) w_args="$w_args${w_args:+$w_sep}POLL_S=${1#--poll-s=}"; shift ;;
+      --poll-s)
+        [ $# -ge 2 ] || die "watch: --poll-s requires a value"
+        w_args="$w_args${w_args:+$w_sep}POLL_S=$2"; shift 2 ;;
+      --workers=*) w_args="$w_args${w_args:+$w_sep}WORKERS=${1#--workers=}"; shift ;;
+      --workers)
+        [ $# -ge 2 ] || die "watch: --workers requires a value"
+        w_args="$w_args${w_args:+$w_sep}WORKERS=$2"; shift 2 ;;
+      --runner-workers=*) w_args="$w_args${w_args:+$w_sep}RUNNER_WORKERS=${1#--runner-workers=}"; shift ;;
+      --runner-workers)
+        [ $# -ge 2 ] || die "watch: --runner-workers requires a value"
+        w_args="$w_args${w_args:+$w_sep}RUNNER_WORKERS=$2"; shift 2 ;;
+      *) w_args="$w_args${w_args:+$w_sep}$1"; shift ;;
+    esac
+  done
+  if [ -n "$w_args" ]; then
+    old_ifs=$IFS
+    IFS=$(printf '\037')
+    set -f
+    # shellcheck disable=SC2086 # deliberate unit-separator splitting for watch args
+    set -- $w_args
+    set +f
+    IFS=$old_ifs
   fi
 fi
 
@@ -768,7 +803,7 @@ fi
 
 if [ "$cmd" = shell ]; then
   run sh
-elif [ "$cmd" = init ] || [ "$cmd" = start ] || [ "$cmd" = next ] || [ "$cmd" = top ] || [ "$cmd" = cli ] || [ "$cmd" = genesis ] || [ "$cmd" = epics ]; then
+elif [ "$cmd" = init ] || [ "$cmd" = start ] || [ "$cmd" = next ] || [ "$cmd" = top ] || [ "$cmd" = cli ] || [ "$cmd" = genesis ] || [ "$cmd" = epics ] || [ "$cmd" = spec-split ] || [ "$cmd" = m24-check ]; then
   if [ -n "$make_args" ]; then
     old_ifs=$IFS
     IFS=$(printf '\037')
