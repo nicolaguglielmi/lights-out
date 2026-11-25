@@ -2,7 +2,7 @@
 
 - Status: accepted (amends [ADR 0017](0017-agent-runtime-at-m5.md) §4, [ADR 0044](0044-incident-in-postmortem-out.md) §6, and [ADR 0058](0058-outside-adapters-and-other-cis-as-surfaces.md) §1/§5)
 - Date: 2026-11-24
-- Milestone: M76 (`swarm/m76-tracker-adapters`)
+- Milestone: M76
 
 ## Context
 
@@ -65,7 +65,7 @@
 
 ## Consequences
 
-- `TRACKER` joins `CODE_HOST`, `DELIVERY`, `STATE_STORE`, `EVENT_BUS`, `REGISTRY`, and `FLAGS` as a conformance-gated port supporting `outside/*` plugins. Only `ORCHESTRATOR` and `METRICS` remain in `NO_SUITE` (pending Wave B integration of `Charts` and `Makefile` wiring).
+- `TRACKER` joins `CODE_HOST`, `DELIVERY`, `STATE_STORE`, `EVENT_BUS`, `REGISTRY`, and `FLAGS` as a conformance-gated port supporting `outside/*` plugins. Only `ORCHESTRATOR` and `METRICS` remain in `NO_SUITE` (pending the integration commit of `Charts` and `Makefile` wiring).
 - **Honest live vs mock boundary**: `ci/tests/test_tracker_adapters.py` validates `github-issues` and `linear` end-to-end against local `ThreadingHTTPServer` mock REST and GraphQL servers inside Podman with real `curl` and `jq`, proving stdin-only auth and all 6 conformance cases. Running against live GitHub or Linear workspaces requires operator credentials and `CONFORMANCE=1`.
 
 ## Provenance

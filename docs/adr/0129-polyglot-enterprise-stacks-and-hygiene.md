@@ -2,7 +2,7 @@
 
 - Status: accepted (amends [ADR 0042](0042-your-test-runner-in-your-image.md) §6, [ADR 0058](0058-outside-adapters-and-other-cis-as-surfaces.md) §5, [ADR 0102](0102-more-stacks-go-typescript-python-fallbacks.md), [ADR 0106](0106-unknown-repository-corpus.md), and [ADR 0110](0110-stateful-monorepo-rust-java-and-js-managers.md))
 - Date: 2026-11-24
-- Milestone: M89 (`swarm/m89-polyglot-stacks-hygiene`)
+- Milestone: M89
 
 ## Context
 

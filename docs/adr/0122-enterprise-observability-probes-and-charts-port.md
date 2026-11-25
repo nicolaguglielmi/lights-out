@@ -92,7 +92,7 @@ Implemented in Python standard library only, strictly vendor-free, app-free, and
 
 ## Consequences
 
-- Stage holds can run continuous synthetic probes and fail fast without altering `core/launchpad.sh` or `verify/slo.sh` yet; Wave B integration wires CLI/console/Makefile consumers later.
+- Stage holds can run continuous synthetic probes and fail fast without altering `core/launchpad.sh` or `verify/slo.sh` yet; The integration commit wires CLI/console/Makefile consumers later.
 - Existing `core/incident.py` and `ci/postmortem.sh` runs stay byte-identical when logs/alerts have no trace IDs, while traced runs gain verifiable `trace:` anchors.
 - `core/` remains 100% vendor-free (`ci/vendor-free.sh`), app-free (`ci/app-free.sh`), model-free (`ci/model-free.sh`), and under the 30-line shell boundary (`ci/shell-boundary.sh`).
 

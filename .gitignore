@@ -8,9 +8,8 @@ dist/
 .adk/
 /.attached
 .DS_Store
-# Handoffs and session notes stay local, whatever tool wrote them (docs/adr/0065 §5, AGENTS.md)
-.claude/context/HANDOFF.md
-.claude/context/handoffs/
+# Handoffs, session plans and notes stay local, whatever tool wrote them (docs/adr/0065 §5, AGENTS.md)
+.claude/context/
 # Claude Code, per contributor: worktrees and local settings
 .claude/worktrees/
 .claude/settings.local.json

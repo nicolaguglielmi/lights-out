@@ -2,7 +2,7 @@
 
 - Status: accepted (extends [ADR 0036](0036-the-dev-worker-step-as-a-network.md) §2–§6, [ADR 0053](0053-perimeters-never-overlap.md) §5, [ADR 0088](0088-the-provider-scoreboard.md) §2–§9, [ADR 0090](0090-the-intake-interview-before-the-ticket.md) §3–§5, [ADR 0109](0109-continuous-orchestration-auto-incident-and-alert-webhook.md) §3, and [ADR 0119](0119-epics-dag-and-multi-service-monorepos.md) §2)
 - Date: 2026-11-25
-- Milestone: M80 (`swarm/m80-spec-split-fleet`)
+- Milestone: M80
 
 ## Context
 
@@ -57,7 +57,7 @@ Three gaps remained before `lights-out` could autonomously fan out ticket implem
 - Tickets with separable implementation/doc and test perimeters can be auto-split deterministically at intake or network-harness execution time with zero changes to existing L0 golden tests when opt-in flags stay `off`.
 - `core/runner.py --workers N` safely runs disjoint tickets concurrently (`1..8` workers) while serializing same-ticket steps and fleet `merge`/`mainline`/`release` critical sections under `ReleaseTrainLock`.
 - `core/m24_runner.py` provides reproducible verification and logbook ingestion for M24 without touching `docs/scoreboard/m24-tenacity.json`'s truthful `not_run` state.
-- Wave B (`integrator-4`) remains free to wire `./go` / `Makefile` / `core/cli.py` / `ROADMAP.md` cleanly without merge conflicts.
+- The integration commit remains free to wire `./go` / `Makefile` / `core/cli.py` / `ROADMAP.md` cleanly without merge conflicts.
 
 ## Provenance
 

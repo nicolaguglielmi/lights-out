@@ -2,7 +2,7 @@
 
 - Status: accepted
 - Date: 2026-11-25
-- Milestone: M95 (`swarm/reviewer-eval`)
+- Milestone: M95
 - Builds on: [ADR 0015](0015-pr-gates-at-m4.md), [ADR 0016](0016-risk-model-and-merge-policy.md), [ADR 0021](0021-review-roles-at-m9.md), [ADR 0052](0052-where-shell-is-allowed.md), [ADR 0053](0053-tests-that-prove-and-tickets-that-wait.md), [ADR 0054](0054-the-project-map.md), [ADR 0123](0123-database-expand-contract-migration-gate.md), [ADR 0130](0130-cross-provider-jury-and-outside-harness.md)
 
 ## Context

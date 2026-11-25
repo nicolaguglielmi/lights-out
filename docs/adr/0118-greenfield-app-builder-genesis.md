@@ -2,7 +2,7 @@
 
 - Status: proposed
 - Date: 2026-11-24
-- Milestone: M78 (Wave 3)
+- Milestone: M78
 - Builds on: ADR 0042 (init and workload contract), ADR 0052 (shell boundary), ADR 0055 (ticket spec gate), ADR 0061 (light-tier gates), ADR 0090 (intake interview), ADR 0100 (plane half draft), ADR 0102 (polyglot stacks), ADR 0110 (workspace and container plane), ADR 0113 (zero-copy `init --apply` and incremental baseline), ADR 0115 (autonomous ADR lifecycle)
 
 ## Context
@@ -18,7 +18,7 @@ Constraints preserved:
 - `core/` stays 100% Python stdlib-only, vendor-free (`ci/vendor-free.sh`), app-free (`ci/app-free.sh` — `core/genesis.py` never hardcodes `.lights-out` or workload-specific names, receiving or assembling `contract_rel` cleanly), and model-free (`ci/model-free.sh`).
 - `core/genesis.sh` stays strictly under the shell boundary (`<= 25` non-blank/non-comment code lines, within `ci/shell-boundary.sh`'s 30-line ceiling).
 - Six agent roles remain fixed (`ci/roles.sh`), and `roles/architect/genesis.md` obeys every prompt hygiene rule (`ci/prompts.sh`).
-- Wave B entrypoints (`Makefile`, `./go`, `lights-out`, `core/cli.py`) are wired separately after Wave A.
+- The entrypoints (`Makefile`, `./go`, `lights-out`, `core/cli.py`) are wired in a separate integration commit.
 
 ## Decision
 
@@ -71,7 +71,7 @@ Expose `create_greenfield_app(repo_dir, brief, *, stack="python", name=None, por
 
 - Any empty directory or clean seed repository can be turned into a tested, containerized, contract-backed workload with ADR `0001` and validated starter tickets in one deterministic command.
 - The generated repository passes `core.init.infer`, `ci/workloads.sh`, `gates/spec.sh`, `core.adr_gov.validate_adr`, `gates/deps.sh`, and `core.light` (`HEAD~1..HEAD` -> `GO`) out of the box.
-- Wave B can wire `Makefile`, `./go`, `lights-out`, and `core/cli.py` onto `core/genesis.sh` / `core/genesis.py` without modifying Wave A internals.
+- A later integration commit can wire `Makefile`, `./go`, `lights-out`, and `core/cli.py` onto `core/genesis.sh` / `core/genesis.py` without modifying its internals.
 
 ## Provenance
 

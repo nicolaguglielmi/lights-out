@@ -2,7 +2,7 @@
 
 - Status: accepted
 - Date: 2026-11-24
-- Milestone: Track 2 — UX Glue (`agy/p2-ux-glue`)
+- Milestone: none (the start plan's wiring, `ROADMAP.md` "UX Glue")
 - Amends:
   - [ADR 0103](0103-guided-end-to-end-experience.md) (persists Make-consumable non-secret keys in `.crew/start-plan.env` and wires `Makefile` + `./go` to load them with deterministic exclusions)
   - [ADR 0045](0045-one-command-one-package.md) and [ADR 0105](0105-plane-and-workflow-from-wrapper.md) (keeps default `lights-out init`, `gates`, `test-proof`, `test-integrity` 100% socket-free while adding explicit `--engine` / `LIGHTS_OUT_ENGINE_GATES=1` opt-in for custom-image and `compose:<service>` toolchains)

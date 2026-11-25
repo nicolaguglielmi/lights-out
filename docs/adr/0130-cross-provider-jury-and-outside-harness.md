@@ -2,7 +2,7 @@
 
 - Status: accepted (amends [ADR 0058](0058-outside-adapters-and-other-cis-as-surfaces.md) §1, §5 [`AGENT_HARNESS=outside/*` is now exercised cold through `fixtures/outside-adapters/file-harness/` and `ci/outside.sh`]; builds on [ADR 0021](0021-review-and-architect-roles.md), [ADR 0041](0041-harnesses-as-plugins.md), [ADR 0103](0103-guided-end-to-end-experience.md), [ADR 0104](0104-cloud-delivery-plugins-and-outside-conformance.md), and [ADR 0117](0117-signed-agent-provenance-attestations.md))
 - Date: 2026-11-25
-- Milestone: M37 (`swarm/m37-jury-outside`)
+- Milestone: M37
 
 ## Context
 

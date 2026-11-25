@@ -2,7 +2,7 @@
 
 - Status: proposed
 - Date: 2026-11-24
-- Milestone: Track M83 — Database migration safety (`swarm/m83-db-migration-gate`)
+- Milestone: M83
 - Relates to:
   - [ADR 0084](0084-gates-under-the-shell-boundary.md) (a gate's `.sh` is a thin wrapper; its judgement is `core/gates/<x>.py`)
   - [ADR 0016](0016-risk-model-and-merge-policy.md) (`RISK_HIGH_MIGRATIONS` already routes a migration PR to a human)

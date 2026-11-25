@@ -2,7 +2,7 @@
 
 - Status: accepted (extends [ADR 0019](0019-control-plane-state-machine.md) §1/§2, [ADR 0053](0053-perimeters-never-overlap.md) §5, [ADR 0055](0055-the-spec-before-the-ticket.md) §4/§7, [ADR 0056](0056-mainline-without-a-queue.md) §3/§5, and [ADR 0110](0110-stateful-monorepo-rust-java-and-js-managers.md) §4)
 - Date: 2026-11-24
-- Milestone: M79 (`swarm/m79-epics-dag-monorepo`)
+- Milestone: M79
 
 ## Context
 
@@ -54,7 +54,7 @@
 ## Consequences
 
 - `core/` stays 100% Python stdlib-only, vendor-free (`ci/vendor-free.sh`), app-free (`ci/app-free.sh`), and model-free (`ci/model-free.sh`).
-- Existing `core/init.py`, `board/`, and `console/` remain untouched in Wave A; Wave B wires `--workspace` into `core/init.py`, `Makefile`, `./go`, and `core/cli.py`.
+- Existing `core/init.py`, `board/`, and `console/` remain untouched here; The integration commit wires `--workspace` into `core/init.py`, `Makefile`, `./go`, and `core/cli.py`.
 - Monorepo PRs and multi-ticket epics gain deterministic wave planning, automatic `main-green` downstream dispatch, and shared-path impact analysis.
 
 ## Provenance

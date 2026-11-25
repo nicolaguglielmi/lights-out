@@ -2,7 +2,7 @@
 
 - Status: accepted
 - Date: 2026-11-25
-- Milestone: M94 (`swarm/ci-ratchet`, completing ADR 0094)
+- Milestone: M94 (completes ADR 0094)
 - Builds on: [ADR 0052](0052-where-shell-is-allowed.md), [ADR 0084](0084-gates-under-the-shell-boundary.md), [ADR 0094](0094-ci-under-the-shell-boundary-later.md), [ADR 0131](0131-retire-core-shell-boundary-debt.md)
 
 ## Context

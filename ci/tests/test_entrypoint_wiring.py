@@ -1,4 +1,4 @@
-"""End-to-end wiring tests for Wave B Makefile targets and ./go forwarding (ADRs 0107, 0109)."""
+"""End-to-end wiring tests for the Makefile targets and ./go forwarding (ADRs 0107, 0109)."""
 
 from __future__ import annotations
 
@@ -57,11 +57,11 @@ def _extract_port_flags(argv: list[str]) -> list[str]:
     return ports
 
 
-class WaveBMakefileAndGoWiringTest(unittest.TestCase):
+class MakefileAndGoWiringTest(unittest.TestCase):
     def setUp(self) -> None:
         if not shutil.which("make"):
             self.skipTest("make is required")
-        self.tmp = Path(tempfile.mkdtemp(prefix="wave-b-wiring-")).resolve()
+        self.tmp = Path(tempfile.mkdtemp(prefix="entrypoint-wiring-")).resolve()
         self.addCleanup(shutil.rmtree, self.tmp, True)
 
         self.ws = self.tmp / "repo"
@@ -121,7 +121,7 @@ exit 0
         podman.chmod(0o755)
         return bindir, tools, go_log
 
-    def test_make_help_and_go_header_document_all_wave_b_targets(self) -> None:
+    def test_make_help_and_go_header_document_all_targets(self) -> None:
         help_res = subprocess.run(
             ["make", "--no-print-directory", "help"],
             cwd=self.ws,
@@ -251,7 +251,7 @@ exit 0
         self.assertEqual(res_reg.returncode, 0, res_reg.stdout + res_reg.stderr)
         self.assertTrue(res_reg.stdout.strip().startswith("GO: registry-conformance — "), res_reg.stdout)
 
-    def test_go_forwards_wave_b_vars_safely_ports_webhook_and_handles_cloud_setup_slo_mode(self) -> None:
+    def test_go_forwards_vars_safely_ports_webhook_and_handles_cloud_setup_slo_mode(self) -> None:
         bindir, tools, go_log = self._setup_fake_podman()
         sample_wh_val = "sample-wh-value-000"
         sample_hdr_val = "Bearer sample-hdr-000"
@@ -465,7 +465,7 @@ exit 0
             self.assertFalse(any("DOCKER_HOST" in e for e in envs_g), gate)
             self.assertEqual(argv_g[-2:], ["make", gate])
 
-    def test_sprint2_targets_and_zero_copy_go_init_apply_wiring(self) -> None:
+    def test_targets_and_zero_copy_go_init_apply_wiring(self) -> None:
         base_env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "HOME": str(self.tmp)}
 
         res_cb = subprocess.run(
@@ -549,7 +549,7 @@ exit 0
         argv_cb = next(c for c in _read_calls(go_log) if c and c[0] == "run")
         self.assertEqual(argv_cb[-3:], ["make", "console-build", "CONSOLE_BUILD_ARGS=--check"])
 
-    def test_sprint3_wave_b_cli_make_go_and_console_oidc_forwarding(self):
+    def test_cli_make_go_and_console_oidc_forwarding(self):
         help_res = subprocess.run(
             ["make", "--no-print-directory", "help"],
             cwd=self.ws, capture_output=True, text=True, check=True,
@@ -624,7 +624,7 @@ exit 0
         self.assertEqual(argv_ep[-2:], ["make", "epics"])
 
         # ./go console and ./go production-readiness forward CONSOLE_* OIDC/RBAC vars by name only
-        secret_canary = "wave-b-jwt-hmac-secret-99999"
+        secret_canary = "entrypoint-jwt-hmac-secret-99999"
         oidc_env = {
             **go_env,
             "CONSOLE_AUTH": "proxy",
@@ -649,7 +649,7 @@ exit 0
                         "CONSOLE_JWT_SECRET", "CONSOLE_RBAC", "CONSOLE_VIEWERS", "CONSOLE_AUDIT_LOG"):
                 self.assertIn(key, flags_c, f"{key} missing on {cmd_name}")
 
-    def test_sprint4_wave_b_spec_split_m24_and_watch_workers_wiring(self) -> None:
+    def test_spec_split_m24_and_watch_workers_wiring(self) -> None:
         help_res = subprocess.run(
             ["make", "--no-print-directory", "help"],
             cwd=self.ws, capture_output=True, text=True, check=True,
@@ -737,7 +737,7 @@ exit 0
         argv_w = next(c for c in _read_calls(go_log) if c and c[0] == "run")
         self.assertEqual(argv_w[-4:], ["make", "watch", "ONCE=1", "WORKERS=4"])
 
-    def test_v090_wave_b_demo_loop_jury_map_brief_live_preflight_and_outside_harness(self) -> None:
+    def test_v090_demo_loop_jury_map_brief_live_preflight_and_outside_harness(self) -> None:
         help_res = subprocess.run(
             ["make", "--no-print-directory", "help"],
             cwd=self.ws, capture_output=True, text=True, check=True,
@@ -857,7 +857,7 @@ exit 0
             ["make", "harness-conformance", "AGENT_HARNESS=outside/file-harness", f"ADAPTERS_PATH={ext_dir}"],
         )
 
-    def test_sprint6_thresholds_metrics_orchestrator_and_provenance_attach_wiring(self) -> None:
+    def test_thresholds_metrics_orchestrator_and_provenance_attach_wiring(self) -> None:
         base_env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "HOME": str(self.tmp)}
         missing_wl = self.tmp / "empty-contract-s6"
         missing_wl.mkdir(exist_ok=True)
@@ -933,7 +933,7 @@ exit 0
         self.assertIn("PROVENANCE_ATTACH", envs_prov)
         self.assertEqual(argv_prov[-3:], ["make", "provenance", "VERSION=0.9.0"])
 
-    def test_sprint7_reviewer_eval_portfolio_and_contract_v1_wiring(self):
+    def test_reviewer_eval_portfolio_and_contract_v1_wiring(self):
         mk_text = (self.ws / "Makefile").read_text(encoding="utf-8")
         self.assertRegex(mk_text, r"CI_CHECKS\s*:?=.*\bcontract-v1\b")
         ci_line = next(ln for ln in mk_text.splitlines() if ln.startswith("CI_CHECKS"))

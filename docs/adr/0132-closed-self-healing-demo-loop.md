@@ -2,7 +2,7 @@
 
 - Status: accepted
 - Date: 2026-11-25
-- Milestone: M38 / K4 (`swarm/m38-demo-loop`)
+- Milestone: M38
 - Builds on: [ADR 0019](0019-event-bus-and-tower.md), [ADR 0020](0020-adk-roles-and-evals.md), [ADR 0044](0044-incident-in-postmortem-out.md), [ADR 0052](0052-shell-boundary-and-python-core.md), [ADR 0056](0056-main-green-without-a-queue.md), [ADR 0089](0089-frozen-console-snapshot.md), [ADR 0109](0109-continuous-ops-loop.md), [ADR 0115](0115-autonomous-adr-lifecycle-and-policy.md), [ADR 0117](0117-signed-agent-provenance-attestations.md), [ADR 0121](0121-closed-deterministic-self-healing-loop.md)
 
 ## Context

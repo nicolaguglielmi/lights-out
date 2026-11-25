@@ -2,7 +2,7 @@
 
 - Status: proposed
 - Date: 2026-11-24
-- Milestone: M87 — Cryptographic OIDC/JWT Verification & 4-Tier Console RBAC (`swarm/m87-oidc-jwt-rbac`)
+- Milestone: M87
 - Amends: ADR 0047 §5 (`CONSOLE_AUTH=proxy` gains opt-in cryptographic JWT verification and 4-tier RBAC while preserving legacy header-only behavior when unset); ADR 0057 §10 (`gates/production-readiness.sh` validates issuer, audience, key source, and SSRF-safe JWKS URL when JWT/RBAC settings are active); ADR 0111 §5 (`deploy/proxy/` recipes forward signed JWT assertions alongside identity headers)
 
 ## Context
@@ -65,7 +65,7 @@ Enterprise multi-team deployments expose three security and governance gaps:
 
 - Operators running `console/serve.py` behind Cloudflare Access, Google Cloud IAP, or `oauth2-proxy` + `Caddy` gain defence-in-depth cryptographic JWT verification and least-privilege 4-tier RBAC without adding external Python packages.
 - Existing L0/loopback/snapshot flows and legacy `CONSOLE_AUTH=proxy` setups without `CONSOLE_VERIFY_JWT` or `CONSOLE_RBAC=strict` behave identically to ADR 0047, keeping `./go demo` and `ci/readiness.sh` green.
-- Wave B integration wires `core.oidc_rbac` directly into `console/serve.py` without touching adapter or workload boundaries.
+- The integration commit wires `core.oidc_rbac` directly into `console/serve.py` without touching adapter or workload boundaries.
 
 ## Provenance
 

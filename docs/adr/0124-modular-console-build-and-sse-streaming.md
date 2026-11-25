@@ -2,14 +2,14 @@
 
 - Status: proposed
 - Date: 2026-11-24
-- Milestone: M84 — Modular Console Build & SSE Real-Time Event Streaming (`swarm/m84-modular-console-sse`)
+- Milestone: M84
 - Amends: ADR 0047 §3–§5 (adds read-only `GET /v1/events` SSE notification route alongside `GET /v1/logbook.json` and `GET /v1/console.json`); ADR 0059 §1 (progressively triggers immediate conditional `ETag` fetches on SSE `logbook` events in live mode while preserving the 2 s `If-None-Match` poll fallback and zero SSE activity in snapshot mode)
 
 ## Context
 
 `console/` currently maintains its entire 11-screen browser workstation (`#overview`, `#hive`, `#kanban`, `#network`, `#tickets`, `#ticket/<id>`, `#specs`, `#request`, `#adrs`, `#incidents`, `#launch`, `#thresholds`) plus four modal dialogs (`#card-back`, `#why`, `#launch-confirm`, `#onboard-wizard`) inside a single hand-edited 3,338-line `console/index.html` file, paired with `console/serve.py`.
 
-Two structural limitations slow down Wave 5 workstation evolution (`M84`–`M86`) and live operator feedback:
+Two structural limitations slow down the workstation milestones (`M84`–`M86`) and live operator feedback:
 
 1. **Monolithic 3,338-line inline HTML/CSS/JS source.** Editing styles, Kanban/Network SVG graphs, Hive walkthroughs, and runtime networking inside one 223 KiB file increases merge contention and review risk. Yet `console/index.html` must remain a single, committed, offline-capable, zero-CDN artifact satisfying strict Content-Security-Policy (`default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self' 'unsafe-inline'; frame-ancestors 'none'`) and every static/DOM invariant in `ci/logbook.sh` and `ci/console-ui.py`.
 2. **2-second polling latency in live mode.** Even when `console/serve.py` completes a new `core/logbook.sh` read (either on its loop or immediately after a human `POST` press), connected browser tabs wait up to `2` seconds (`CONSOLE_POLL_S`) to discover that `etag` changed. Operators watching active agent turns, gate verdicts, rework transitions, or canary stages benefit from sub-second push notifications without giving up `ETag`/`304` HTTP caching or resilient fallback polling.
@@ -90,7 +90,7 @@ Add `GET /v1/events` to `console/serve.py`:
 
 ## Consequences
 
-- Future Wave 5 tracks (`M85` Control-Plane Workstation, `M86` Adaptive Persona UX) can edit isolated CSS and JS modules under `console/src/` and verify bundle sync via `python3 console/build.py --check` in `ci/logbook.sh`.
+- Later milestones (`M85` Control-Plane Workstation, `M86` Adaptive Persona UX) can edit isolated CSS and JS modules under `console/src/` and verify bundle sync via `python3 console/build.py --check` in `ci/logbook.sh`.
 - Live browser consoles react immediately to `core/logbook.sh` updates and human `POST` actions over `/v1/events` while snapshot consoles remain completely inert on the network after initial load.
 - All existing `ci/logbook.sh`, `ci/console-ui.py`, `test_hive_onboarding`, `test_hive_ui_contract`, and `test_guided_ux` invariants remain intact.
 

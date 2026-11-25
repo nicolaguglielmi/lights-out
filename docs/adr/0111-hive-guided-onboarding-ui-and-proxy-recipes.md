@@ -2,7 +2,7 @@
 
 - Status: accepted
 - Date: 2026-11-24
-- Milestone: Track 5 — Junior E2E Onboarding & Animated Hive UI (`agy/p2-hive-ui`)
+- Milestone: none (the hive onboarding UI and proxy recipes)
 - Amends: ADR 0047 (adds `#hive` read-only visualization & local wizard alongside the existing screens; adds concrete `deploy/proxy/` OIDC reverse-proxy templates for `CONSOLE_AUTH=proxy`); ADR 0059 (keeps `nav#nav` single-line at `390x844` and `1440x900`, preserves all 6 POST routes and zero extra network requests); ADR 0103 (adds an interactive animated entrypoint `"Open Animated Hive Guide →"` inside `section#journey` while preserving `#your-turn` as the first `.panel` in `#overview`)
 
 ## Context

@@ -2,7 +2,7 @@
 
 - Status: proposed
 - Date: 2026-11-24
-- Milestone: M73 (Wave 1)
+- Milestone: M73
 - Extends: [ADR 0042](0042-gates-anywhere-init-and-the-toolchain-contract.md) §6 (`init`), [ADR 0015](0015-pr-gates-at-m4.md) §3 (`MUTATION_LINES`), [ADR 0037](0037-the-workload-is-a-repository-not-a-directory.md) §1, [ADR 0110](0110-stateful-monorepo-rust-java-and-js-managers.md)
 
 ## Context
@@ -77,7 +77,7 @@ Three cohesive primitives carry all filesystem, secret-guard, git-branch, scoped
 - Repositories can adopt `lights-out` in one command (`--apply-to`, `--branch`, `--commit`) without manual `cp -R` or overwriting existing contracts silently.
 - Large legacy repositories can bound initial mutation baseline selection deterministically via `--baseline-mode incremental` with auditable provenance in `workload.env`.
 - Console/automation workflows gain `commit_ticket_artifact()` for isolated artifact commits without disturbing user worktrees.
-- Wave B (`integrator-2`) will wire CLI wrapper/entrypoint flags (`lights-out init --apply`) and roadmap status separately.
+- The integration commit wires CLI wrapper/entrypoint flags (`lights-out init --apply`) and roadmap status separately.
 
 ## Provenance
 

@@ -2,7 +2,7 @@
 
 - Status: accepted
 - Date: 2026-11-25
-- Milestone: M96 (`swarm/portfolio-v1`)
+- Milestone: M96
 - Builds on: [ADR 0029](0029-focus-governed-autonomy-app-as-a-port.md), [ADR 0030](0030-workload-port.md), [ADR 0037](0037-attach-a-repository.md), [ADR 0042](0042-gates-anywhere-init-and-the-toolchain-contract.md), [ADR 0052](0052-where-shell-is-allowed.md), [ADR 0053](0053-tests-that-prove-and-tickets-that-wait.md), [ADR 0082](0082-delivery-measures-from-the-logbook.md), [ADR 0094](0094-ci-under-the-shell-boundary-later.md), [ADR 0098](0098-verify-from-the-proxy.md), [ADR 0100](0100-init-drafts-the-plane-half.md), [ADR 0131](0131-retire-core-shell-boundary-debt.md), [ADR 0135](0135-m17-thresholds-and-complete-worker-ledger.md), [ADR 0136](0136-activate-ci-shell-boundary-ratchet.md)
 
 ## Context

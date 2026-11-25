@@ -161,7 +161,7 @@ class FlagTranslationTests(unittest.TestCase):
         self.assertEqual(cli.parse(["config", "start", "--profile", "l1"]).tail, ["--profile", "l1"])
         self.assertEqual(cli.parse(["ops", "triage", "--profile", "l1"]).tail, ["PROFILE=l1"])
 
-    def test_init_and_sprint2_flags_and_extension_keys(self):
+    def test_init_and_flags_and_extension_keys(self):
         plan = cli.parse([
             "repo", "init", "../r", "--apply", "--branch", "init/lo", "--commit", "--force",
             "--baseline-mode", "incremental", "--baseline-max-files", "5",
@@ -640,8 +640,8 @@ class SourcePerimeterTests(unittest.TestCase):
                 self.assertIsNone(re.search(pattern, text, re.I | re.M), f"{rel} vs ci/{script}")
 
 
-class WaveBCLITests(unittest.TestCase):
-    def test_sprint3_commands_and_flags_parse(self):
+class LaterCommandsCLITests(unittest.TestCase):
+    def test_workspace_genesis_and_epics_commands_parse(self):
         p_init = cli.parse(["repo", "init", "--workspace", "--apply"])
         self.assertEqual(p_init.command.flat, "init")
         self.assertEqual(p_init.tail, ["--workspace", "--apply"])
@@ -664,7 +664,7 @@ class WaveBCLITests(unittest.TestCase):
             self.assertIn(f"{flag_prefix}workspace", comp)
             self.assertIn(f"{flag_prefix}no-publish", comp)
 
-    def test_sprint4_commands_and_flags_parse(self):
+    def test_spec_split_m24_and_watch_commands_parse(self):
         p_ss = cli.parse(["ticket", "spec-split", "split", "tickets/0012.md", "--in-place"])
         self.assertEqual(p_ss.command.flat, "spec-split")
         self.assertEqual(p_ss.positional, ["split", "tickets/0012.md"])
@@ -703,7 +703,7 @@ class WaveBCLITests(unittest.TestCase):
                          "intake-network-split", "network-auto-split"):
                 self.assertIn(f"{flag_prefix}{flag}", comp)
 
-    def test_v090_wave_b_commands_and_flags_parse(self):
+    def test_v090_commands_and_flags_parse(self):
         p_dl = cli.parse(["ops", "demo-loop", "run", "--out", ".crew/dl", "--budget", "120", "--inject-break", "gates"])
         self.assertEqual(p_dl.command.flat, "demo-loop")
         self.assertEqual(p_dl.positional, ["run"])
@@ -741,7 +741,7 @@ class WaveBCLITests(unittest.TestCase):
             for flag in ("budget", "inject-break", "author-provider", "write-map", "strict"):
                 self.assertIn(f"{flag_prefix}{flag}", comp)
 
-    def test_sprint6_thresholds_provenance_attach_and_conformance_parse(self):
+    def test_thresholds_provenance_attach_and_conformance_parse(self):
         p_thr = cli.parse(["config", "thresholds", "--no-git", "--root", ".", "--contract-dir", "c"])
         self.assertEqual(p_thr.command.flat, "thresholds")
         self.assertEqual(p_thr.tail, ["--no-git", "--root", ".", "--contract-dir", "c"])
@@ -778,7 +778,7 @@ class WaveBCLITests(unittest.TestCase):
             for flag in ("no-git", "contract-dir", "attach", "attach-required", "statement"):
                 self.assertIn(f"{flag_prefix}{flag}", comp)
 
-    def test_sprint7_reviewer_eval_and_portfolio_parse(self):
+    def test_reviewer_eval_and_portfolio_parse(self):
         p_re = cli.parse(["ops", "reviewer-eval", "--mode", "replay", "--role", "architect", "--thinking", "low"])
         self.assertEqual(p_re.command.flat, "reviewer-eval")
         self.assertEqual(p_re.tail, ["--mode", "replay", "--role", "architect", "--thinking", "low"])

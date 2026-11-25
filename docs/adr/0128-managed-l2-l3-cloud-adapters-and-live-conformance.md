@@ -2,7 +2,7 @@
 
 - Status: accepted (reconciles M8 and M10; builds on [ADR 0019](0019-event-bus-and-tower.md), [ADR 0025](0025-artifact-signing-and-promotion.md), [ADR 0044](0044-incident-in-postmortem-out.md), [ADR 0057](0057-the-stepped-way-in.md), [ADR 0060](0060-state-and-bus-conformance.md), [ADR 0104](0104-cloud-delivery-plugins-and-outside-conformance.md), and [ADR 0107](0107-cloud-registry-flags-and-proxy-slos.md))
 - Date: 2026-11-24
-- Milestone: M88 (`swarm/m88-managed-cloud-adapters`)
+- Milestone: M88
 
 ## Context
 

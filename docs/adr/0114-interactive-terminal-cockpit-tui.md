@@ -2,7 +2,7 @@
 
 - Status: proposed
 - Date: 2026-11-24
-- Milestone: M74 — Interactive Terminal Cockpit (`swarm/m74-terminal-tui`)
+- Milestone: M74
 - Amends: ADR 0047 §6 (adds a read-only terminal consumer of the versioned logbook alongside `console/` and `core/network.py`)
 
 ## Context

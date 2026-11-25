@@ -156,5 +156,5 @@ Every number in this ADR, and where it comes from. None is a measured threshold;
 
 - Scripts can branch on `0`/`1`/`2`/`3`/`4` and parse one envelope line per non-gate command.
 - The wrapper gains about twelve commands, the domain grammar and completions with no new dependency on the host.
-- Wave B wires `./go`, `Makefile` targets and the roadmap to this CLI; this ADR changes none of them.
+- The integration commit wires `./go`, `Makefile` targets and the roadmap to this CLI; this ADR changes none of them.
 - Known limit: the wrapper's `--jsonl` is emitted when the command ends (the entrypoint captures stdout), not as it streams; `core/cli.py` streams.

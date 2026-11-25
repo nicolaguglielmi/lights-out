@@ -18,7 +18,7 @@ Ahead of cutting `v1.0.0` GA across Sprints 6–7 (`M91`–`M97`), auditing `doc
    - `ADR 0050` (`antigravity-cli`) relies on a proprietary unredistributed binary, has no live L1 replay recording, and retains an open workspace-hook enforcement gap (§7), so `accepted` overstated its maturity.
    - `ADR 0027` (`L2 on GCP`) had its six GCP adapters shipped and mock-verified under `ADR 0128`, whereas live Terraform provisioning and live GCP project `apply` remain unexecuted by the owner.
    - `ADR 0036` (`network` harness) shipped its adapter and gained opt-in autonomous `## Network` splitting (`ADR 0120`) and partial member spend accounting (`ADR 0135`), while its L0 ticket 0012 fixture remains hand-written.
-4. **Enterprise Farm roadmap & `v1.0.0` release gap:** `docs/plans/enterprise-farm-roadmap.md` tracked only Waves 1–6 (`M72`–`M89`), omitting Sprint 6 (**Wave 7**, `M91`–`M94`) and Sprint 7 (**Wave 8**, `M95`–`M97`), and `docs/releases/v1.0.0.md` did not yet exist.
+4. **Enterprise Farm roadmap & `v1.0.0` release gap:** `docs/plans/enterprise-farm-roadmap.md` tracked only `M72`–`M89`, omitting `M91`–`M97`, and `docs/releases/v1.0.0.md` did not yet exist.
 
 ## Decision
 
@@ -35,9 +35,9 @@ Ahead of cutting `v1.0.0` GA across Sprints 6–7 (`M91`–`M97`), auditing `doc
    - Auditing `docs/adr/0112`–`0136` (`25` files, audited without modifying files outside `M97` scope) shows `17` `accepted` and `8` remaining `- Status: proposed` (`0113`, `0114`, `0115`, `0117`, `0118`, `0123`, `0124`, `0127`) even though their features (`M73`–`M87`) shipped in Waves 1–6. Those `25` files remain untouched here to honor `M97` file boundaries; harmonizing those `8` headers is left as a clean coordinator/post-merge housekeeping follow-up.
 
 3. **`v1.0.0` GA Release Contract & Roadmap Closure:**
-   - Publish `docs/releases/v1.0.0.md` summarizing Sprint 6 (`ADR 0133`–`ADR 0136`, `M91`–`M94`) and Sprint 7 (`ADR 0137`–`ADR 0139`, `M95`–`M97`) on top of the `v0.9.0` Waves 1–6 foundation.
-   - Keep claims strictly truthful: never fabricate unmeasured latencies, live cloud proofs, commercial provider runs (`anthropic` credit-blocked, `openai`/`zai` unrun), or Sprint 7 live evaluation catch rates. Place explicit `[MEASURED-BY-INTEGRATOR-7]` markers in `docs/releases/v1.0.0.md` where the Sprint 7 integrator inserts post-merge `reviewer-eval` Gemini measurements, `58/58` `make ci` results, and `ADR 0137`/`ADR 0138` blob links once `M95` and `M96` merge.
-   - Extend `docs/plans/enterprise-farm-roadmap.md` with **Wave 7 (`M91`–`M94`)** and **Wave 8 (`M95`–`M97`)** so all `25` tracked farm milestones (`M72`–`M89` plus `M91`–`M97`, with `M90` retired as the core shell-debt closure milestone) carry verified status and Mermaid dependency edges.
+   - Publish `docs/releases/v1.0.0.md` summarizing Sprint 6 (`ADR 0133`–`ADR 0136`, `M91`–`M94`) and Sprint 7 (`ADR 0137`–`ADR 0139`, `M95`–`M97`) on top of `v0.9.0`.
+   - Keep claims strictly truthful: never fabricate unmeasured latencies, live cloud proofs, commercial provider runs (`anthropic` credit-blocked, `openai`/`zai` unrun), or Sprint 7 live evaluation catch rates. Place explicit `measured-at-integration` markers in `docs/releases/v1.0.0.md` where the Sprint 7 integrator inserts post-merge `reviewer-eval` Gemini measurements, `58/58` `make ci` results, and `ADR 0137`/`ADR 0138` blob links once `M95` and `M96` merge.
+   - Extend `docs/plans/enterprise-farm-roadmap.md` with `M91`–`M97` so all `25` tracked farm milestones (`M72`–`M89` plus `M91`–`M97`, with `M90` retired as the core shell-debt closure milestone) carry verified status and Mermaid dependency edges.
 
 ## Provenance
 
@@ -49,15 +49,15 @@ Every count and status decision in this ADR was measured directly from committed
 | Reconciled `0001`–`0111` distribution | `105` `accepted`, `2` `superseded`, `1` `experimental`, `0` `proposed` | Status header scan verified against `ROADMAP.md`, `docs/ARCHITECTURE.md`, and `core/map.py` |
 | `ADR 0112`–`0136` audit (read-only) | `25` files: `17` `accepted`, `8` `proposed` | Inspected `docs/adr/0112`–`0136`; left unmodified to preserve `M97` file boundaries |
 | Baseline CI checks at `e89d4ed` | `57/57` `CI_CHECKS`, `2,791/2,791` `ci/core-tests.sh` tests | Verified in Sprint 6 integration & independent audit (`make ci`, `ci/core-tests.sh`) |
-| Tracked enterprise farm milestones | `25` milestones (`M72`–`M89` in Waves 1–6 + `M91`–`M97` in Waves 7–8) | Recorded in `docs/plans/enterprise-farm-roadmap.md` (`M90` retired as core shell-debt milestone) |
+| Tracked enterprise farm milestones | `25` milestones (`M72`–`M89` plus `M91`–`M97`) | Recorded in `docs/plans/enterprise-farm-roadmap.md` (`M90` retired as core shell-debt milestone) |
 
 ## Alternatives
 
 1. **Mass-flip every `proposed` ADR to `accepted` blindly:** Rejected because `ADR 0028` (`workbench/cloud/`) was superseded by `ADR 0057`, `ADR 0031` (`core/report.sh`) was only partially adopted, `ADR 0050` has an open security hook gap (`§7`) and proprietary unredistributed binary, and `ADR 0027` still lacks live GCP execution. Honest GA governance requires reflecting actual repository state.
-2. **Modify `ADR 0112`–`0138` or invent Sprint 7 benchmark numbers upfront in `v1.0.0.md`:** Rejected because `0112`–`0138` sit outside `M97` ownership and because Sprint 7 live `reviewer-eval` scores and full `make ci` runs can only be measured accurately after `M95` and `M96` merge. Using `[MEASURED-BY-INTEGRATOR-7]` prevents speculative numbers from reaching GA docs.
+2. **Modify `ADR 0112`–`0138` or invent Sprint 7 benchmark numbers upfront in `v1.0.0.md`:** Rejected because `0112`–`0138` sit outside `M97` ownership and because Sprint 7 live `reviewer-eval` scores and full `make ci` runs can only be measured accurately after `M95` and `M96` merge. Using `measured-at-integration` prevents speculative numbers from reaching GA docs.
 
 ## Consequences
 
 - `core/map.py`, `ci/map.sh`, `ci/wiki.sh`, and `package/wiki.py` now index all `0001`–`0111` ADRs cleanly (`0098` and `0101` no longer appear blank in the generated Wiki Decisions table), with truthful `accepted`, `superseded`, and `experimental` badges.
 - Any release verifier auditing `docs/adr/` against `main` gets an explicit, honest map of what shipped vs. what remains unexecuted (`ADR 0027` live GCP `apply`), experimental (`ADR 0050`), superseded (`0028`, `0031`), or outside `M97` write scope (`8` `proposed` drafts in `0112`–`0136`).
-- `integrator-7` must replace the `[MEASURED-BY-INTEGRATOR-7]` placeholders in `docs/releases/v1.0.0.md` (and link `ADR 0137`/`ADR 0138` plus bump package version references from `0.9.0` to `1.0.0`) after merging `M95` and `M96` and running live `reviewer-eval` + full `make ci`.
+- The integration commit must replace the `measured-at-integration` placeholders in `docs/releases/v1.0.0.md` (and link `ADR 0137`/`ADR 0138` plus bump package version references from `0.9.0` to `1.0.0`) after merging `M95` and `M96` and running live `reviewer-eval` + full `make ci`.

@@ -571,8 +571,8 @@ class EntrypointParityTests(unittest.TestCase):
         self.assertEqual((env["command"], env["flat"], env["verdict"]), ("release provenance", "provenance", "GO"))
         self.assertIn("PD=.crew/prov V=0.8.1", env["line"])
 
-    def test_entrypoint_wave_b_genesis_epics_init_workspace_parity(self):
-        call_log = self.tmp / "wave-b-calls.log"
+    def test_entrypoint_genesis_epics_init_workspace_parity(self):
+        call_log = self.tmp / "entrypoint-calls.log"
         (self.img / "Makefile").write_text(
             "GATES := risk\n"
             "init:\n"
@@ -612,8 +612,8 @@ class EntrypointParityTests(unittest.TestCase):
         self.assertTrue(any(ln.startswith("GENESIS NO_SP=1 ") and str(empty_dir) in ln and "--no-commit" in ln for ln in lines), lines)
         self.assertTrue(any(ln.startswith("EPICS ") and "--id\x1fE1" in ln and "0001" in ln and "--no-publish" in ln for ln in lines), lines)
 
-    def test_entrypoint_sprint4_spec_split_m24_and_watch_workers_parity(self):
-        call_log = self.tmp / "sprint4-calls.log"
+    def test_entrypoint_spec_split_m24_and_watch_workers_parity(self):
+        call_log = self.tmp / "set4-calls.log"
         (self.img / "Makefile").write_text(
             "GATES := risk\n"
             "spec-split:\n"
@@ -685,8 +685,8 @@ class EntrypointParityTests(unittest.TestCase):
         self.assertIn("ASSIGN NAS=on", lines)
         self.assertIn("INTAKE INS=on", lines)
 
-    def test_entrypoint_sprint6_thresholds_and_provenance_attach_parity(self):
-        call_log = self.tmp / "sprint6-calls.log"
+    def test_entrypoint_thresholds_and_provenance_attach_parity(self):
+        call_log = self.tmp / "set6-calls.log"
         (self.img / "Makefile").write_text(
             "GATES := risk\n"
             "thresholds:\n"
@@ -716,8 +716,8 @@ class EntrypointParityTests(unittest.TestCase):
         self.assertIn("PROV PD= V=0.9.0 CLI=--attach", lines)
         self.assertTrue(any(f"attach\x1f--statement\x1f{self.repo}/s.intoto.json\x1f--required" in ln for ln in lines), lines)
 
-    def test_entrypoint_sprint7_reviewer_eval_and_portfolio_parity(self):
-        call_log = self.tmp / "sprint7-calls.log"
+    def test_entrypoint_reviewer_eval_and_portfolio_parity(self):
+        call_log = self.tmp / "set7-calls.log"
         (self.img / "Makefile").write_text(
             "GATES := risk\n"
             "reviewer-eval:\n"
@@ -749,7 +749,7 @@ class EntrypointParityTests(unittest.TestCase):
         self.assertIn(f"PORT PR= J= CLI={self.repo}/sub", lines)
 
 
-class WaveBWrapperMountAndParityTests(unittest.TestCase):
+class WrapperMountAndParityTests(unittest.TestCase):
     def test_wrapper_genesis_rw_notice_epics_ro_init_workspace_and_completion(self):
         import tempfile
         with tempfile.TemporaryDirectory() as td:
