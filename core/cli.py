@@ -48,6 +48,7 @@ EXTRA_KEYS = (
     "LOGBOOK_FILE", "LOGBOOK", "URL", "JSON", "VIEW", "WIDTH", "HEIGHT", "TICKET_FILE",
     "PROVENANCE_DIR", "PROVENANCE_ATTACH", "PROVENANCE_ATTACH_REQUIRED",
     "TRACKER", "CHARTS", "METRICS", "ORCHESTRATOR",
+    "REVIEWER_ROLE", "THINKING", "PORTFOLIO_REPOS",
 )
 
 START_NATIVE = (
@@ -106,6 +107,17 @@ PROVENANCE_NATIVE = (
     ("--statement", True), ("--bundle", True), ("--sha", True),
     ("--out-receipt", True), ("--key", True), ("--out-dir", True), ("--repo", True),
 )
+REVIEWER_EVAL_NATIVE = (
+    ("--fixtures", True), ("--repo", True), ("--mode", True), ("--role", True),
+    ("--scope", True), ("--provider", True), ("--model", True), ("--thinking", True),
+    ("--record-replay", False), ("--strict-replay-sha", False), ("--no-gitleaks", False),
+    ("--only-cases", True), ("--compare-manifest", True), ("--compare-tickets", True),
+    ("--tickets-dir", True), ("--patches-dir", True), ("--map", True),
+    ("--save-compare-replay", True), ("--only-compare", False),
+)
+PORTFOLIO_NATIVE = (
+    ("--repos", True), ("--repo", True),
+)
 NATIVE_FLAGS = (
     "--json", "--jsonl", "--help", "--engine", "--non-interactive", "--mode", "--preset", "--provider",
     "--harness", "--delivery", "--profile", "--ticket-budget-usd", "--day-budget-usd", "--level",
@@ -120,6 +132,9 @@ NATIVE_FLAGS = (
     "--root", "--contract-dir", "--no-git",
     "--attach", "--attach-required", "--required", "--statement", "--bundle", "--sha", "--out-receipt",
     "--key", "--out-dir",
+    "--fixtures", "--model", "--thinking", "--record-replay", "--strict-replay-sha", "--no-gitleaks",
+    "--only-cases", "--compare-manifest", "--compare-tickets", "--patches-dir", "--save-compare-replay",
+    "--only-compare", "--repos",
 )
 BOOL_FLAGS = {"--staged": "STAGED", "--once": "ONCE"}
 ENGINE_FLAT = ("init", "gates", "test-proof", "test-integrity", "adr-check", "migration-safety")
@@ -198,6 +213,8 @@ COMMANDS = (
     _c("ops", "orchestrator-conformance", keys=("ORCHESTRATOR",), surface="clone"),
     _c("ops", "m24-check", positional=8, native=M24_CHECK_NATIVE),
     _c("ops", "demo-loop", positional=1, native=DEMO_LOOP_NATIVE),
+    _c("ops", "reviewer-eval", keys=("JSON", "REVIEWER_ROLE", "THINKING"), native=REVIEWER_EVAL_NATIVE),
+    _c("ops", "portfolio", keys=("PORTFOLIO_REPOS", "JSON"), positional=8, native=PORTFOLIO_NATIVE),
     _c("config", "start", native=START_NATIVE),
     _c("config", "next", native=(("--mode", True),)),
     _c("config", "cloud-setup", keys=("SLO_MODE",)),

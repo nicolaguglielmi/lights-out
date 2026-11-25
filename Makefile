@@ -75,7 +75,7 @@ CORPUS_FULL ?= 0
 # `init`/`try` draft one (docs/adr/0042 §6, 0093 §5), `cloud-setup` stages
 # cloud infrastructure templates (docs/adr/0104), and `start`/`next` guide a
 # repo from Stage 1 before a contract exists (docs/adr/0103).
-ifneq ($(filter $(MAKECMDGOALS),init genesis epics spec-split m24-check demo-loop jury map-brief-eval live-preflight try cloud-setup start next cli top alert-webhook auto-incident console-build thresholds),)
+ifneq ($(filter $(MAKECMDGOALS),init genesis epics spec-split m24-check demo-loop jury map-brief-eval live-preflight try cloud-setup start next cli top alert-webhook auto-incident console-build thresholds reviewer-eval portfolio),)
 -include $(WORKLOAD_CONTRACT)/workload.env
 else
 include $(WORKLOAD_CONTRACT)/workload.env
@@ -89,7 +89,7 @@ export
 # goals only tries the adapter instead: its recipe goes through `conform`.
 OUTSIDE_PORTS := AGENT_HARNESS CODE_HOST DELIVERY STATE_STORE EVENT_BUS TRACKER ORCHESTRATOR METRICS FLAGS REGISTRY CHARTS
 ifneq ($(filter outside/%,$(foreach p,$(OUTSIDE_PORTS),$($(p)))),)
-ifneq ($(filter-out %-conformance genesis epics spec-split m24-check demo-loop jury map-brief-eval live-preflight start next cli top cloud-setup alert-webhook auto-incident console-build thresholds,$(or $(MAKECMDGOALS),help)),)
+ifneq ($(filter-out %-conformance genesis epics spec-split m24-check demo-loop jury map-brief-eval live-preflight start next cli top cloud-setup alert-webhook auto-incident console-build thresholds reviewer-eval portfolio,$(or $(MAKECMDGOALS),help)),)
 ADMIT := $(shell python3 core/adapters.py admit 2>&1)
 ifneq ($(ADMIT),)
 $(error $(ADMIT))
@@ -316,7 +316,7 @@ top: ## Interactive terminal cockpit over the logbook: [LOGBOOK_FILE=.crew/logbo
 		$(TOP_ARGS)
 
 # Self-checks run by `ci`, in order. engine-compat runs on the host (ADR 0004, ADR 0012 §5), never here.
-CI_CHECKS := secrets secrets-history lint shell help docs-drift map profiles workloads attach first-run zero-to-hero toolchain sast-diff init core-tests vendor-free app-free model-free codehost hooks harness harness-shape network tower mainline dev-phase intake decide screen assign perimeter review prompts evals promote board logbook roles postmortem metrics readiness package shell-boundary store-bus gates-light plugin agents plan range release wiki authors evidence outside corpus contract
+CI_CHECKS := secrets secrets-history lint shell help docs-drift map profiles workloads attach first-run zero-to-hero toolchain sast-diff init core-tests vendor-free app-free model-free codehost hooks harness harness-shape network tower mainline dev-phase intake decide screen assign perimeter review prompts evals promote board logbook roles postmortem metrics readiness package shell-boundary store-bus gates-light plugin agents plan range release wiki authors evidence outside contract-v1 corpus contract
 
 # Each check runs once (docs/adr/0062): under `ci`, and only there, every
 # ci-<name> leaves its stdout and exit code in this run's own directory,
@@ -491,6 +491,11 @@ spend: ## Cost and time per ticket, per role and per day, from the tower's spend
 .PHONY: thresholds
 thresholds: ## Audit effective policy/role thresholds, provenance, overrides, and commit history: [JSON=1] [THRESHOLDS_ARGS=] (docs/adr/0135)
 	@env $(foreach k,MUTATION_BASELINE MUTATION_MARGIN RISK_SIZE_MEDIUM_LINES RISK_AUTO_MERGE_LEVELS RISK_HIGH_MIGRATIONS RISK_HIGH_AUTH RISK_HIGH_PAYMENTS ERROR_RATE_MAX_DELTA LATENCY_P95_MAX_DELTA RISK_REQUIRE_ADR REWORK_MAX_ATTEMPTS SPEND_BUDGET_TICKET_USD SPEND_BUDGET_DAY_USD MAINLINE_GROUP_MAX,$(if $(filter file,$(origin $(k))),-u $(k))) sh core/thresholds.sh $(THRESHOLDS_ARGS)
+
+# Read-only multi-repo fleet portfolio federation hook (docs/adr/0138).
+.PHONY: portfolio
+portfolio: ## Read-only multi-repo fleet portfolio overview: [PORTFOLIO_REPOS=] [JSON=1] [PORTFOLIO_ARGS=] (docs/adr/0138)
+	@sh core/portfolio.sh $(PORTFOLIO_ARGS)
 
 # The console (docs/adr/0047, 0055, 0059, 0071): the client's eleven screens over the
 # logbook and three writes, go-for-launch through core/promote.sh, the
@@ -1794,6 +1799,10 @@ map-brief-eval: ## Measure MAP_BRIEF=off vs MAP_BRIEF=on brief footprint across 
 .PHONY: live-preflight
 live-preflight: ## Non-destructive live L1/CodeHost/Cloud readiness audit (boolean key presence only): [LIVE_PREFLIGHT_ARGS=]
 	@sh core/live_preflight.sh $(LIVE_PREFLIGHT_ARGS)
+
+.PHONY: reviewer-eval
+reviewer-eval: ## Labeled-diff reviewer and gate catch-rate evaluation suite: [--mode replay|live] [MODE=replay|live] [JSON=1] [REVIEWER_EVAL_ARGS=] (docs/adr/0137)
+	@sh core/reviewer_eval.sh $(REVIEWER_EVAL_ARGS)
 
 # Your repository in one command (docs/adr/0093 §5): ./go attaches a clone
 # of its HEAD, then this drafts the contract in the clone (init, unchanged)

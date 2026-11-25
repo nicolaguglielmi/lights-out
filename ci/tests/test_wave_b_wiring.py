@@ -136,6 +136,7 @@ exit 0
             "registry-conformance", "flags-conformance", "tracker-conformance", "charts-conformance",
             "metrics-conformance", "orchestrator-conformance",
             "watch", "alert-webhook", "auto-incident", "cli", "top", "thresholds",
+            "reviewer-eval", "portfolio",
             "adr-check", "migration-safety", "provenance", "console-build",
         ):
             self.assertRegex(help_res.stdout, rf"(?m)^\s*{target}\s+", f"make help missing {target}")
@@ -931,6 +932,50 @@ exit 0
         self.assertIn("LIGHTS_OUT_CLI_ARGS", envs_prov)
         self.assertIn("PROVENANCE_ATTACH", envs_prov)
         self.assertEqual(argv_prov[-3:], ["make", "provenance", "VERSION=0.9.0"])
+
+    def test_sprint7_reviewer_eval_portfolio_and_contract_v1_wiring(self):
+        mk_text = (self.ws / "Makefile").read_text(encoding="utf-8")
+        self.assertRegex(mk_text, r"CI_CHECKS\s*:?=.*\bcontract-v1\b")
+        ci_line = next(ln for ln in mk_text.splitlines() if ln.startswith("CI_CHECKS"))
+        self.assertEqual(len(ci_line.split(":=", 1)[1].split()), 58)
+
+        res_cv1 = subprocess.run(
+            ["sh", "ci/contract-v1.sh"],
+            cwd=self.ws, capture_output=True, text=True, check=False,
+        )
+        self.assertEqual(res_cv1.returncode, 0, res_cv1.stdout + res_cv1.stderr)
+        self.assertTrue(res_cv1.stdout.startswith("GO: contract-v1 "), res_cv1.stdout)
+
+        bindir, tools, go_log = self._setup_fake_podman()
+        go_env = {
+            "PATH": f"{bindir}:{tools}",
+            "HOME": str(self.tmp),
+            "REVIEWER_ROLE": "architect",
+            "PORTFOLIO_REPOS": str(self.ws),
+            "UNLEASH_URL": "http://127.0.0.1:4242",
+        }
+        res_re = subprocess.run(
+            ["sh", "./go", "reviewer-eval", "--mode", "replay"],
+            cwd=self.ws, env=go_env, capture_output=True, text=True, check=False,
+        )
+        self.assertEqual(res_re.returncode, 0, res_re.stderr)
+        argv_re = next(c for c in _read_calls(go_log) if c and c[0] == "run")
+        envs_re = _extract_env_flags(argv_re)
+        self.assertIn("LIGHTS_OUT_CLI_ARGS", envs_re)
+        self.assertIn("REVIEWER_ROLE", envs_re)
+        self.assertEqual(argv_re[-2:], ["make", "reviewer-eval"])
+
+        go_log.unlink(missing_ok=True)
+        res_po = subprocess.run(
+            ["sh", "./go", "portfolio", "--repo", "."],
+            cwd=self.ws, env=go_env, capture_output=True, text=True, check=False,
+        )
+        self.assertEqual(res_po.returncode, 0, res_po.stderr)
+        argv_po = next(c for c in _read_calls(go_log) if c and c[0] == "run")
+        envs_po = _extract_env_flags(argv_po)
+        self.assertIn("LIGHTS_OUT_CLI_ARGS", envs_po)
+        self.assertIn("PORTFOLIO_REPOS", envs_po)
+        self.assertEqual(argv_po[-2:], ["make", "portfolio"])
 
 
 if __name__ == "__main__":

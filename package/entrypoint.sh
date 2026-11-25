@@ -55,6 +55,8 @@
 #   map-brief-eval [flags]                   measure MAP_BRIEF=off vs MAP_BRIEF=on brief footprint (ADR 0054)
 #   live-preflight [--strict] [flags]        non-destructive live L1/CodeHost/Cloud readiness audit
 #   thresholds [JSON=1] [--no-git]           audit effective policy/role thresholds, provenance, and overrides (ADR 0135)
+#   reviewer-eval [--mode replay|live] [flags] labeled-diff reviewer & gate catch-rate evaluation (ADR 0137)
+#   portfolio [--repos <p1,p2>] [flags]      read-only multi-repo fleet portfolio overview (ADR 0138)
 #   production-readiness                     GO only with a conformant delivery, metrics and a human gate
 #   version
 #
@@ -91,7 +93,7 @@ verbs_of() {
     repo) echo "init try gates test-proof test-integrity adr-check migration-safety doctor map corpus genesis map-brief-eval" ;;
     ticket) echo "intake request answer intake-confirm assign resume network audit epics spec-split" ;;
     release) echo "up down smoke deploy promote evidence provenance production-readiness" ;;
-    ops) echo "watch alert-webhook triage auto-incident incident postmortem dora spend top charts-conformance metrics-conformance orchestrator-conformance m24-check demo-loop" ;;
+    ops) echo "watch alert-webhook triage auto-incident incident postmortem dora spend top charts-conformance metrics-conformance orchestrator-conformance m24-check demo-loop reviewer-eval portfolio" ;;
     config) echo "start next cloud-setup scoreboard agents tracker-conformance console-build jury live-preflight thresholds" ;;
   esac
 }
@@ -114,6 +116,8 @@ extra_keys_for() {
     cloud-setup) echo "SLO_MODE" ;;
     top) echo "LOGBOOK_FILE LOGBOOK URL ONCE JSON POLL_S VIEW WIDTH HEIGHT" ;;
     thresholds) echo "JSON" ;;
+    reviewer-eval) echo "JSON REVIEWER_ROLE THINKING" ;;
+    portfolio) echo "PORTFOLIO_REPOS JSON" ;;
   esac
 }
 
@@ -130,6 +134,8 @@ native_flag() {
     live-preflight:--repo|live-preflight:--strict) return 0 ;;
     thresholds:--root|thresholds:--contract-dir|thresholds:--no-git) return 0 ;;
     provenance:--attach|provenance:--attach-required|provenance:--required|provenance:--statement|provenance:--bundle|provenance:--sha|provenance:--out-receipt|provenance:--key|provenance:--out-dir|provenance:--repo) return 0 ;;
+    reviewer-eval:--fixtures|reviewer-eval:--repo|reviewer-eval:--mode|reviewer-eval:--role|reviewer-eval:--scope|reviewer-eval:--provider|reviewer-eval:--model|reviewer-eval:--thinking|reviewer-eval:--record-replay|reviewer-eval:--strict-replay-sha|reviewer-eval:--no-gitleaks|reviewer-eval:--only-cases|reviewer-eval:--compare-manifest|reviewer-eval:--compare-tickets|reviewer-eval:--tickets-dir|reviewer-eval:--patches-dir|reviewer-eval:--map|reviewer-eval:--save-compare-replay|reviewer-eval:--only-compare) return 0 ;;
+    portfolio:--repos|portfolio:--repo) return 0 ;;
   esac
   return 1
 }
@@ -158,7 +164,7 @@ esac
 # --json / --jsonl on a non-gate command: run it again, capture its stdout, and wrap that
 # in the envelope of core/cli.py (docs/adr/0112 §4); its exit code is the taxonomy's.
 for f in $lead; do set -- "$@" "$f"; done
-json_cmds="triage postmortem dora spend cloud-setup network scoreboard auto-incident incident alert-webhook intake answer intake-confirm assign up down smoke release promote evidence provenance watch request resume audit genesis epics spec-split m24-check demo-loop jury map-brief-eval live-preflight thresholds"
+json_cmds="triage postmortem dora spend cloud-setup network scoreboard auto-incident incident alert-webhook intake answer intake-confirm assign up down smoke release promote evidence provenance watch request resume audit genesis epics spec-split m24-check demo-loop jury map-brief-eval live-preflight thresholds reviewer-eval portfolio"
 json_mode=""
 if [ -z "${LIGHTS_OUT_JSON_INNER:-}" ] && member "$sub" "$json_cmds"; then
   nargs=$#
@@ -185,7 +191,7 @@ fi
 
 case "$sub" in
   init|gates|test-proof|test-integrity|adr-check|migration-safety) ;;
-  genesis|epics|spec-split|m24-check|demo-loop|jury|map-brief-eval|live-preflight|thresholds|triage|postmortem|next|dora|spend|cloud-setup|map|network|scoreboard|auto-incident|incident|alert-webhook|top|start|intake|answer|intake-confirm|assign|up|down|smoke|release|promote|console|evidence|provenance|try|watch|request|resume|audit|production-readiness)
+  genesis|epics|spec-split|m24-check|demo-loop|jury|map-brief-eval|live-preflight|thresholds|reviewer-eval|portfolio|triage|postmortem|next|dora|spend|cloud-setup|map|network|scoreboard|auto-incident|incident|alert-webhook|top|start|intake|answer|intake-confirm|assign|up|down|smoke|release|promote|console|evidence|provenance|try|watch|request|resume|audit|production-readiness)
     # The gates image has no ADK, compose, cosign, or full platform runtime (docs/adr/0057 §3, 0105).
     [ "${LIGHTS_OUT_FLAVOUR:-full}" != gates ] \
       || nogo "this is the gates image; $sub runs in ghcr.io/nicolaguglielmi/lights-out:${LIGHTS_OUT_VERSION:-<version>} (LIGHTS_OUT_IMAGE)" ;;
@@ -196,7 +202,7 @@ case "$sub" in
     sed -n 's/^#   //p' "$0" >&2
     # shellcheck disable=SC2034 # consumed by nogo in sourced ci/lib.sh
     name=lights-out
-    nogo "unknown command '$sub'; one of: init genesis gates test-proof test-integrity adr-check migration-safety triage postmortem version next dora spend cloud-setup map network scoreboard auto-incident incident alert-webhook top epics spec-split m24-check demo-loop jury map-brief-eval live-preflight thresholds start intake answer intake-confirm assign up down smoke release promote console evidence provenance try watch request resume audit production-readiness; or a domain (repo ticket release ops config) and a verb" ;;
+    nogo "unknown command '$sub'; one of: init genesis gates test-proof test-integrity adr-check migration-safety triage postmortem version next dora spend cloud-setup map network scoreboard auto-incident incident alert-webhook top epics spec-split m24-check demo-loop jury map-brief-eval live-preflight thresholds reviewer-eval portfolio start intake answer intake-confirm assign up down smoke release promote console evidence provenance try watch request resume audit production-readiness; or a domain (repo ticket release ops config) and a verb" ;;
 esac
 
 host_out=${LIGHTS_OUT_HOST_OUT:-/out}
@@ -233,7 +239,7 @@ while [ "$i" -lt "$nargs" ]; do
   shift
   i=$((i + 1))
   case "$a" in
-    --json|--jsonl|--engine|--non-interactive|--apply|--commit|--force|--workspace|--no-commit|--no-publish|--in-place|--allow-incomplete|--replace|--write-map|--no-determinism-check|--strict|--no-git|--attach|--attach-required|--required) set -- "$@" "$a" ;;
+    --json|--jsonl|--engine|--non-interactive|--apply|--commit|--force|--workspace|--no-commit|--no-publish|--in-place|--allow-incomplete|--replace|--write-map|--no-determinism-check|--strict|--no-git|--attach|--attach-required|--required|--record-replay|--strict-replay-sha|--no-gitleaks|--only-compare) set -- "$@" "$a" ;;
     --staged) set -- "$@" STAGED=1 ;;
     --once) set -- "$@" ONCE=1 ;;
     --*=*)
@@ -315,7 +321,7 @@ while [ "$i" -lt "$nargs" ]; do
         cli_args="$cli_args${cli_args:+$cli_sep}--profile${cli_sep}${a#PROFILE=}"
       fi ;;
     MODE=*)
-      if [ "$sub" = start ] || [ "$sub" = next ]; then
+      if [ "$sub" = start ] || [ "$sub" = next ] || [ "$sub" = reviewer-eval ]; then
         cli_args="$cli_args${cli_args:+$cli_sep}--mode${cli_sep}${a#MODE=}"
       fi ;;
     SPEND_BUDGET_TICKET_USD=*)
@@ -334,10 +340,19 @@ while [ "$i" -lt "$nargs" ]; do
     --jsonl)
       nogo "'$a' is not offered for $sub: a gate keeps its one-line GO/NO-GO contract, and start, next, and top keep their native --json (docs/adr/0112 §5)" ;;
     --mode=*)
-      case "$sub" in start|next) cli_args="$cli_args${cli_args:+$cli_sep}$a"; continue ;; esac
-      nogo "'$a' is only valid with start or next" ;;
+      case "$sub" in start|next|reviewer-eval) cli_args="$cli_args${cli_args:+$cli_sep}$a"; continue ;; esac
+      nogo "'$a' is only valid with start, next, or reviewer-eval" ;;
     --mode)
-      case "$sub" in start|next) ;; *) nogo "'$a' is only valid with start or next" ;; esac
+      case "$sub" in start|next|reviewer-eval) ;; *) nogo "'$a' is only valid with start, next, or reviewer-eval" ;; esac
+      [ "$i" -lt "$nargs" ] || nogo "'$a' requires a value"
+      v=$1; shift; i=$((i + 1))
+      cli_args="$cli_args${cli_args:+$cli_sep}$a${cli_sep}$v"
+      continue ;;
+    --provider=*)
+      case "$sub" in start|reviewer-eval) cli_args="$cli_args${cli_args:+$cli_sep}$a"; continue ;; esac
+      nogo "'$a' is only valid with start or reviewer-eval" ;;
+    --provider)
+      case "$sub" in start|reviewer-eval) ;; *) nogo "'$a' is only valid with start or reviewer-eval" ;; esac
       [ "$i" -lt "$nargs" ] || nogo "'$a' requires a value"
       v=$1; shift; i=$((i + 1))
       cli_args="$cli_args${cli_args:+$cli_sep}$a${cli_sep}$v"
@@ -347,11 +362,11 @@ while [ "$i" -lt "$nargs" ]; do
       has_non_interactive=1
       cli_args="$cli_args${cli_args:+$cli_sep}$a"
       continue ;;
-    --preset=*|--provider=*|--harness=*|--delivery=*|--profile=*|--ticket-budget-usd=*|--day-budget-usd=*)
+    --preset=*|--harness=*|--delivery=*|--profile=*|--ticket-budget-usd=*|--day-budget-usd=*)
       [ "$sub" = start ] || nogo "'$a' is only valid with start"
       cli_args="$cli_args${cli_args:+$cli_sep}$a"
       continue ;;
-    --preset|--provider|--harness|--delivery|--profile|--ticket-budget-usd|--day-budget-usd)
+    --preset|--harness|--delivery|--profile|--ticket-budget-usd|--day-budget-usd)
       [ "$sub" = start ] || nogo "'$a' is only valid with start"
       [ "$i" -lt "$nargs" ] || nogo "'$a' requires a value"
       v=$1; shift; i=$((i + 1))
@@ -403,14 +418,31 @@ while [ "$i" -lt "$nargs" ]; do
       v=$(resolve_repo_path "$1"); shift; i=$((i + 1))
       cli_args="$cli_args${cli_args:+$cli_sep}$a${cli_sep}$v"
       continue ;;
-    --no-publish|--id=*|--title=*|--tickets-dir=*|--state-dir=*|--manifest=*|--changed=*)
+    --no-publish|--id=*|--title=*|--state-dir=*|--manifest=*|--changed=*)
       [ "$sub" = epics ] || nogo "'$a' is only valid with epics"
       cli_args="$cli_args${cli_args:+$cli_sep}$a"
       continue ;;
-    --id|--title|--tickets-dir|--state-dir|--manifest|--changed)
+    --id|--title|--state-dir|--manifest|--changed)
       [ "$sub" = epics ] || nogo "'$a' is only valid with epics"
       [ "$i" -lt "$nargs" ] || nogo "'$a' requires a value"
       v=$1; shift; i=$((i + 1))
+      cli_args="$cli_args${cli_args:+$cli_sep}$a${cli_sep}$v"
+      continue ;;
+    --tickets-dir=*)
+      case "$sub" in epics|reviewer-eval) ;; *) nogo "'$a' is only valid with epics or reviewer-eval" ;; esac
+      v=${a#--tickets-dir=}
+      if [ "$sub" = reviewer-eval ]; then
+        [ -e "$v" ] || [ ! -e "$repo_dir/$v" ] || v=$(resolve_repo_path "$v")
+      fi
+      cli_args="$cli_args${cli_args:+$cli_sep}--tickets-dir=$v"
+      continue ;;
+    --tickets-dir)
+      case "$sub" in epics|reviewer-eval) ;; *) nogo "'$a' is only valid with epics or reviewer-eval" ;; esac
+      [ "$i" -lt "$nargs" ] || nogo "'$a' requires a value"
+      v=$1; shift; i=$((i + 1))
+      if [ "$sub" = reviewer-eval ]; then
+        [ -e "$v" ] || [ ! -e "$repo_dir/$v" ] || v=$(resolve_repo_path "$v")
+      fi
       cli_args="$cli_args${cli_args:+$cli_sep}$a${cli_sep}$v"
       continue ;;
     --tickets=*)
@@ -443,12 +475,22 @@ while [ "$i" -lt "$nargs" ]; do
       v=$1; shift; i=$((i + 1))
       cli_args="$cli_args${cli_args:+$cli_sep}$a${cli_sep}$v"
       continue ;;
-    --author-provider=*|--author-harness=*|--risk=*|--role=*)
+    --author-provider=*|--author-harness=*|--risk=*)
       [ "$sub" = jury ] || nogo "'$a' is only valid with jury"
       cli_args="$cli_args${cli_args:+$cli_sep}$a"
       continue ;;
-    --author-provider|--author-harness|--risk|--role)
+    --author-provider|--author-harness|--risk)
       [ "$sub" = jury ] || nogo "'$a' is only valid with jury"
+      [ "$i" -lt "$nargs" ] || nogo "'$a' requires a value"
+      v=$1; shift; i=$((i + 1))
+      cli_args="$cli_args${cli_args:+$cli_sep}$a${cli_sep}$v"
+      continue ;;
+    --role=*)
+      case "$sub" in jury|reviewer-eval) ;; *) nogo "'$a' is only valid with jury or reviewer-eval" ;; esac
+      cli_args="$cli_args${cli_args:+$cli_sep}$a"
+      continue ;;
+    --role)
+      case "$sub" in jury|reviewer-eval) ;; *) nogo "'$a' is only valid with jury or reviewer-eval" ;; esac
       [ "$i" -lt "$nargs" ] || nogo "'$a' requires a value"
       v=$1; shift; i=$((i + 1))
       cli_args="$cli_args${cli_args:+$cli_sep}$a${cli_sep}$v"
@@ -476,14 +518,27 @@ while [ "$i" -lt "$nargs" ]; do
       v=$1; shift; i=$((i + 1))
       cli_args="$cli_args${cli_args:+$cli_sep}$a${cli_sep}$v"
       continue ;;
-    --map=*|--worker-brief=*)
+    --worker-brief=*)
       [ "$sub" = map-brief-eval ] || nogo "'$a' is only valid with map-brief-eval"
       name=${a%%=*}; v=${a#*=}
       [ ! -e "$repo_dir/$v" ] || v=$(resolve_repo_path "$v")
       cli_args="$cli_args${cli_args:+$cli_sep}$name=$v"
       continue ;;
-    --map|--worker-brief)
+    --worker-brief)
       [ "$sub" = map-brief-eval ] || nogo "'$a' is only valid with map-brief-eval"
+      [ "$i" -lt "$nargs" ] || nogo "'$a' requires a value"
+      v=$1; shift; i=$((i + 1))
+      [ ! -e "$repo_dir/$v" ] || v=$(resolve_repo_path "$v")
+      cli_args="$cli_args${cli_args:+$cli_sep}$a${cli_sep}$v"
+      continue ;;
+    --map=*)
+      case "$sub" in map-brief-eval|reviewer-eval) ;; *) nogo "'$a' is only valid with map-brief-eval or reviewer-eval" ;; esac
+      v=${a#--map=}
+      [ ! -e "$repo_dir/$v" ] || v=$(resolve_repo_path "$v")
+      cli_args="$cli_args${cli_args:+$cli_sep}--map=$v"
+      continue ;;
+    --map)
+      case "$sub" in map-brief-eval|reviewer-eval) ;; *) nogo "'$a' is only valid with map-brief-eval or reviewer-eval" ;; esac
       [ "$i" -lt "$nargs" ] || nogo "'$a' requires a value"
       v=$1; shift; i=$((i + 1))
       [ ! -e "$repo_dir/$v" ] || v=$(resolve_repo_path "$v")
@@ -547,12 +602,55 @@ while [ "$i" -lt "$nargs" ]; do
       [ "$sub" = spec-split ] || nogo "'$a' is only valid with spec-split"
       cli_args="$cli_args${cli_args:+$cli_sep}$a"
       continue ;;
-    --allow-incomplete|--replace|--min-providers=*|--handoff=*|--scope=*|--repository=*|--kind=*|--phase=*)
+    --allow-incomplete|--replace|--min-providers=*|--handoff=*|--repository=*|--kind=*|--phase=*)
       [ "$sub" = m24-check ] || nogo "'$a' is only valid with m24-check"
       cli_args="$cli_args${cli_args:+$cli_sep}$a"
       continue ;;
-    --min-providers|--handoff|--scope|--repository|--kind|--phase)
+    --min-providers|--handoff|--repository|--kind|--phase)
       [ "$sub" = m24-check ] || nogo "'$a' is only valid with m24-check"
+      [ "$i" -lt "$nargs" ] || nogo "'$a' requires a value"
+      v=$1; shift; i=$((i + 1))
+      cli_args="$cli_args${cli_args:+$cli_sep}$a${cli_sep}$v"
+      continue ;;
+    --scope=*)
+      case "$sub" in m24-check|reviewer-eval) ;; *) nogo "'$a' is only valid with m24-check or reviewer-eval" ;; esac
+      cli_args="$cli_args${cli_args:+$cli_sep}$a"
+      continue ;;
+    --scope)
+      case "$sub" in m24-check|reviewer-eval) ;; *) nogo "'$a' is only valid with m24-check or reviewer-eval" ;; esac
+      [ "$i" -lt "$nargs" ] || nogo "'$a' requires a value"
+      v=$1; shift; i=$((i + 1))
+      cli_args="$cli_args${cli_args:+$cli_sep}$a${cli_sep}$v"
+      continue ;;
+    --record-replay|--strict-replay-sha|--no-gitleaks|--only-compare|--model=*|--thinking=*|--only-cases=*|--compare-tickets=*)
+      [ "$sub" = reviewer-eval ] || nogo "'$a' is only valid with reviewer-eval"
+      cli_args="$cli_args${cli_args:+$cli_sep}$a"
+      continue ;;
+    --model|--thinking|--only-cases|--compare-tickets)
+      [ "$sub" = reviewer-eval ] || nogo "'$a' is only valid with reviewer-eval"
+      [ "$i" -lt "$nargs" ] || nogo "'$a' requires a value"
+      v=$1; shift; i=$((i + 1))
+      cli_args="$cli_args${cli_args:+$cli_sep}$a${cli_sep}$v"
+      continue ;;
+    --fixtures=*|--compare-manifest=*|--patches-dir=*|--save-compare-replay=*)
+      [ "$sub" = reviewer-eval ] || nogo "'$a' is only valid with reviewer-eval"
+      name=${a%%=*}; v=${a#*=}
+      [ -e "$v" ] || [ ! -e "$repo_dir/$v" ] || v=$(resolve_repo_path "$v")
+      cli_args="$cli_args${cli_args:+$cli_sep}$name=$v"
+      continue ;;
+    --fixtures|--compare-manifest|--patches-dir|--save-compare-replay)
+      [ "$sub" = reviewer-eval ] || nogo "'$a' is only valid with reviewer-eval"
+      [ "$i" -lt "$nargs" ] || nogo "'$a' requires a value"
+      v=$1; shift; i=$((i + 1))
+      [ -e "$v" ] || [ ! -e "$repo_dir/$v" ] || v=$(resolve_repo_path "$v")
+      cli_args="$cli_args${cli_args:+$cli_sep}$a${cli_sep}$v"
+      continue ;;
+    --repos=*)
+      [ "$sub" = portfolio ] || nogo "'$a' is only valid with portfolio"
+      cli_args="$cli_args${cli_args:+$cli_sep}$a"
+      continue ;;
+    --repos)
+      [ "$sub" = portfolio ] || nogo "'$a' is only valid with portfolio"
       [ "$i" -lt "$nargs" ] || nogo "'$a' requires a value"
       v=$1; shift; i=$((i + 1))
       cli_args="$cli_args${cli_args:+$cli_sep}$a${cli_sep}$v"
@@ -571,12 +669,12 @@ while [ "$i" -lt "$nargs" ]; do
       cli_args="$cli_args${cli_args:+$cli_sep}$a${cli_sep}$v"
       continue ;;
     --repo=*)
-      case "$sub" in genesis|epics|map-brief-eval|live-preflight|provenance) ;; *) nogo "'$a' is only valid with genesis, epics, map-brief-eval, live-preflight, or provenance" ;; esac
+      case "$sub" in genesis|epics|map-brief-eval|live-preflight|provenance|reviewer-eval|portfolio) ;; *) nogo "'$a' is only valid with genesis, epics, map-brief-eval, live-preflight, provenance, reviewer-eval, or portfolio" ;; esac
       v=${a#--repo=}
       if [ "$sub" = genesis ]; then
         has_genesis_repo=1
         v=$(resolve_repo_path "$v")
-      elif [ "$sub" = map-brief-eval ] || [ "$sub" = live-preflight ]; then
+      elif [ "$sub" = map-brief-eval ] || [ "$sub" = live-preflight ] || [ "$sub" = reviewer-eval ] || [ "$sub" = portfolio ]; then
         v=$(resolve_repo_path "$v")
       elif [ "$sub" = provenance ]; then
         [ -e "$v" ] || [ ! -e "$repo_dir/$v" ] || v=$(resolve_repo_path "$v")
@@ -584,13 +682,13 @@ while [ "$i" -lt "$nargs" ]; do
       cli_args="$cli_args${cli_args:+$cli_sep}--repo=$v"
       continue ;;
     --repo)
-      case "$sub" in genesis|epics|map-brief-eval|live-preflight|provenance) ;; *) nogo "'$a' is only valid with genesis, epics, map-brief-eval, live-preflight, or provenance" ;; esac
+      case "$sub" in genesis|epics|map-brief-eval|live-preflight|provenance|reviewer-eval|portfolio) ;; *) nogo "'$a' is only valid with genesis, epics, map-brief-eval, live-preflight, provenance, reviewer-eval, or portfolio" ;; esac
       [ "$i" -lt "$nargs" ] || nogo "'$a' requires a value"
       v=$1; shift; i=$((i + 1))
       if [ "$sub" = genesis ]; then
         has_genesis_repo=1
         v=$(resolve_repo_path "$v")
-      elif [ "$sub" = map-brief-eval ] || [ "$sub" = live-preflight ]; then
+      elif [ "$sub" = map-brief-eval ] || [ "$sub" = live-preflight ] || [ "$sub" = reviewer-eval ] || [ "$sub" = portfolio ]; then
         v=$(resolve_repo_path "$v")
       elif [ "$sub" = provenance ]; then
         [ -e "$v" ] || [ ! -e "$repo_dir/$v" ] || v=$(resolve_repo_path "$v")
@@ -653,6 +751,10 @@ while [ "$i" -lt "$nargs" ]; do
           esac
           cli_args="$cli_args${cli_args:+$cli_sep}$v"
           continue ;;
+        portfolio)
+          v=$(resolve_repo_path "$a")
+          cli_args="$cli_args${cli_args:+$cli_sep}$v"
+          continue ;;
         *) nogo "'${a%%=*}' is not an argument lights-out takes; one of BASE= HEAD= JUDGED= STAGED= ALERT= INCIDENT= PROFILE= MODEL_PROVIDER= MODEL= TICKET= TEXT= ANSWER= DECISIONS= VERSION= CANARY_VERSION= CANARY_TAG= GO_FOR_LAUNCH= REASON= MODE= PRESET= CLOUD= DELIVERY= CODE_HOST= AGENT_HARNESS= PROVIDER= ADAPTERS_PATH= WINDOW_DAYS= SPEND_BUDGET_TICKET_USD= SPEND_BUDGET_DAY_USD= $(extra_keys_for "$sub")" ;;
       esac ;;
   esac
@@ -665,6 +767,13 @@ fi
 
 if [ "$sub" = start ] && [ "$want_non_interactive" = 1 ] && [ "$has_non_interactive" = 0 ]; then
   cli_args="--non-interactive${cli_args:+$cli_sep}$cli_args"
+fi
+if [ "$sub" = portfolio ] && [ -z "$cli_args" ] && [ -z "${PORTFOLIO_REPOS:-}" ]; then
+  has_pr_arg=0
+  for a do case "$a" in "PORTFOLIO_REPOS="*) has_pr_arg=1 ;; esac; done
+  if [ "$has_pr_arg" = 0 ] && { [ -d "$repo_dir/.git" ] || [ -d "$repo_dir/.lights-out" ]; }; then
+    cli_args="--repo${cli_sep}$repo_dir"
+  fi
 fi
 if [ -n "$cli_args" ]; then
   LIGHTS_OUT_CLI_ARGS=$cli_args
@@ -800,7 +909,7 @@ fi
 # mounted from $out/crew. cloud-setup skips attach; next/dora/spend attach
 # $repo_dir when available.
 case "$sub" in
-  cloud-setup|scoreboard|auto-incident|incident|alert-webhook|top|m24-check|demo-loop|jury|live-preflight)
+  cloud-setup|scoreboard|auto-incident|incident|alert-webhook|top|m24-check|demo-loop|jury|live-preflight|reviewer-eval|portfolio)
     run_make "$sub" "$@" ;;
   next|dora|spend|map|network|epics|spec-split|map-brief-eval|thresholds)
     attached=/tmp/lights-out/attached

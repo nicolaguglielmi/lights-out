@@ -33,7 +33,8 @@ READONLY = ("init", "genesis", "gates", "test-proof", "test-integrity", "adr-che
             "triage", "postmortem")
 STATE = ("next", "dora", "spend", "cloud-setup", "map", "network", "scoreboard",
          "auto-incident", "incident", "alert-webhook", "top", "epics", "spec-split", "m24-check",
-         "map-brief-eval", "demo-loop", "jury", "live-preflight", "thresholds")
+         "map-brief-eval", "demo-loop", "jury", "live-preflight", "thresholds",
+         "reviewer-eval", "portfolio")
 PLANE = ("start", "intake", "answer", "intake-confirm", "assign", "up", "down", "smoke", "release",
          "promote", "console", "evidence", "provenance", "try", "watch", "request", "resume", "audit",
          "production-readiness")
@@ -132,6 +133,8 @@ class WrapperGrammarParityTests(WrapperParityBase):
             ["config", "thresholds", "--no-git", "--root", ".", "--contract-dir", "c"],
             ["release", "provenance", "--version", "0.9.0", "--attach", "--attach-required"],
             ["release", "provenance", "attach", "--statement", "s.intoto.json", "--bundle", "s.bundle", "--sha", "abc"],
+            ["ops", "reviewer-eval", "--mode", "replay", "--role", "architect", "--no-gitleaks"],
+            ["ops", "portfolio", "--repo", "."],
         )
         for argv in cases:
             plan = cli.parse(argv)
@@ -712,6 +715,38 @@ class EntrypointParityTests(unittest.TestCase):
         self.assertIn("THR J= CLI=--no-git", lines)
         self.assertIn("PROV PD= V=0.9.0 CLI=--attach", lines)
         self.assertTrue(any(f"attach\x1f--statement\x1f{self.repo}/s.intoto.json\x1f--required" in ln for ln in lines), lines)
+
+    def test_entrypoint_sprint7_reviewer_eval_and_portfolio_parity(self):
+        call_log = self.tmp / "sprint7-calls.log"
+        (self.img / "Makefile").write_text(
+            "GATES := risk\n"
+            "reviewer-eval:\n"
+            f"\t@printf 'REV M=%s R=%s T=%s J=%s CLI=%s\\n' \"$(MODE)\" \"$(REVIEWER_ROLE)\" \"$(THINKING)\" \"$(JSON)\" \"$(LIGHTS_OUT_CLI_ARGS)\" >> {call_log}\n"
+            "\t@printf 'GO: reviewer-eval — 6/6 defects caught, 0/6 false positives (replay)\\n'\n"
+            "portfolio:\n"
+            f"\t@printf 'PORT PR=%s J=%s CLI=%s\\n' \"$(PORTFOLIO_REPOS)\" \"$(JSON)\" \"$(LIGHTS_OUT_CLI_ARGS)\" >> {call_log}\n"
+            "\t@printf 'GO: portfolio — 1 repos, 0 held, 0 your-turn\\n'\n",
+            encoding="utf-8",
+        )
+        res_re = self.run_e(["ops", "reviewer-eval", "--mode", "replay", "--role", "architect", "--thinking", "low", "--json"], plane=False)
+        self.assertEqual(res_re.returncode, 0, res_re.stdout + res_re.stderr)
+        env_re = json.loads(res_re.stdout)
+        self.assertEqual((env_re["command"], env_re["flat"], env_re["verdict"]), ("ops reviewer-eval", "reviewer-eval", "GO"))
+
+        (self.repo / ".lights-out").mkdir(exist_ok=True)
+        res_po_def = self.run_e(["ops", "portfolio", "--json"], plane=False)
+        self.assertEqual(res_po_def.returncode, 0, res_po_def.stdout + res_po_def.stderr)
+        env_po = json.loads(res_po_def.stdout)
+        self.assertEqual((env_po["command"], env_po["flat"], env_po["verdict"]), ("ops portfolio", "portfolio", "GO"))
+
+        (self.repo / "sub").mkdir(exist_ok=True)
+        res_po_pos = self.run_e(["ops", "portfolio", "sub"], plane=False)
+        self.assertEqual(res_po_pos.returncode, 0, res_po_pos.stdout + res_po_pos.stderr)
+
+        lines = call_log.read_text(encoding="utf-8").splitlines()
+        self.assertIn("REV M= R= T= J= CLI=--mode\x1freplay\x1f--role\x1farchitect\x1f--thinking\x1flow", lines)
+        self.assertIn(f"PORT PR= J= CLI=--repo\x1f{self.repo}", lines)
+        self.assertIn(f"PORT PR= J= CLI={self.repo}/sub", lines)
 
 
 class WaveBWrapperMountAndParityTests(unittest.TestCase):

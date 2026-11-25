@@ -32,7 +32,8 @@ SPEC = {
                "spec-split"],
     "release": ["up", "down", "smoke", "deploy", "promote", "evidence", "provenance", "production-readiness"],
     "ops": ["watch", "alert-webhook", "triage", "auto-incident", "incident", "postmortem", "dora", "spend", "top",
-            "charts-conformance", "metrics-conformance", "orchestrator-conformance", "m24-check", "demo-loop"],
+            "charts-conformance", "metrics-conformance", "orchestrator-conformance", "m24-check", "demo-loop",
+            "reviewer-eval", "portfolio"],
     "config": ["start", "next", "cloud-setup", "scoreboard", "agents", "tracker-conformance", "console-build",
                "jury", "live-preflight", "thresholds"],
 }
@@ -775,6 +776,46 @@ class WaveBCLITests(unittest.TestCase):
                 self.assertIn(cmd, comp)
             flag_prefix = "-l " if sh_name == "fish" else "--"
             for flag in ("no-git", "contract-dir", "attach", "attach-required", "statement"):
+                self.assertIn(f"{flag_prefix}{flag}", comp)
+
+    def test_sprint7_reviewer_eval_and_portfolio_parse(self):
+        p_re = cli.parse(["ops", "reviewer-eval", "--mode", "replay", "--role", "architect", "--thinking", "low"])
+        self.assertEqual(p_re.command.flat, "reviewer-eval")
+        self.assertEqual(p_re.tail, ["--mode", "replay", "--role", "architect", "--thinking", "low"])
+        self.assertEqual(
+            cli.parse(["reviewer-eval", "REVIEWER_ROLE=architect", "THINKING=low", "JSON=1"]).tail,
+            ["REVIEWER_ROLE=architect", "THINKING=low", "JSON=1"],
+        )
+
+        rc_re, out_re, _ = run_main(
+            ["--json", "ops", "reviewer-eval", "--mode", "replay"],
+            runner=FakeRunner(["GO: reviewer-eval — 6/6 defects caught, 0/6 false positives (replay)"]),
+        )
+        self.assertEqual(rc_re, 0)
+        env_re = json.loads(out_re)
+        self.assertEqual((env_re["command"], env_re["flat"], env_re["verdict"]), ("ops reviewer-eval", "reviewer-eval", "GO"))
+        self.assertIn("6/6 defects caught", env_re["line"])
+
+        p_po = cli.parse(["ops", "portfolio", "--repos", "/tmp/a,/tmp/b", "--repo", ".", "sub"])
+        self.assertEqual(p_po.command.flat, "portfolio")
+        self.assertEqual(p_po.positional, ["sub"])
+        self.assertEqual(p_po.tail, ["--repos", "/tmp/a,/tmp/b", "--repo", "."])
+
+        rc_po, out_po, _ = run_main(
+            ["--json", "ops", "portfolio", "--repo", "."],
+            runner=FakeRunner(["GO: portfolio — 1 repos, 0 held, 0 your-turn"]),
+        )
+        self.assertEqual(rc_po, 0)
+        env_po = json.loads(out_po)
+        self.assertEqual((env_po["command"], env_po["flat"], env_po["verdict"]), ("ops portfolio", "portfolio", "GO"))
+        self.assertIn("1 repos", env_po["line"])
+
+        for sh_name in SHELLS:
+            comp = cli.completion(sh_name)
+            for cmd in ("reviewer-eval", "portfolio"):
+                self.assertIn(cmd, comp)
+            flag_prefix = "-l " if sh_name == "fish" else "--"
+            for flag in ("fixtures", "record-replay", "strict-replay-sha", "compare-manifest", "repos"):
                 self.assertIn(f"{flag_prefix}{flag}", comp)
 
 

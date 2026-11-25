@@ -41,6 +41,8 @@
 #   lights-out map-brief-eval [flags]                   measure MAP_BRIEF=off vs MAP_BRIEF=on brief footprint (ADR 0054)
 #   lights-out live-preflight [--strict] [flags]        non-destructive live L1/CodeHost/Cloud readiness audit
 #   lights-out thresholds [JSON=1] [--no-git]           audit effective policy/role thresholds, provenance, and overrides (ADR 0135)
+#   lights-out reviewer-eval [--mode replay|live] [flags] labeled-diff reviewer & gate catch-rate evaluation (ADR 0137)
+#   lights-out portfolio [--repos <p1,p2>] [flags]      read-only multi-repo fleet portfolio overview (ADR 0138)
 #
 # Opt-in plane & workflow (mounts engine socket with stderr notice, host-mirrored $LIGHTS_OUT_OUT/platform):
 #   lights-out start [--non-interactive ...]            guided setup wizard or preset plan
@@ -81,15 +83,15 @@ gates_image=${LIGHTS_OUT_IMAGE:-ghcr.io/nicolaguglielmi/lights-out-gates:$versio
 full_image=${LIGHTS_OUT_IMAGE:-ghcr.io/nicolaguglielmi/lights-out:$version}
 keys="GEMINI_API_KEY ANTHROPIC_API_KEY OPENAI_API_KEY ZAI_API_KEY"
 plane_keys="GITHUB_TOKEN GITLAB_TOKEN METRICS_AUTH_HEADER"
-all_cmds="init genesis gates test-proof test-integrity adr-check migration-safety triage postmortem doctor version next dora spend cloud-setup map network scoreboard auto-incident incident alert-webhook top epics spec-split m24-check demo-loop jury map-brief-eval live-preflight thresholds start intake answer intake-confirm assign up down smoke release promote console evidence provenance try watch request resume audit production-readiness completion"
+all_cmds="init genesis gates test-proof test-integrity adr-check migration-safety triage postmortem doctor version next dora spend cloud-setup map network scoreboard auto-incident incident alert-webhook top epics spec-split m24-check demo-loop jury map-brief-eval live-preflight thresholds reviewer-eval portfolio start intake answer intake-confirm assign up down smoke release promote console evidence provenance try watch request resume audit production-readiness completion"
 all_keys="BASE HEAD JUDGED STAGED ALERT INCIDENT PROFILE MODEL_PROVIDER MODEL TICKET TEXT ANSWER DECISIONS VERSION CANARY_VERSION CANARY_TAG GO_FOR_LAUNCH REASON MODE PRESET CLOUD DELIVERY CODE_HOST AGENT_HARNESS PROVIDER ADAPTERS_PATH WINDOW_DAYS SPEND_BUDGET_TICKET_USD SPEND_BUDGET_DAY_USD"
 # Socket tiers (docs/adr/0112 §6); gate_cmds keep the one-line contract and take no --json/--jsonl.
-state_cmds="next dora spend cloud-setup map network scoreboard auto-incident incident alert-webhook top epics spec-split m24-check demo-loop jury map-brief-eval live-preflight thresholds"
+state_cmds="next dora spend cloud-setup map network scoreboard auto-incident incident alert-webhook top epics spec-split m24-check demo-loop jury map-brief-eval live-preflight thresholds reviewer-eval portfolio"
 plane_cmds="start intake answer intake-confirm assign up down smoke release promote console evidence provenance try watch request resume audit production-readiness"
 gate_cmds="init try gates test-proof test-integrity adr-check migration-safety doctor map production-readiness version"
 domains="repo ticket release ops config completion"
-top_words="repo ticket release ops config completion init try gates test-proof test-integrity adr-check migration-safety doctor map corpus genesis map-brief-eval intake request answer intake-confirm assign resume network audit epics spec-split up down smoke promote evidence provenance production-readiness watch alert-webhook triage auto-incident incident postmortem dora spend top charts-conformance metrics-conformance orchestrator-conformance m24-check demo-loop start next cloud-setup scoreboard agents tracker-conformance console-build jury live-preflight thresholds console version"
-completion_extra_keys="REQUEST_BY REQUEST_VIA ATTEMPT ONCE POLL_S RUNNER_WORKERS WORKERS INTAKE_NETWORK_SPLIT NETWORK_AUTO_SPLIT ALERT_FILE RELEASE_RECORD NAME FROM TO LOGS MAP_FILE SLO_MODE CORPUS_FULL LOGBOOK_FILE LOGBOOK URL JSON VIEW WIDTH HEIGHT TICKET_FILE PROVENANCE_DIR PROVENANCE_ATTACH PROVENANCE_ATTACH_REQUIRED TRACKER CHARTS METRICS ORCHESTRATOR"
+top_words="repo ticket release ops config completion init try gates test-proof test-integrity adr-check migration-safety doctor map corpus genesis map-brief-eval intake request answer intake-confirm assign resume network audit epics spec-split up down smoke promote evidence provenance production-readiness watch alert-webhook triage auto-incident incident postmortem dora spend top charts-conformance metrics-conformance orchestrator-conformance m24-check demo-loop reviewer-eval portfolio start next cloud-setup scoreboard agents tracker-conformance console-build jury live-preflight thresholds console version"
+completion_extra_keys="REQUEST_BY REQUEST_VIA ATTEMPT ONCE POLL_S RUNNER_WORKERS WORKERS INTAKE_NETWORK_SPLIT NETWORK_AUTO_SPLIT ALERT_FILE RELEASE_RECORD NAME FROM TO LOGS MAP_FILE SLO_MODE CORPUS_FULL LOGBOOK_FILE LOGBOOK URL JSON VIEW WIDTH HEIGHT TICKET_FILE PROVENANCE_DIR PROVENANCE_ATTACH PROVENANCE_ATTACH_REQUIRED TRACKER CHARTS METRICS ORCHESTRATOR REVIEWER_ROLE THINKING PORTFOLIO_REPOS"
 
 # die MESSAGE [STATUS]: one stderr line, exit 1; a usage or contract error exits 2 before any
 # engine (docs/adr/0112 §3).
@@ -106,7 +108,7 @@ verbs_of() {
     repo) echo "init try gates test-proof test-integrity adr-check migration-safety doctor map corpus genesis map-brief-eval" ;;
     ticket) echo "intake request answer intake-confirm assign resume network audit epics spec-split" ;;
     release) echo "up down smoke deploy promote evidence provenance production-readiness" ;;
-    ops) echo "watch alert-webhook triage auto-incident incident postmortem dora spend top charts-conformance metrics-conformance orchestrator-conformance m24-check demo-loop" ;;
+    ops) echo "watch alert-webhook triage auto-incident incident postmortem dora spend top charts-conformance metrics-conformance orchestrator-conformance m24-check demo-loop reviewer-eval portfolio" ;;
     config) echo "start next cloud-setup scoreboard agents tracker-conformance console-build jury live-preflight thresholds" ;;
     completion) echo "bash zsh fish" ;;
   esac
@@ -131,6 +133,8 @@ extra_keys_for() {
     cloud-setup) echo "SLO_MODE" ;;
     top) echo "LOGBOOK_FILE LOGBOOK URL ONCE JSON POLL_S VIEW WIDTH HEIGHT" ;;
     thresholds) echo "JSON" ;;
+    reviewer-eval) echo "JSON REVIEWER_ROLE THINKING" ;;
+    portfolio) echo "PORTFOLIO_REPOS JSON" ;;
   esac
 }
 
@@ -148,12 +152,14 @@ native_flag() {
     live-preflight:--repo|live-preflight:--strict) return 0 ;;
     thresholds:--root|thresholds:--contract-dir|thresholds:--no-git) return 0 ;;
     provenance:--attach|provenance:--attach-required|provenance:--required|provenance:--statement|provenance:--bundle|provenance:--sha|provenance:--out-receipt|provenance:--key|provenance:--out-dir|provenance:--repo) return 0 ;;
+    reviewer-eval:--fixtures|reviewer-eval:--repo|reviewer-eval:--mode|reviewer-eval:--role|reviewer-eval:--scope|reviewer-eval:--provider|reviewer-eval:--model|reviewer-eval:--thinking|reviewer-eval:--record-replay|reviewer-eval:--strict-replay-sha|reviewer-eval:--no-gitleaks|reviewer-eval:--only-cases|reviewer-eval:--compare-manifest|reviewer-eval:--compare-tickets|reviewer-eval:--tickets-dir|reviewer-eval:--patches-dir|reviewer-eval:--map|reviewer-eval:--save-compare-replay|reviewer-eval:--only-compare) return 0 ;;
+    portfolio:--repos|portfolio:--repo) return 0 ;;
   esac
   return 1
 }
 
 flag_words() {
-  fw="--json --jsonl --help --engine --non-interactive --mode --preset --provider --harness --delivery --profile --ticket-budget-usd --day-budget-usd --level --staged --once --apply --branch --commit --force --workspace --baseline-mode --baseline-max-files --check --repo --brief --brief-file --stack --name --port --tickets-count --no-commit --today --stacks --id --title --tickets --tickets-dir --state-dir --no-publish --out --manifest --changed --in-place --data --logbook --logbooks --min-providers --allow-incomplete --handoff --scope --repository --kind --phase --replace --budget --inject-break --author-provider --author-harness --risk --role --run-json --review-run-json --doc --providers --rev --map --exclude --worker-brief --write-map --no-determinism-check --strict --root --contract-dir --no-git --attach --attach-required --required --statement --bundle --sha --out-receipt --key --out-dir"
+  fw="--json --jsonl --help --engine --non-interactive --mode --preset --provider --harness --delivery --profile --ticket-budget-usd --day-budget-usd --level --staged --once --apply --branch --commit --force --workspace --baseline-mode --baseline-max-files --check --repo --brief --brief-file --stack --name --port --tickets-count --no-commit --today --stacks --id --title --tickets --tickets-dir --state-dir --no-publish --out --manifest --changed --in-place --data --logbook --logbooks --min-providers --allow-incomplete --handoff --scope --repository --kind --phase --replace --budget --inject-break --author-provider --author-harness --risk --role --run-json --review-run-json --doc --providers --rev --map --exclude --worker-brief --write-map --no-determinism-check --strict --root --contract-dir --no-git --attach --attach-required --required --statement --bundle --sha --out-receipt --key --out-dir --fixtures --model --thinking --record-replay --strict-replay-sha --no-gitleaks --only-cases --compare-manifest --compare-tickets --patches-dir --save-compare-replay --only-compare --repos"
   for k in $all_keys $completion_extra_keys; do
     f="--$(printf '%s' "$k" | tr 'A-Z_' 'a-z-')"
     member "$f" "$fw" || fw="$fw $f"
@@ -222,7 +228,7 @@ if [ -n "$domain" ]; then
 fi
 case "$cmd" in
   init|genesis|gates|test-proof|test-integrity|adr-check|migration-safety|triage|postmortem|doctor|version) ;;
-  next|dora|spend|cloud-setup|map|network|scoreboard|auto-incident|incident|alert-webhook|top|epics|spec-split|m24-check|demo-loop|jury|map-brief-eval|live-preflight|thresholds) ;;
+  next|dora|spend|cloud-setup|map|network|scoreboard|auto-incident|incident|alert-webhook|top|epics|spec-split|m24-check|demo-loop|jury|map-brief-eval|live-preflight|thresholds|reviewer-eval|portfolio) ;;
   start|intake|answer|intake-confirm|assign|up|down|smoke|release|promote|console|evidence|provenance) ;;
   try|watch|request|resume|audit|production-readiness) ;;
   --version) cmd=version ;;
@@ -245,7 +251,7 @@ while [ "$i" -lt "$n" ]; do
   shift
   i=$((i + 1))
   case "$a" in
-    --json|--jsonl|--engine|--non-interactive|--apply|--commit|--force|--workspace|--no-commit|--no-publish|--in-place|--allow-incomplete|--replace|--write-map|--no-determinism-check|--strict|--no-git|--attach|--attach-required|--required|--help|-h) set -- "$@" "$a" ;;
+    --json|--jsonl|--engine|--non-interactive|--apply|--commit|--force|--workspace|--no-commit|--no-publish|--in-place|--allow-incomplete|--replace|--write-map|--no-determinism-check|--strict|--no-git|--attach|--attach-required|--required|--record-replay|--strict-replay-sha|--no-gitleaks|--only-compare|--help|-h) set -- "$@" "$a" ;;
     --staged) set -- "$@" STAGED=1 ;;
     --once) set -- "$@" ONCE=1 ;;
     --*=*)
@@ -289,14 +295,20 @@ validate_args() {
         ! member "$cmd" "start next top $gate_cmds" \
           || usage_die "'$a' is not offered for $cmd: a gate keeps its one-line GO/NO-GO contract, and start, next, and top keep their native --json" ;;
       --mode=*)
-        case "$cmd" in start|next) ;; *) usage_die "'$a' is only valid with start or next" ;; esac ;;
+        case "$cmd" in start|next|reviewer-eval) ;; *) usage_die "'$a' is only valid with start, next, or reviewer-eval" ;; esac ;;
       --mode)
-        case "$cmd" in start|next) ;; *) usage_die "'$a' is only valid with start or next" ;; esac
+        case "$cmd" in start|next|reviewer-eval) ;; *) usage_die "'$a' is only valid with start, next, or reviewer-eval" ;; esac
         [ $# -gt 0 ] || usage_die "'$a' requires a value"
         shift ;;
-      --non-interactive|--preset=*|--provider=*|--harness=*|--delivery=*|--profile=*|--ticket-budget-usd=*|--day-budget-usd=*)
+      --provider=*)
+        case "$cmd" in start|reviewer-eval) ;; *) usage_die "'$a' is only valid with start or reviewer-eval" ;; esac ;;
+      --provider)
+        case "$cmd" in start|reviewer-eval) ;; *) usage_die "'$a' is only valid with start or reviewer-eval" ;; esac
+        [ $# -gt 0 ] || usage_die "'$a' requires a value"
+        shift ;;
+      --non-interactive|--preset=*|--harness=*|--delivery=*|--profile=*|--ticket-budget-usd=*|--day-budget-usd=*)
         [ "$cmd" = start ] || usage_die "'$a' is only valid with start" ;;
-      --preset|--provider|--harness|--delivery|--profile|--ticket-budget-usd|--day-budget-usd)
+      --preset|--harness|--delivery|--profile|--ticket-budget-usd|--day-budget-usd)
         [ "$cmd" = start ] || usage_die "'$a' is only valid with start"
         [ $# -gt 0 ] || usage_die "'$a' requires a value"
         shift ;;
@@ -318,10 +330,16 @@ validate_args() {
         [ "$cmd" = genesis ] || usage_die "'$a' is only valid with genesis"
         [ $# -gt 0 ] || usage_die "'$a' requires a value"
         shift ;;
-      --no-publish|--id=*|--title=*|--tickets-dir=*|--state-dir=*|--manifest=*|--changed=*)
+      --no-publish|--id=*|--title=*|--state-dir=*|--manifest=*|--changed=*)
         [ "$cmd" = epics ] || usage_die "'$a' is only valid with epics" ;;
-      --id|--title|--tickets-dir|--state-dir|--manifest|--changed)
+      --id|--title|--state-dir|--manifest|--changed)
         [ "$cmd" = epics ] || usage_die "'$a' is only valid with epics"
+        [ $# -gt 0 ] || usage_die "'$a' requires a value"
+        shift ;;
+      --tickets-dir=*)
+        case "$cmd" in epics|reviewer-eval) ;; *) usage_die "'$a' is only valid with epics or reviewer-eval" ;; esac ;;
+      --tickets-dir)
+        case "$cmd" in epics|reviewer-eval) ;; *) usage_die "'$a' is only valid with epics or reviewer-eval" ;; esac
         [ $# -gt 0 ] || usage_die "'$a' requires a value"
         shift ;;
       --tickets=*)
@@ -338,10 +356,16 @@ validate_args() {
         shift ;;
       --in-place)
         [ "$cmd" = spec-split ] || usage_die "'$a' is only valid with spec-split" ;;
-      --allow-incomplete|--replace|--data=*|--logbook=*|--logbooks=*|--min-providers=*|--handoff=*|--scope=*|--repository=*|--kind=*|--phase=*)
+      --allow-incomplete|--replace|--data=*|--logbook=*|--logbooks=*|--min-providers=*|--handoff=*|--repository=*|--kind=*|--phase=*)
         [ "$cmd" = m24-check ] || usage_die "'$a' is only valid with m24-check" ;;
-      --data|--logbook|--logbooks|--min-providers|--handoff|--scope|--repository|--kind|--phase)
+      --data|--logbook|--logbooks|--min-providers|--handoff|--repository|--kind|--phase)
         [ "$cmd" = m24-check ] || usage_die "'$a' is only valid with m24-check"
+        [ $# -gt 0 ] || usage_die "'$a' requires a value"
+        shift ;;
+      --scope=*)
+        case "$cmd" in m24-check|reviewer-eval) ;; *) usage_die "'$a' is only valid with m24-check or reviewer-eval" ;; esac ;;
+      --scope)
+        case "$cmd" in m24-check|reviewer-eval) ;; *) usage_die "'$a' is only valid with m24-check or reviewer-eval" ;; esac
         [ $# -gt 0 ] || usage_die "'$a' requires a value"
         shift ;;
       --budget=*|--inject-break=*)
@@ -350,16 +374,28 @@ validate_args() {
         [ "$cmd" = demo-loop ] || usage_die "'$a' is only valid with demo-loop"
         [ $# -gt 0 ] || usage_die "'$a' requires a value"
         shift ;;
-      --author-provider=*|--author-harness=*|--risk=*|--role=*|--run-json=*|--review-run-json=*|--doc=*|--providers=*)
+      --author-provider=*|--author-harness=*|--risk=*|--run-json=*|--review-run-json=*|--doc=*|--providers=*)
         [ "$cmd" = jury ] || usage_die "'$a' is only valid with jury" ;;
-      --author-provider|--author-harness|--risk|--role|--run-json|--review-run-json|--doc|--providers)
+      --author-provider|--author-harness|--risk|--run-json|--review-run-json|--doc|--providers)
         [ "$cmd" = jury ] || usage_die "'$a' is only valid with jury"
         [ $# -gt 0 ] || usage_die "'$a' requires a value"
         shift ;;
-      --write-map|--no-determinism-check|--rev=*|--map=*|--exclude=*|--worker-brief=*)
+      --role=*)
+        case "$cmd" in jury|reviewer-eval) ;; *) usage_die "'$a' is only valid with jury or reviewer-eval" ;; esac ;;
+      --role)
+        case "$cmd" in jury|reviewer-eval) ;; *) usage_die "'$a' is only valid with jury or reviewer-eval" ;; esac
+        [ $# -gt 0 ] || usage_die "'$a' requires a value"
+        shift ;;
+      --write-map|--no-determinism-check|--rev=*|--exclude=*|--worker-brief=*)
         [ "$cmd" = map-brief-eval ] || usage_die "'$a' is only valid with map-brief-eval" ;;
-      --rev|--map|--exclude|--worker-brief)
+      --rev|--exclude|--worker-brief)
         [ "$cmd" = map-brief-eval ] || usage_die "'$a' is only valid with map-brief-eval"
+        [ $# -gt 0 ] || usage_die "'$a' requires a value"
+        shift ;;
+      --map=*)
+        case "$cmd" in map-brief-eval|reviewer-eval) ;; *) usage_die "'$a' is only valid with map-brief-eval or reviewer-eval" ;; esac ;;
+      --map)
+        case "$cmd" in map-brief-eval|reviewer-eval) ;; *) usage_die "'$a' is only valid with map-brief-eval or reviewer-eval" ;; esac
         [ $# -gt 0 ] || usage_die "'$a' requires a value"
         shift ;;
       --strict)
@@ -376,10 +412,22 @@ validate_args() {
         [ "$cmd" = provenance ] || usage_die "'$a' is only valid with provenance"
         [ $# -gt 0 ] || usage_die "'$a' requires a value"
         shift ;;
+      --record-replay|--strict-replay-sha|--no-gitleaks|--only-compare|--fixtures=*|--model=*|--thinking=*|--only-cases=*|--compare-manifest=*|--compare-tickets=*|--patches-dir=*|--save-compare-replay=*)
+        [ "$cmd" = reviewer-eval ] || usage_die "'$a' is only valid with reviewer-eval" ;;
+      --fixtures|--model|--thinking|--only-cases|--compare-manifest|--compare-tickets|--patches-dir|--save-compare-replay)
+        [ "$cmd" = reviewer-eval ] || usage_die "'$a' is only valid with reviewer-eval"
+        [ $# -gt 0 ] || usage_die "'$a' requires a value"
+        shift ;;
+      --repos=*)
+        [ "$cmd" = portfolio ] || usage_die "'$a' is only valid with portfolio" ;;
+      --repos)
+        [ "$cmd" = portfolio ] || usage_die "'$a' is only valid with portfolio"
+        [ $# -gt 0 ] || usage_die "'$a' requires a value"
+        shift ;;
       --repo=*)
-        case "$cmd" in genesis|epics|map-brief-eval|live-preflight|provenance) ;; *) usage_die "'$a' is only valid with genesis, epics, map-brief-eval, live-preflight, or provenance" ;; esac ;;
+        case "$cmd" in genesis|epics|map-brief-eval|live-preflight|provenance|reviewer-eval|portfolio) ;; *) usage_die "'$a' is only valid with genesis, epics, map-brief-eval, live-preflight, provenance, reviewer-eval, or portfolio" ;; esac ;;
       --repo)
-        case "$cmd" in genesis|epics|map-brief-eval|live-preflight|provenance) ;; *) usage_die "'$a' is only valid with genesis, epics, map-brief-eval, live-preflight, or provenance" ;; esac
+        case "$cmd" in genesis|epics|map-brief-eval|live-preflight|provenance|reviewer-eval|portfolio) ;; *) usage_die "'$a' is only valid with genesis, epics, map-brief-eval, live-preflight, provenance, reviewer-eval, or portfolio" ;; esac
         [ $# -gt 0 ] || usage_die "'$a' requires a value"
         shift ;;
       --today=*|--stacks=*)
@@ -401,7 +449,7 @@ validate_args() {
         usage_die "'${a%%=*}' is not an argument lights-out takes; one of $all_keys $(extra_keys_for "$cmd")" ;;
       *)
         case "$cmd" in
-          genesis|epics|spec-split|m24-check|demo-loop|jury|provenance) ;;
+          genesis|epics|spec-split|m24-check|demo-loop|jury|provenance|portfolio) ;;
           *) usage_die "'${a%%=*}' is not an argument lights-out takes; one of $all_keys $(extra_keys_for "$cmd")" ;;
         esac ;;
     esac
@@ -642,7 +690,7 @@ if [ "$tier" = readonly ]; then
   fi
 elif [ "$tier" = state ]; then
   mkdir -p "$out/crew" || die "cannot create $out/crew"
-  for k in $keys $plane_keys MODEL_PROVIDER MODEL AGENT_HARNESS DELIVERY CODE_HOST GITHUB_REPO METRICS_URL GOOGLE_CLOUD_PROJECT GCP_PROJECT GOOGLE_CLOUD_LOCATION RUNNER_WORKERS WORKERS INTAKE_NETWORK_SPLIT NETWORK_AUTO_SPLIT DEMO_LOOP_OUT DEMO_LOOP_BUDGET_SECONDS JURY_CROSS_PROVIDER JURY_PROVIDER JURY_MODEL JURY_HARNESS; do
+  for k in $keys $plane_keys MODEL_PROVIDER MODEL AGENT_HARNESS DELIVERY CODE_HOST GITHUB_REPO METRICS_URL GOOGLE_CLOUD_PROJECT GCP_PROJECT GOOGLE_CLOUD_LOCATION RUNNER_WORKERS WORKERS INTAKE_NETWORK_SPLIT NETWORK_AUTO_SPLIT DEMO_LOOP_OUT DEMO_LOOP_BUDGET_SECONDS JURY_CROSS_PROVIDER JURY_PROVIDER JURY_MODEL JURY_HARNESS REVIEWER_ROLE THINKING PORTFOLIO_REPOS; do
     if eval "[ -n \"\${$k:-}\" ]"; then set -- "$@" -e "$k"; fi
   done
   if [ "$cmd" = top ]; then

@@ -31,6 +31,7 @@
 #   ./go jury           cross-provider jury reviewer selection and inspection (select-env|inspect; ADR 0130)
 #   ./go map-brief-eval measure MAP_BRIEF=off vs MAP_BRIEF=on brief footprint across tickets (ADR 0054)
 #   ./go live-preflight non-destructive live L1/CodeHost/Cloud readiness audit (boolean key presence only)
+#   ./go reviewer-eval  labeled-diff reviewer & gate catch-rate evaluation suite: [--mode replay|live] (ADR 0137)
 #   ./go gates          judge a range of the workload: BASE=<ref> HEAD=<ref>, default the last commit; no plane needed
 #   ./go adr-check      check ADR lifecycle compliance on a range: [BASE=<ref> HEAD=<ref>] (ADR 0115)
 #   ./go migration-safety  check database expand/contract migration safety: [BASE=<ref> HEAD=<ref>] [TICKET_FILE=] (ADR 0123)
@@ -68,6 +69,7 @@
 #   ./go dora           the four delivery measures (DORA) over the last WINDOW_DAYS days, from the logbook (ADR 0082)
 #   ./go spend          cost and time per ticket, per role and per day, from the tower's spend ledger (ADR 0083)
 #   ./go thresholds     audit effective policy and role thresholds, provenance, overrides, and commit history: [JSON=1] [--no-git] (ADR 0135)
+#   ./go portfolio      read-only multi-repo fleet overview: [PORTFOLIO_REPOS=] [JSON=1] [--repo PATH] (ADR 0138)
 #   ./go scoreboard     per provider and harness: merged at the first attempt, reworks, NO-GOs, budget stops, cost; every row sourced (ADR 0088)
 #   ./go demo-console   prove go-for-launch pressed from the console: held canary, POST GO → 100%, then the un-promote
 #   ./go promote        go-for-launch: the brief, the human answer, then 100% or rollback
@@ -536,6 +538,7 @@ for v in POLL_S ONCE ALERT_FILE ALERT_WEBHOOK_TOKEN ALERT_WEBHOOK_OUT WEBHOOK_AR
          SSE_HEARTBEAT_S CONSOLE_SSE_HEARTBEAT_S \
          DEMO_LOOP_OUT DEMO_LOOP_BUDGET_SECONDS \
          JURY_CROSS_PROVIDER JURY_PROVIDER JURY_MODEL JURY_HARNESS \
+         MODE REVIEWER_ROLE THINKING PORTFOLIO_REPOS \
          GITHUB_REPO GITLAB_URL GITLAB_PROJECT_PATH GOOGLE_CLOUD_PROJECT GCP_PROJECT GOOGLE_CLOUD_LOCATION CLOUDSDK_CORE_PROJECT; do
   if env | grep -q "^$v="; then port_flags="$port_flags -e $v"; fi
 done
@@ -712,7 +715,7 @@ elif [ "$cmd" = genesis ]; then
     export LIGHTS_OUT_CLI_ARGS
     port_flags="$port_flags -e LIGHTS_OUT_CLI_ARGS"
   fi
-elif [ "$cmd" = start ] || [ "$cmd" = next ] || [ "$cmd" = top ] || [ "$cmd" = epics ] || [ "$cmd" = spec-split ] || [ "$cmd" = m24-check ] || [ "$cmd" = demo-loop ] || [ "$cmd" = jury ] || [ "$cmd" = map-brief-eval ] || [ "$cmd" = live-preflight ] || [ "$cmd" = thresholds ] || [ "$cmd" = provenance ]; then
+elif [ "$cmd" = start ] || [ "$cmd" = next ] || [ "$cmd" = top ] || [ "$cmd" = epics ] || [ "$cmd" = spec-split ] || [ "$cmd" = m24-check ] || [ "$cmd" = demo-loop ] || [ "$cmd" = jury ] || [ "$cmd" = map-brief-eval ] || [ "$cmd" = live-preflight ] || [ "$cmd" = thresholds ] || [ "$cmd" = provenance ] || [ "$cmd" = reviewer-eval ] || [ "$cmd" = portfolio ]; then
   cli_sep=$(printf '\037')
   cli_args=""
   for a in "$@"; do
@@ -821,7 +824,7 @@ fi
 
 if [ "$cmd" = shell ]; then
   run sh
-elif [ "$cmd" = init ] || [ "$cmd" = start ] || [ "$cmd" = next ] || [ "$cmd" = top ] || [ "$cmd" = cli ] || [ "$cmd" = genesis ] || [ "$cmd" = epics ] || [ "$cmd" = spec-split ] || [ "$cmd" = m24-check ] || [ "$cmd" = demo-loop ] || [ "$cmd" = jury ] || [ "$cmd" = map-brief-eval ] || [ "$cmd" = live-preflight ] || [ "$cmd" = thresholds ] || [ "$cmd" = provenance ]; then
+elif [ "$cmd" = init ] || [ "$cmd" = start ] || [ "$cmd" = next ] || [ "$cmd" = top ] || [ "$cmd" = cli ] || [ "$cmd" = genesis ] || [ "$cmd" = epics ] || [ "$cmd" = spec-split ] || [ "$cmd" = m24-check ] || [ "$cmd" = demo-loop ] || [ "$cmd" = jury ] || [ "$cmd" = map-brief-eval ] || [ "$cmd" = live-preflight ] || [ "$cmd" = thresholds ] || [ "$cmd" = provenance ] || [ "$cmd" = reviewer-eval ] || [ "$cmd" = portfolio ]; then
   if [ -n "$make_args" ]; then
     old_ifs=$IFS
     IFS=$(printf '\037')
