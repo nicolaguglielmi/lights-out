@@ -606,7 +606,7 @@ def _prepare_sandbox(sandbox: Path) -> dict[str, Path]:
         _run(
             ["cosign", "generate-key-pair", "--output-key-prefix", "k"],
             cwd=cosign_key.parent,
-            env=dict(os.environ, COSIGN_PASSWORD=""),
+            env=dict(os.environ, COSIGN_PASSWORD=""),  # nosec B106 - a throwaway demo key pair with no passphrase, generated per run (ADR 0132)
             check_msg="cosign generate-key-pair failed",
         )
 
@@ -721,7 +721,7 @@ def _base_env(paths: dict[str, Path]) -> dict[str, str]:
     env.update(
         {
             "PATH": os.environ.get("PATH", ""),
-            "HOME": os.environ.get("HOME", "/tmp"),
+            "HOME": os.environ.get("HOME") or tempfile.gettempdir(),
             "PYTHONDONTWRITEBYTECODE": "1",
             "LEVEL": "l0",
             "AGENT_HARNESS": "replay",
@@ -994,8 +994,8 @@ def _phase_alert_triage_rollback(
 
     # Write canary.log with real 500 probe + credential-shaped text to exercise redaction
     canary_log = paths["state_dir"] / "canary.log"
-    secret_tok = "demo-canary-tok-999"
-    secret_hdr = "demo-bearer-val-999"
+    secret_tok = "demo-canary-tok-999"  # nosec B105 - a planted canary the redaction must remove, not a secret
+    secret_hdr = "demo-bearer-val-999"  # nosec B105 - a planted canary the redaction must remove, not a secret
     _write_text(
         canary_log,
         "\n".join(

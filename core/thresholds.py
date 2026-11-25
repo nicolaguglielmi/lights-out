@@ -212,7 +212,7 @@ def _resolve_contract_dir(root: Path, contract_dir: str | Path | None, env: Mapp
 def _git_history(root: Path, rel_paths: Sequence[str], limit: int = 5) -> dict[str, list[dict[str, str]]]:
     """Return up to ``limit`` commits per file when inside a git checkout."""
     try:
-        probe = subprocess.run(
+        probe = subprocess.run(  # nosec B603 B607 - an argv list, no shell; git from the workbench's PATH
             ["git", "-C", str(root), "rev-parse", "--is-inside-work-tree"],
             capture_output=True,
             text=True,
@@ -230,7 +230,7 @@ def _git_history(root: Path, rel_paths: Sequence[str], limit: int = 5) -> dict[s
             continue
         seen.add(rel)
         try:
-            proc = subprocess.run(
+            proc = subprocess.run(  # nosec B603 B607 - an argv list, no shell; git from the workbench's PATH
                 [
                     "git",
                     "-C",

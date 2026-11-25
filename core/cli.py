@@ -23,7 +23,7 @@ from __future__ import annotations
 import json
 import os
 import re
-import subprocess
+import subprocess  # nosec B404 - the CLI runs its own verbs as argv lists
 import sys
 from typing import Callable, NamedTuple
 
@@ -484,7 +484,7 @@ def usage_envelope(message, environ):
 
 def subprocess_runner(argv, env, on_line):
     """Run argv, hand every stdout line to on_line as it arrives, return the exit code."""
-    with subprocess.Popen(argv, stdout=subprocess.PIPE, env=env, text=True, bufsize=1) as proc:
+    with subprocess.Popen(argv, stdout=subprocess.PIPE, env=env, text=True, bufsize=1) as proc:  # nosec B603 - argv comes from the CLI's own verb table, no shell
         for line in proc.stdout:
             on_line(line.rstrip("\n"))
         return proc.wait()

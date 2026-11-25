@@ -219,7 +219,7 @@ def _git(
     cmd = ["git", "-C", repo_dir, "-c", "core.quotePath=false", "-c", "color.ui=never"]
     if with_identity_fallback:
         for cfg_key, fallback in (("user.name", "lights-out"), ("user.email", "lights-out@localhost.invalid")):
-            probe = subprocess.run(  # nosec B603 - explicit git argv list, shell=False
+            probe = subprocess.run(  # nosec B603 B607 - explicit git argv list, shell=False, git from PATH
                 ["git", "-C", repo_dir, "config", "--get", cfg_key],
                 env=_git_env(),
                 capture_output=True,

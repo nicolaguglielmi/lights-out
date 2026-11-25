@@ -173,7 +173,7 @@ def _git(
 
 
 def _git_config_get(repo_dir: str, key: str) -> str:
-    proc = subprocess.run(  # nosec B603 - explicit git argv list, shell=False
+    proc = subprocess.run(  # nosec B603 B607 - explicit git argv list, shell=False, git from PATH
         ["git", "-C", repo_dir, "config", "--get", key],
         env=_git_env(),
         capture_output=True,
@@ -586,7 +586,7 @@ def _recent_git_files(repo_path: str, norm_scope: str, max_files: int) -> list[s
     if not _is_git_repo(repo_path) or not _has_head(repo_path):
         return []
     scope_arg = "." if norm_scope == "." else norm_scope
-    proc = subprocess.Popen(  # nosec B603 - explicit git argv list, shell=False
+    proc = subprocess.Popen(  # nosec B603 B607 - explicit git argv list, shell=False, git from PATH
         ["git", "-C", repo_path, "-c", "core.quotePath=false", "log", "--name-only", "--pretty=format:", "--", scope_arg],
         env=_git_env(),
         stdout=subprocess.PIPE,
@@ -598,7 +598,8 @@ def _recent_git_files(repo_path: str, norm_scope: str, max_files: int) -> list[s
     selected: list[str] = []
     seen: set[str] = set()
     try:
-        assert proc.stdout is not None
+        if proc.stdout is None:
+            raise RuntimeError("git ls-files gave no stdout pipe")
         for raw_line in proc.stdout:
             rel = raw_line.strip()
             if not rel or rel in seen:

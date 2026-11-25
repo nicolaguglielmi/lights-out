@@ -204,7 +204,7 @@ def human_gate(env, envfile):
     audience = (env.get("CONSOLE_JWT_AUDIENCE") or "").strip()
     if not audience:
         return False, "CONSOLE_JWT_AUDIENCE is not set"
-    has_secret = bool(jwt_secret and jwt_secret != "replace-me")
+    has_secret = bool(jwt_secret and jwt_secret != "replace-me")  # nosec B105 - the placeholder .env.example ships, compared to refuse it, not a secret
     if not (jwks_url or jwks_file or has_secret):
         return False, "no JWT key source (set CONSOLE_JWKS_URL, CONSOLE_JWKS_FILE or CONSOLE_JWT_SECRET)"
     if jwks_url:

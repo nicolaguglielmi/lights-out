@@ -221,7 +221,7 @@ class JwtPolicy:
         self.leeway_s = leeway_val
         if jwt_secret is not None and not isinstance(jwt_secret, str):
             raise RbacConfigError("jwt_secret must be a string or None")
-        if jwt_secret == "replace-me":
+        if jwt_secret == "replace-me":  # nosec B105 - the placeholder .env.example ships, compared to refuse it, not a secret
             raise RbacConfigError("CONSOLE_JWT_SECRET uses placeholder value 'replace-me'")
         self.jwt_secret = jwt_secret if jwt_secret else None
         if isinstance(allowed_algs, str):
@@ -897,7 +897,7 @@ def is_jwt_verification_enabled(env=None):
     auth_mode = (e.get("CONSOLE_AUTH") or "loopback").strip()
     if auth_mode == "proxy":
         secret = (e.get("CONSOLE_JWT_SECRET") or "").strip()
-        has_secret = bool(secret and secret != "replace-me")
+        has_secret = bool(secret and secret != "replace-me")  # nosec B105 - the placeholder .env.example ships, compared to refuse it, not a secret
         return bool(
             (e.get("CONSOLE_JWKS_URL") or "").strip()
             or (e.get("CONSOLE_JWKS_FILE") or "").strip()

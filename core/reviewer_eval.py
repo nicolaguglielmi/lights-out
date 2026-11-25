@@ -800,7 +800,8 @@ def evaluate_suite(
                 "sha_match": sha_match,
             }
         else:
-            assert runtime is not None
+            if runtime is None:
+                raise RuntimeError("no runtime for a live case")
             if quota_stopped:
                 rev_info = {
                     "status": "not_run_quota_exhausted",
@@ -1114,7 +1115,8 @@ def compare_map_brief(
                         used_provider = rec.get("provider")
                         status = str(rec.get("status") or "ok")
                     else:
-                        assert runtime is not None
+                        if runtime is None:
+                            raise RuntimeError("no runtime for a live case")
                         if quota_stopped:
                             verdict = "not_run"
                             reason = stop_reason or "quota_exhausted"

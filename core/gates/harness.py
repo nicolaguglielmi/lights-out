@@ -1347,7 +1347,7 @@ class Suite:
             base_env = dict(os.environ)
             w_env = dict(base_env, ROLE="dev-worker", TICKET="0001", WORKSPACE=ws, BASE=base_sha,
                          OUT=out_w, TICKET_FILE=ticket, THINKING="high", MAX_TURNS="4",
-                         TIMEOUT_S="30", TOKEN_BUDGET="2500")
+                         TIMEOUT_S="30", TOKEN_BUDGET="2500")  # nosec B106 - TOKEN_BUDGET is a token count, not a password
             w_res = proc(["sh", run_sh], stdin=DEVNULL, capture_output=True, text=True, env=w_env)
             if w_res.returncode != 0:
                 raise NoGo("%s: dev-worker run.sh exited %d: %s" % (agent_harness, w_res.returncode, w_res.stderr.strip()))
@@ -1369,7 +1369,7 @@ class Suite:
             head_after = proc(["git", "-C", ws, "rev-parse", "HEAD"], stdin=DEVNULL, capture_output=True, text=True).stdout.strip()
             r_env = dict(base_env, ROLE="test-reviewer", TICKET="0001", WORKSPACE=ws, BASE=head_after,
                          OUT=out_r, TICKET_FILE=ticket, THINKING="medium", MAX_TURNS="4",
-                         TIMEOUT_S="30", TOKEN_BUDGET="2500")
+                         TIMEOUT_S="30", TOKEN_BUDGET="2500")  # nosec B106 - TOKEN_BUDGET is a token count, not a password
             r_res = proc(["sh", run_sh], stdin=DEVNULL, capture_output=True, text=True, env=r_env)
             if r_res.returncode != 0:
                 raise NoGo("%s: test-reviewer run.sh exited %d: %s" % (agent_harness, r_res.returncode, r_res.stderr.strip()))

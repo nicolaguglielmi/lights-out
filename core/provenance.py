@@ -1096,7 +1096,7 @@ def attach_statement(
             "receipt_path": written,
         }
 
-    proc = subprocess.run(
+    proc = subprocess.run(  # nosec B603 B607 - an argv list, no shell; sh runs the CodeHost adapter's attest.sh (ADR 0134)
         ["sh", script, resolved_sha, target],  # nosec B603
         env=base_env,
         capture_output=True,
