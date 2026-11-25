@@ -1,0 +1,67 @@
+From 21e4b12f446720251cd7e5e9c367304389c3bd09 Mon Sep 17 00:00:00 2001
+From: Fixture Builder <fixtures@lights-out.invalid>
+Date: Wed, 25 Nov 2026 12:01:20 +0000
+Subject: [PATCH] Raise LedgerIOError on corrupt ledger JSON instead of
+ swallowing
+
+---
+ src/ledger.py        | 11 ++++++++---
+ tests/test_ledger.py | 23 ++++++++++++++++++++++-
+ 2 files changed, 30 insertions(+), 4 deletions(-)
+
+diff --git a/src/ledger.py b/src/ledger.py
+index 2f7c369..3ee60b5 100644
+--- a/src/ledger.py
++++ b/src/ledger.py
+@@ -7,7 +7,12 @@ class LedgerIOError(RuntimeError):
+ 
+ 
+ def load_entries(path: Path) -> list[dict]:
+-    try:
+-        return json.loads(path.read_text(encoding='utf-8'))
+-    except Exception:
++    if not path.exists():
+         return []
++    try:
++        data = json.loads(path.read_text(encoding='utf-8'))
++    except (OSError, json.JSONDecodeError) as exc:
++        raise LedgerIOError(f'failed to load ledger {path}: {exc}') from exc
++    if not isinstance(data, list):
++        raise LedgerIOError(f'ledger {path} must hold a JSON list')
++    return data
+diff --git a/tests/test_ledger.py b/tests/test_ledger.py
+index 21d66e2..1b587db 100644
+--- a/tests/test_ledger.py
++++ b/tests/test_ledger.py
+@@ -1,6 +1,27 @@
+ from pathlib import Path
+-from src.ledger import load_entries
++import pytest
++from src.ledger import LedgerIOError, load_entries
+ 
+ 
+ def test_load_entries_missing_returns_empty(tmp_path: Path) -> None:
+     assert load_entries(tmp_path / 'missing.json') == []
++
++
++def test_load_entries_valid_json(tmp_path: Path) -> None:
++    p = tmp_path / 'ledger.json'
++    p.write_text('[{"id": 1}]', encoding='utf-8')
++    assert load_entries(p) == [{'id': 1}]
++
++
++def test_load_entries_corrupt_json_raises(tmp_path: Path) -> None:
++    p = tmp_path / 'corrupt.json'
++    p.write_text('{bad json', encoding='utf-8')
++    with pytest.raises(LedgerIOError):
++        load_entries(p)
++
++
++def test_load_entries_non_list_raises(tmp_path: Path) -> None:
++    p = tmp_path / 'obj.json'
++    p.write_text('{"a": 1}', encoding='utf-8')
++    with pytest.raises(LedgerIOError):
++        load_entries(p)
+-- 
+2.47.3
+

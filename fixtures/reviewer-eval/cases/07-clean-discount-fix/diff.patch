@@ -1,0 +1,52 @@
+From 8313d40b98d8e2f48a89d231e0cc3eda151f54c1 Mon Sep 17 00:00:00 2001
+From: Fixture Builder <fixtures@lights-out.invalid>
+Date: Wed, 25 Nov 2026 12:01:14 +0000
+Subject: [PATCH] Validate discount percentage bounds and clamp net total
+
+---
+ src/orders.py        |  6 +++++-
+ tests/test_orders.py | 16 ++++++++++++++++
+ 2 files changed, 21 insertions(+), 1 deletion(-)
+
+diff --git a/src/orders.py b/src/orders.py
+index 9ae7e89..c7bbcf0 100644
+--- a/src/orders.py
++++ b/src/orders.py
+@@ -1,3 +1,7 @@
+ def apply_discount(subtotal_cents: int, pct: int = 0, flat_cents: int = 0) -> int:
++    if subtotal_cents < 0 or flat_cents < 0:
++        raise ValueError('amounts must be non-negative')
++    if not 0 <= pct <= 100:
++        raise ValueError('pct must be between 0 and 100')
+     after_pct = subtotal_cents - (subtotal_cents * pct) // 100
+-    return after_pct - flat_cents
++    return max(0, after_pct - flat_cents)
+diff --git a/tests/test_orders.py b/tests/test_orders.py
+index 551ed40..1943f45 100644
+--- a/tests/test_orders.py
++++ b/tests/test_orders.py
+@@ -1,5 +1,21 @@
++import pytest
+ from src.orders import apply_discount
+ 
+ 
+ def test_apply_discount_basic() -> None:
+     assert apply_discount(1000, pct=10, flat_cents=50) == 850
++
++
++def test_apply_discount_boundaries_and_clamp() -> None:
++    assert apply_discount(1000, pct=0, flat_cents=0) == 1000
++    assert apply_discount(1000, pct=100, flat_cents=0) == 0
++    assert apply_discount(500, pct=0, flat_cents=900) == 0
++
++
++def test_apply_discount_rejects_invalid_inputs() -> None:
++    with pytest.raises(ValueError):
++        apply_discount(1000, pct=101)
++    with pytest.raises(ValueError):
++        apply_discount(1000, pct=-1)
++    with pytest.raises(ValueError):
++        apply_discount(-10, pct=0)
+-- 
+2.47.3
+

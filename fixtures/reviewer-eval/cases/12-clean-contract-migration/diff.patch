@@ -1,0 +1,21 @@
+From dcaa2131796717314c7546cbe1a9682fd1741746 Mon Sep 17 00:00:00 2001
+From: Fixture Builder <fixtures@lights-out.invalid>
+Date: Wed, 25 Nov 2026 12:01:21 +0000
+Subject: [PATCH] Contract cleanup: drop temp_code
+
+Contract-After: 0001_init.sql
+---
+ migrations/0004_drop_temp_code.sql | 1 +
+ 1 file changed, 1 insertion(+)
+ create mode 100644 migrations/0004_drop_temp_code.sql
+
+diff --git a/migrations/0004_drop_temp_code.sql b/migrations/0004_drop_temp_code.sql
+new file mode 100644
+index 0000000..87e3cbd
+--- /dev/null
++++ b/migrations/0004_drop_temp_code.sql
+@@ -0,0 +1 @@
++ALTER TABLE invoices DROP COLUMN temp_code;
+-- 
+2.47.3
+

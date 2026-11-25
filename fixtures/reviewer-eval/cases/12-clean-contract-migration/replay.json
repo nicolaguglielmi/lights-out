@@ -1,0 +1,21 @@
+{
+  "schema": "lights-out/reviewer-eval-replay/1",
+  "case_id": "12-clean-contract-migration",
+  "role": "architect",
+  "provider": "gemini",
+  "model": "gemini-3.8-flash",
+  "thinking": "high",
+  "recorded_at": "2026-11-25T12:21:36Z",
+  "input_sha256": "09e5e9e7455d6a6bbaec20ef18c51b33534b0e438862912f768686277f9a88df",
+  "verdict": "APPROVED",
+  "reason": "The diff stays strictly within the declared perimeter (`migrations/0004_drop_temp_code.sql`) and implements the minimal schema change to drop `invoices.temp_code` without adding unnecessary abstractions, external dependencies, or magic values. As specified by the ticket for this contract cleanup phase, no ADR was required.",
+  "raw_response": "APPROVED\n\nThe diff stays strictly within the declared perimeter (`migrations/0004_drop_temp_code.sql`) and implements the minimal schema change to drop `invoices.temp_code` without adding unnecessary abstractions, external dependencies, or magic values. As specified by the ticket for this contract cleanup phase, no ADR was required.",
+  "tokens": {
+    "input": 1675,
+    "output": 70,
+    "thoughts": 2002,
+    "cached": 0,
+    "total": 3747
+  },
+  "latency_s": 19.756
+}

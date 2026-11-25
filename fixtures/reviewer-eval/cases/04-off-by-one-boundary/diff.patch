@@ -1,0 +1,42 @@
+From 864aaa0c76d88ebba2ed66ce30706e1d51140272 Mon Sep 17 00:00:00 2001
+From: Fixture Builder <fixtures@lights-out.invalid>
+Date: Wed, 25 Nov 2026 12:01:09 +0000
+Subject: [PATCH] Validate quota arguments and keep <= check
+
+---
+ src/quota.py        |  2 ++
+ tests/test_quota.py | 10 ++++++++++
+ 2 files changed, 12 insertions(+)
+
+diff --git a/src/quota.py b/src/quota.py
+index fae8975..1065fee 100644
+--- a/src/quota.py
++++ b/src/quota.py
+@@ -1,2 +1,4 @@
+ def can_process(used_today: int, max_requests: int) -> bool:
++    if used_today < 0 or max_requests < 1:
++        raise ValueError('invalid quota inputs')
+     return used_today <= max_requests
+diff --git a/tests/test_quota.py b/tests/test_quota.py
+index 82edf3e..cb56be4 100644
+--- a/tests/test_quota.py
++++ b/tests/test_quota.py
+@@ -1,5 +1,15 @@
++import pytest
+ from src.quota import can_process
+ 
+ 
+ def test_can_process_under_limit() -> None:
+     assert can_process(1, 5) is True
++
++
++def test_can_process_well_over_limit() -> None:
++    assert can_process(7, 5) is False
++
++
++def test_can_process_rejects_invalid_inputs() -> None:
++    with pytest.raises(ValueError):
++        can_process(-1, 5)
+-- 
+2.47.3
+

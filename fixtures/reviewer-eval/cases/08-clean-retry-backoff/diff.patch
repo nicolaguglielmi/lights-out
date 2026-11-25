@@ -1,0 +1,44 @@
+From 5dd800e4b3d4d38ee2e1016873ba2ffe0417b5b9 Mon Sep 17 00:00:00 2001
+From: Fixture Builder <fixtures@lights-out.invalid>
+Date: Wed, 25 Nov 2026 12:01:18 +0000
+Subject: [PATCH] Cap exponential retry delay at max_s
+
+---
+ src/backoff.py        |  4 +++-
+ tests/test_backoff.py | 11 +++++++++++
+ 2 files changed, 14 insertions(+), 1 deletion(-)
+
+diff --git a/src/backoff.py b/src/backoff.py
+index 8c2a589..58b06cd 100644
+--- a/src/backoff.py
++++ b/src/backoff.py
+@@ -1,2 +1,4 @@
+ def compute_delay(attempt: int, base_s: float = 0.5, max_s: float = 8.0) -> float:
+-    return base_s * (2 ** attempt)
++    if attempt < 0 or base_s <= 0 or max_s < base_s:
++        raise ValueError('invalid backoff parameters')
++    return min(max_s, base_s * (2 ** attempt))
+diff --git a/tests/test_backoff.py b/tests/test_backoff.py
+index 1b437c8..5546ff8 100644
+--- a/tests/test_backoff.py
++++ b/tests/test_backoff.py
+@@ -1,5 +1,16 @@
++import pytest
+ from src.backoff import compute_delay
+ 
+ 
+ def test_backoff_attempt_zero() -> None:
+     assert compute_delay(0) == 0.5
++
++
++def test_backoff_growth_and_cap() -> None:
++    assert compute_delay(3) == 4.0
++    assert compute_delay(10) == 8.0
++
++
++def test_backoff_rejects_negative_attempt() -> None:
++    with pytest.raises(ValueError):
++        compute_delay(-1)
+-- 
+2.47.3
+

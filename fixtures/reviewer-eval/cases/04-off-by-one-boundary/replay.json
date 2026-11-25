@@ -1,0 +1,21 @@
+{
+  "schema": "lights-out/reviewer-eval-replay/1",
+  "case_id": "04-off-by-one-boundary",
+  "role": "test-reviewer",
+  "provider": "gemini",
+  "model": "gemini-3.8-flash",
+  "thinking": "high",
+  "recorded_at": "2026-11-25T12:08:40Z",
+  "input_sha256": "b5298a4537252760a3a7a7f3f11ae46bc6dd013bdb3393fcd4eabd22c00f582e",
+  "verdict": "CHANGES-REQUESTED",
+  "reason": "The change fails to satisfy the primary acceptance criterion:\n\n1. In `src/quota.py`, `can_process` returns `used_today <= max_requests` instead of `used_today < max_requests`. Consequently, when `used_today == max_requests` (for example, `used_today = 5, max_requests = 5`), `can_process` returns `True` rather than `False`, failing the requirement that it \"returns `True` only while `used_today < max_requests`\".\n2. In `tests/test_quota.py`, the boundary case where `used_today == max_requests` is not tested (`test_can_process_well_over_limit` tests `can_process(7, 5)` rather than `can_process(5, 5)`), so the test suite does not verify that requests at the limit are rejected.",
+  "raw_response": "CHANGES-REQUESTED\n\nThe change fails to satisfy the primary acceptance criterion:\n\n1. In `src/quota.py`, `can_process` returns `used_today <= max_requests` instead of `used_today < max_requests`. Consequently, when `used_today == max_requests` (for example, `used_today = 5, max_requests = 5`), `can_process` returns `True` rather than `False`, failing the requirement that it \"returns `True` only while `used_today < max_requests`\".\n2. In `tests/test_quota.py`, the boundary case where `used_today == max_requests` is not tested (`test_can_process_well_over_limit` tests `can_process(7, 5)` rather than `can_process(5, 5)`), so the test suite does not verify that requests at the limit are rejected.",
+  "tokens": {
+    "input": 1883,
+    "output": 201,
+    "thoughts": 1189,
+    "cached": 0,
+    "total": 3273
+  },
+  "latency_s": 12.913
+}

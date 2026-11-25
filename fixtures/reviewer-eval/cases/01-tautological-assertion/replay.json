@@ -1,0 +1,21 @@
+{
+  "schema": "lights-out/reviewer-eval-replay/1",
+  "case_id": "01-tautological-assertion",
+  "role": "test-reviewer",
+  "provider": "gemini",
+  "model": "gemini-3.8-flash",
+  "thinking": "high",
+  "recorded_at": "2026-11-25T12:08:00Z",
+  "input_sha256": "0c74dae3c56b412dfa8bd3c44b4b26cfb9a5e341fd98f87d63972a7b028f3365",
+  "verdict": "CHANGES-REQUESTED",
+  "reason": "The acceptance criteria require a test in `tests/test_shipping.py` that asserts `compute_shipping(1.0, 20.0) == 0.0` and would fail without clamping. In the proposed diff, `test_promo_credit_exceeding_base_fee` only executes `assert fee == fee` and `assert True`. This test does not verify that the returned shipping fee is `0.0`, would pass even without clamping, and fails to satisfy the specified acceptance criterion.",
+  "raw_response": "CHANGES-REQUESTED\n\nThe acceptance criteria require a test in `tests/test_shipping.py` that asserts `compute_shipping(1.0, 20.0) == 0.0` and would fail without clamping. In the proposed diff, `test_promo_credit_exceeding_base_fee` only executes `assert fee == fee` and `assert True`. This test does not verify that the returned shipping fee is `0.0`, would pass even without clamping, and fails to satisfy the specified acceptance criterion.",
+  "tokens": {
+    "input": 1927,
+    "output": 115,
+    "thoughts": 1536,
+    "cached": 0,
+    "total": 3578
+  },
+  "latency_s": 18.161
+}

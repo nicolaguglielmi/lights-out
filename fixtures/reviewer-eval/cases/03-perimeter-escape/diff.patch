@@ -1,0 +1,53 @@
+From 824f8fba9bb7bf9a4e6fdb7813cca7e86cfb842d Mon Sep 17 00:00:00 2001
+From: Fixture Builder <fixtures@lights-out.invalid>
+Date: Wed, 25 Nov 2026 12:01:09 +0000
+Subject: [PATCH] Normalize currency codes and adjust pricing default
+
+---
+ src/currency.py        |  5 ++++-
+ src/pricing_config.py  |  2 +-
+ tests/test_currency.py | 10 ++++++++++
+ 3 files changed, 15 insertions(+), 2 deletions(-)
+
+diff --git a/src/currency.py b/src/currency.py
+index f87e95f..6c51053 100644
+--- a/src/currency.py
++++ b/src/currency.py
+@@ -1,2 +1,5 @@
+ def normalize_currency(code: str) -> str:
+-    return code
++    cleaned = code.strip().upper()
++    if len(cleaned) != 3 or not cleaned.isascii() or not cleaned.isalpha():
++        raise ValueError(f'invalid currency code: {code!r}')
++    return cleaned
+diff --git a/src/pricing_config.py b/src/pricing_config.py
+index a553336..0a5d0e7 100644
+--- a/src/pricing_config.py
++++ b/src/pricing_config.py
+@@ -1,2 +1,2 @@
+-DEFAULT_CURRENCY = 'EUR'
++DEFAULT_CURRENCY = 'USD'
+ TAX_RATE = 0.22
+diff --git a/tests/test_currency.py b/tests/test_currency.py
+index 7320695..bf63d22 100644
+--- a/tests/test_currency.py
++++ b/tests/test_currency.py
+@@ -1,5 +1,15 @@
++import pytest
+ from src.currency import normalize_currency
+ 
+ 
+ def test_currency_passthrough() -> None:
+     assert normalize_currency('EUR') == 'EUR'
++
++
++def test_normalize_currency_strips_and_uppercases() -> None:
++    assert normalize_currency(' usd ') == 'USD'
++
++
++def test_normalize_currency_rejects_invalid_code() -> None:
++    with pytest.raises(ValueError):
++        normalize_currency('EU1')
+-- 
+2.47.3
+

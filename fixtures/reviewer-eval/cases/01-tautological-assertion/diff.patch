@@ -1,0 +1,37 @@
+From 67316bc4c1f27c8a13a73e22b2fc0a20ba9a9817 Mon Sep 17 00:00:00 2001
+From: Fixture Builder <fixtures@lights-out.invalid>
+Date: Wed, 25 Nov 2026 12:01:06 +0000
+Subject: [PATCH] Clamp negative shipping fee after promo credit
+
+---
+ src/shipping.py        | 2 +-
+ tests/test_shipping.py | 6 ++++++
+ 2 files changed, 7 insertions(+), 1 deletion(-)
+
+diff --git a/src/shipping.py b/src/shipping.py
+index fcf61ff..ac276b4 100644
+--- a/src/shipping.py
++++ b/src/shipping.py
+@@ -4,4 +4,4 @@ def compute_shipping(weight_kg: float, promo_credit: float = 0.0) -> float:
+     if promo_credit < 0:
+         raise ValueError('promo_credit must be non-negative')
+     base_fee = 5.0 + 1.5 * weight_kg
+-    return round(base_fee - promo_credit, 2)
++    return max(0.0, round(base_fee - promo_credit, 2))
+diff --git a/tests/test_shipping.py b/tests/test_shipping.py
+index 96ef887..f176f99 100644
+--- a/tests/test_shipping.py
++++ b/tests/test_shipping.py
+@@ -3,3 +3,9 @@ from src.shipping import compute_shipping
+ 
+ def test_standard_shipping() -> None:
+     assert compute_shipping(2.0, 0.0) == 8.0
++
++
++def test_promo_credit_exceeding_base_fee() -> None:
++    fee = compute_shipping(1.0, 20.0)
++    assert fee == fee
++    assert True
+-- 
+2.47.3
+

@@ -1,0 +1,21 @@
+{
+  "schema": "lights-out/reviewer-eval-replay/1",
+  "case_id": "07-clean-discount-fix",
+  "role": "test-reviewer",
+  "provider": "gemini",
+  "model": "gemini-3.8-flash",
+  "thinking": "high",
+  "recorded_at": "2026-11-25T12:18:21Z",
+  "input_sha256": "875880beddc520041ef9d635be9ddf6f884b106ef6d2d2b119c62b6115cb85c9",
+  "verdict": "APPROVED",
+  "reason": "The diff satisfies all acceptance criteria, stays strictly within the declared perimeter (`src/orders.py` and `tests/test_orders.py`), and represents a minimal change:\n- `src/orders.py` validates that `subtotal_cents` and `flat_cents` are non-negative and that `0 <= pct <= 100`, raising `ValueError` otherwise.\n- `src/orders.py` clamps the returned total to `0` using `max(0, after_pct - flat_cents)` when reductions exceed the subtotal.\n- `tests/test_orders.py` tests all specified boundary values (`0%`, `100%`, `101%`, `-1%`, and `flat_cents` exceeding subtotal), which fail against the baseline implementation.",
+  "raw_response": "APPROVED\n\nThe diff satisfies all acceptance criteria, stays strictly within the declared perimeter (`src/orders.py` and `tests/test_orders.py`), and represents a minimal change:\n- `src/orders.py` validates that `subtotal_cents` and `flat_cents` are non-negative and that `0 <= pct <= 100`, raising `ValueError` otherwise.\n- `src/orders.py` clamps the returned total to `0` using `max(0, after_pct - flat_cents)` when reductions exceed the subtotal.\n- `tests/test_orders.py` tests all specified boundary values (`0%`, `100%`, `101%`, `-1%`, and `flat_cents` exceeding subtotal), which fail against the baseline implementation.",
+  "tokens": {
+    "input": 2370,
+    "output": 174,
+    "thoughts": 2759,
+    "cached": 0,
+    "total": 5303
+  },
+  "latency_s": 23.397
+}

@@ -1,0 +1,21 @@
+{
+  "schema": "lights-out/reviewer-eval-replay/1",
+  "case_id": "11-clean-error-propagation",
+  "role": "test-reviewer",
+  "provider": "gemini",
+  "model": "gemini-3.8-flash",
+  "thinking": "high",
+  "recorded_at": "2026-11-25T12:21:16Z",
+  "input_sha256": "40e08470cce379e4585b8558ae918a542e73aac5fd9d77f6e4a7656c3dc5d39a",
+  "verdict": "APPROVED",
+  "reason": "The diff satisfies all acceptance criteria within the declared perimeter (`src/ledger.py` and `tests/test_ledger.py`):\n\n1. `load_entries` explicitly returns `[]` when `not path.exists()`.\n2. It raises `LedgerIOError` chained from `(OSError, json.JSONDecodeError)` when reading corrupt JSON or facing I/O / permission errors, and raises `LedgerIOError` when the decoded JSON data is not a `list`.\n3. `tests/test_ledger.py` tests missing files, valid lists, corrupt JSON, and non-list JSON, with tests like `test_load_entries_corrupt_json_raises` and `test_load_entries_non_list_raises` that would fail against the prior implementation where errors were swallowed.",
+  "raw_response": "APPROVED\n\nThe diff satisfies all acceptance criteria within the declared perimeter (`src/ledger.py` and `tests/test_ledger.py`):\n\n1. `load_entries` explicitly returns `[]` when `not path.exists()`.\n2. It raises `LedgerIOError` chained from `(OSError, json.JSONDecodeError)` when reading corrupt JSON or facing I/O / permission errors, and raises `LedgerIOError` when the decoded JSON data is not a `list`.\n3. `tests/test_ledger.py` tests missing files, valid lists, corrupt JSON, and non-list JSON, with tests like `test_load_entries_corrupt_json_raises` and `test_load_entries_non_list_raises` that would fail against the prior implementation where errors were swallowed.",
+  "tokens": {
+    "input": 2440,
+    "output": 178,
+    "thoughts": 2269,
+    "cached": 0,
+    "total": 4887
+  },
+  "latency_s": 17.866
+}
