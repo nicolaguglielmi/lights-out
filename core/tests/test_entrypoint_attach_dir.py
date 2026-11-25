@@ -1,10 +1,12 @@
 """The gates image's entrypoint never clones over the tree it runs from.
 
-Spec (package/entrypoint.sh, `attach_dir`): the repository is cloned into
-/tmp/lights-out/attached, unless the current directory or the entrypoint's
-own checkout is inside that directory; then it is cloned into a fresh
-directory beside it, so the running checkout is never deleted. Inside the
-gates image the self-checks run in /tmp/lights-out/attached itself.
+Spec (package/entrypoint.sh, `attach_dir`): in the image (image root
+/opt/lights-out) the repository is cloned into /tmp/lights-out/attached;
+LIGHTS_OUT_ATTACHED_DIR overrides it; with a synthetic image root (a test's)
+the clone goes beside that root. Whatever the place, when the current
+directory or the entrypoint's own checkout is inside it, the clone goes to a
+fresh directory beside it, so the running checkout is never deleted. Inside
+the gates image the self-checks run in /tmp/lights-out/attached itself.
 
 The function is taken from the script as it is written and run with sh.
 """
@@ -28,6 +30,10 @@ def helper() -> str:
     return "\n".join(lines[start:end + 1]) + "\nattach_dir\n"
 
 
+def in_image(body: str) -> str:
+    return "image_root=${IMAGE_ROOT:-/opt/lights-out}\n" + body
+
+
 class AttachDir(unittest.TestCase):
     def setUp(self):
         # Only a directory of this test's own under ATTACHED, never ATTACHED
@@ -39,10 +45,11 @@ class AttachDir(unittest.TestCase):
         self.addCleanup(shutil.rmtree, self.outside, ignore_errors=True)
         (self.outside / "package").mkdir()
 
-    def run_from(self, cwd: Path, script_dir: Path) -> str:
+    def run_from(self, cwd: Path, script_dir: Path, env: dict | None = None) -> str:
         script = script_dir / "package" / "attach-dir.sh"
-        script.write_text(helper(), encoding="utf-8")
-        out = subprocess.run(["sh", str(script)], cwd=cwd, capture_output=True, text=True, check=True).stdout.strip()
+        script.write_text(in_image(helper()), encoding="utf-8")
+        out = subprocess.run(["sh", str(script)], cwd=cwd, env={"PATH": "/usr/bin:/bin", **(env or {})},
+                             capture_output=True, text=True, check=True).stdout.strip()
         if out != str(ATTACHED):
             self.addCleanup(shutil.rmtree, out, ignore_errors=True)
         return out
@@ -60,6 +67,15 @@ class AttachDir(unittest.TestCase):
         out = self.run_from(self.outside, self.mine)
         self.assertNotEqual(out, str(ATTACHED))
         self.assertTrue(self.mine.is_dir(), "the running checkout was touched")
+
+    def test_a_synthetic_image_root_clones_beside_it(self):
+        root = self.outside / "img"
+        self.assertEqual(self.run_from(self.outside, self.outside, {"IMAGE_ROOT": str(root)}),
+                         str(self.outside / "attached"))
+
+    def test_the_variable_names_the_place(self):
+        place = self.outside / "elsewhere" / "attached"
+        self.assertEqual(self.run_from(self.outside, self.outside, {"LIGHTS_OUT_ATTACHED_DIR": str(place)}), str(place))
 
 
 if __name__ == "__main__":

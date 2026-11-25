@@ -15,7 +15,7 @@ name=core-tests
 # Ids are dotted from the repo root, as under `unittest discover -t .`; a
 # module that fails to import shows up as a failing id.
 cpus=$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 2)
-python3 - "$cpus" <<'PY' | xargs -P "$cpus" -L 1 python3 -m unittest >&2 || nogo "unittest reported failures"
+python3 - "$cpus" <<'PY' | xargs -P "$cpus" -L 1 python3 -m unittest --durations 3 >&2 || nogo "unittest reported failures"
 import sys, unittest
 def ids(s):
     for t in s:

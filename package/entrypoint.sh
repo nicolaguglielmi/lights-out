@@ -905,15 +905,20 @@ if [ -n "${LIGHTS_OUT_PLATFORM_DIR:-}" ]; then
   esac
 fi
 
-# Where the repository is cloned, never the tree this script runs from: the
-# self-checks run in /tmp/lights-out/attached inside this image, and a test
-# that runs this entrypoint from there deleted its own checkout (self,
-# 2026-11-25, run 45695306774).
+# Where the repository is cloned: /tmp/lights-out/attached in the image,
+# LIGHTS_OUT_ATTACHED_DIR when set, and beside a synthetic image root (a
+# test's) otherwise; never the tree this script runs from. The self-checks
+# run in /tmp/lights-out/attached inside this image, and tests that ran this
+# entrypoint from a synthetic root cleared it mid-suite (self, 2026-11-25,
+# runs 45695306774, 45698750939, 45701923559).
 attach_dir() {
-  attach_default=/tmp/lights-out/attached
+  attach_default=${LIGHTS_OUT_ATTACHED_DIR:-/tmp/lights-out/attached}
+  if [ -z "${LIGHTS_OUT_ATTACHED_DIR:-}" ] && [ "$image_root" != /opt/lights-out ]; then
+    attach_default=$(dirname "$image_root")/attached
+  fi
   attach_real=$(cd "$attach_default" 2>/dev/null && pwd -P) || attach_real=$attach_default
   case "$(pwd -P)/ $(cd "$(dirname "$0")/.." 2>/dev/null && pwd -P)/" in
-    "$attach_real"/*|*" $attach_real/"*) mktemp -d /tmp/lights-out/attached-XXXXXX ;;
+    "$attach_real"/*|*" $attach_real/"*) mkdir -p "$(dirname "$attach_default")" && mktemp -d "$attach_default-XXXXXX" ;;
     *) printf '%s\n' "$attach_default" ;;
   esac
 }
@@ -925,8 +930,8 @@ case "$sub" in
   cloud-setup|scoreboard|auto-incident|incident|alert-webhook|top|m24-check|demo-loop|jury|live-preflight|reviewer-eval|portfolio)
     run_make "$sub" "$@" ;;
   next|dora|spend|map|network|epics|spec-split|map-brief-eval|thresholds)
-    mkdir -p /tmp/lights-out
     attached=$(attach_dir)
+    mkdir -p "$(dirname "$attached")"
     if sh core/await-head.sh "$repo_dir" 15; then
       rm -rf "$attached"
       sh core/attach.sh "$repo_dir" "$attached" || nogo "could not clone the repository (see above)"

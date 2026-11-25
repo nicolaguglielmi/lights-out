@@ -561,7 +561,7 @@ class EntrypointParityTests(unittest.TestCase):
         self.assertEqual(res_apply.returncode, 0, res_apply.stdout + res_apply.stderr)
         calls = init_log.read_text(encoding="utf-8").splitlines()
         self.assertEqual(len(calls), 2, calls)
-        self.assertIn("W=/tmp/lights-out/attached A=/tmp/lights-out/attached CLI=", calls[0])
+        self.assertIn(f"W={self.tmp}/attached A={self.tmp}/attached CLI=", calls[0])
         self.assertIn(f"W={self.repo} A={self.repo}", calls[1])
         self.assertIn("--apply\x1f--branch\x1flo/init\x1f--commit\x1f--baseline-mode\x1fincremental\x1f--baseline-max-files\x1f4", calls[1])
 
