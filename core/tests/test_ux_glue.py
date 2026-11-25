@@ -212,7 +212,7 @@ class MakefileStartPlanWiringTests(unittest.TestCase):
 
     def setUp(self) -> None:
         if not shutil.which("make"):
-            self.skipTest("make not on PATH")
+            self.fail("make is not on PATH: this test runs in the workbench, ./go ci")
         self.tmp = Path(tempfile.mkdtemp(prefix="mk-wiring-")).resolve()
         self.addCleanup(shutil.rmtree, self.tmp, True)
 

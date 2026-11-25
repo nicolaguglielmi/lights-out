@@ -386,7 +386,7 @@ class ModularBuildUnitTest(unittest.TestCase):
 class ConsoleSseClientNodeTest(unittest.TestCase):
     def test_snapshot_mode_opens_zero_eventsource_connections(self) -> None:
         if shutil.which("node") is None:
-            self.skipTest("node not on PATH")
+            self.fail("node is not on PATH: this test runs in the workbench, ./go ci")
         out = _run_sse_node_probe("""
 (async () => {
   book = mockLogbookBody;
@@ -403,7 +403,7 @@ class ConsoleSseClientNodeTest(unittest.TestCase):
 
     def test_live_mode_sse_triggers_conditional_fetch_only_on_etag_or_error_change(self) -> None:
         if shutil.which("node") is None:
-            self.skipTest("node not on PATH")
+            self.fail("node is not on PATH: this test runs in the workbench, ./go ci")
         out = _run_sse_node_probe("""
 (async () => {
   mockLogbookStatus = 200;
@@ -453,7 +453,7 @@ class ConsoleSseClientNodeTest(unittest.TestCase):
 
     def test_eventsource_fallback_replay_pause_and_simulated_snapshot_close(self) -> None:
         if shutil.which("node") is None:
-            self.skipTest("node not on PATH")
+            self.fail("node is not on PATH: this test runs in the workbench, ./go ci")
         out = _run_sse_node_probe("""
 (async () => {
   mockLogbookStatus = 200;

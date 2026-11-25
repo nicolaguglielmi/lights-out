@@ -507,7 +507,7 @@ class EntrypointStagingAndFlavourTests(WrapperPlaneBase):
 
     def test_platform_staging_revision_crew_symlink_and_cloud_setup(self):
         if not shutil.which("make"):
-            self.skipTest("make not on PATH")
+            self.fail("make is not on PATH: this test runs in the workbench, ./go ci")
         img_root = self._stage_synthetic_image_root()
         tools_plus_make = self.tmp / "tools-make"
         tools_plus_make.mkdir()

@@ -165,7 +165,7 @@ class ConsoleOpsUnitTest(unittest.TestCase):
 class ConsoleWorkstationNodeTest(unittest.TestCase):
     def _run_node(self, body_js: str) -> str:
         if shutil.which("node") is None:
-            self.skipTest("node not on PATH")
+            self.fail("node is not on PATH: this test runs in the workbench, ./go ci")
         html = CONSOLE_HTML.read_text(encoding="utf-8")
         tower_m = __import__("re").search(r'<script type="application/json" id="tower-machine">(.*?)</script>', html, __import__("re").S)
         words_m = __import__("re").search(r'<script type="application/json" id="network-words">(.*?)</script>', html, __import__("re").S)

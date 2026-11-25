@@ -296,7 +296,7 @@ class HiveConsolePerimeterTest(unittest.TestCase):
 class HiveScreenAndWizardNodeTest(unittest.TestCase):
     def test_hive_renders_across_golden_schemas_and_keeps_your_turn_first(self) -> None:
         if shutil.which("node") is None:
-            self.skipTest("node not on PATH")
+            self.fail("node is not on PATH: this test runs in the workbench, ./go ci")
         out = _run_node_probe(f"""
 const roles = {json.dumps(list(ROLE_NAMES))};
 const gates = {json.dumps(list(EXPECTED_GATES))};
@@ -364,7 +364,7 @@ console.log("SCHEMAS_OK");
 
     def test_walkthrough_controls_and_junior_expert_toggle_with_localstorage_refused(self) -> None:
         if shutil.which("node") is None:
-            self.skipTest("node not on PATH")
+            self.fail("node is not on PATH: this test runs in the workbench, ./go ci")
         out = _run_node_probe("""
 book = JSON.parse(fs.readFileSync("fixtures/logbook/golden-1.8.json", "utf8"));
 con = { mode: "snapshot", read_at: "2026-11-24T00:00:00Z" };
@@ -415,7 +415,7 @@ console.log("CONTROLS_OK");
 
     def test_wizard_dialog_modal_focus_escape_and_commands(self) -> None:
         if shutil.which("node") is None:
-            self.skipTest("node not on PATH")
+            self.fail("node is not on PATH: this test runs in the workbench, ./go ci")
         out = _run_node_probe("""
 book = JSON.parse(fs.readFileSync("fixtures/logbook/golden-1.8.json", "utf8"));
 con = { mode: "snapshot", read_at: "2026-11-24T00:00:00Z" };

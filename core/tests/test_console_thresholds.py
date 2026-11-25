@@ -305,7 +305,7 @@ class ConsoleBuildAndDomThresholdsTests(unittest.TestCase):
 
     def test_console_thresholds_and_ticket_jury_provenance_dom(self) -> None:
         if shutil.which("node") is None:
-            self.skipTest("node not on PATH")
+            self.fail("node is not on PATH: this test runs in the workbench, ./go ci")
         html = CONSOLE_HTML.read_text(encoding="utf-8")
         tower_m = re.search(r'<script type="application/json" id="tower-machine">(.*?)</script>', html, re.S)
         words_m = re.search(r'<script type="application/json" id="network-words">(.*?)</script>', html, re.S)
