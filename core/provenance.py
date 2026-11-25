@@ -8,7 +8,7 @@ release log (RELEASES_LOG + VERSION), and the optional git repository
 under docs/adr/ or adr/. Never fabricates missing evidence and never emits
 secrets.
 
-    python3 core/provenance.py build
+    python3 core/provenance.py build [--attach] [--attach-required]
         write PROVENANCE_DIR/<subject-id>.intoto.json (default .crew/provenance),
         print `<path>\\t<missing_count>` on stdout and each `missing: <path>`
         on stderr, exit 0; or print one-line refusal reason on stdout, exit 1.
@@ -17,6 +17,11 @@ secrets.
         verify Statement/v1 envelope, normalized subject digests, predicate
         schema, optional bundle / cosign signature, and ADR SHA-256 digests
         against --repo; print `OK: <path> verified` and exit 0, or reason and exit 1.
+
+    python3 core/provenance.py attach --statement <path> [--bundle <bundle>] [--sha <commit>] [--out-receipt <path>]
+        invoke adapters/<CODE_HOST>/attest.sh when present, parse its one-line
+        JSON receipt, record it additively into the provenance receipt file,
+        and print verification guidance on stderr.
 """
 
 import argparse
@@ -949,11 +954,220 @@ def verify_statement(statement_path, bundle_path=None, key_path=None, repo_dir=N
     return stmt
 
 
+_SAFE_SHA_ARG_RE = re.compile(r"^[A-Za-z0-9:._-]+$")
+
+
+def _safe_code_host(raw):
+    val = (raw or "").strip()
+    if not val:
+        return None
+    parts = val.split("/")
+    if len(parts) > 2 or any(not p or p.startswith(".") or not _SAFE_ID_RE.fullmatch(p) for p in parts):
+        raise Refused(f"CODE_HOST {val!r} is not a safe adapter name")
+    return val
+
+
+def _resolve_attach_sha(stmt, explicit_sha=None, repo=None):
+    if explicit_sha is not None:
+        raw = explicit_sha.strip()
+        if not raw:
+            raise Refused("empty --sha value")
+        if not _SAFE_SHA_ARG_RE.fullmatch(raw) or raw.startswith("-") or raw.startswith("."):
+            raise Refused(f"unsafe --sha value {explicit_sha!r}")
+        norm_git = normalize_git_commit(raw, repo=repo)
+        if norm_git:
+            return norm_git
+        norm_s256 = normalize_sha256(raw)
+        if norm_s256:
+            return f"sha256:{norm_s256}" if raw.lower().startswith("sha256:") else norm_s256
+        return raw
+
+    pred = stmt.get("predicate") if isinstance(stmt.get("predicate"), dict) else {}
+    merge_obj = pred.get("merge") if isinstance(pred.get("merge"), dict) else {}
+    gates_obj = pred.get("gates") if isinstance(pred.get("gates"), dict) else {}
+    for cand in (merge_obj.get("sha"), merge_obj.get("head_sha"), gates_obj.get("head_sha")):
+        norm = normalize_git_commit(cand, repo=repo)
+        if norm:
+            return norm
+
+    subj = stmt.get("subject") if isinstance(stmt.get("subject"), list) else []
+    for item in subj:
+        if isinstance(item, dict) and isinstance(item.get("digest"), dict):
+            norm = normalize_git_commit(item["digest"].get("gitCommit"), repo=repo)
+            if norm:
+                return norm
+    for item in subj:
+        if isinstance(item, dict) and isinstance(item.get("digest"), dict):
+            norm = normalize_sha256(item["digest"].get("sha256"))
+            if norm:
+                return norm
+
+    norm = normalize_git_commit("HEAD", repo=repo)
+    if norm:
+        return norm
+    raise Refused("cannot resolve subject sha for codehost attestation; pass --sha <commit>")
+
+
+def _write_receipt_additive(receipt_path, entry, explicit_out=False):
+    existing = {}
+    if os.path.isfile(receipt_path):
+        try:
+            with open(receipt_path, encoding="utf-8") as fh:
+                loaded = json.load(fh)
+            if isinstance(loaded, dict):
+                existing = loaded
+        except (OSError, ValueError) as exc:
+            if explicit_out:
+                raise Refused(f"cannot read existing receipt {receipt_path}: {exc}") from None
+
+    out = dict(existing)
+    attachments = list(existing.get("attachments")) if isinstance(existing.get("attachments"), list) else []
+    attachments.append(entry)
+    out.update({
+        "statement": entry["statement"],
+        "bundle": entry["bundle"],
+        "sha": entry["sha"],
+        "code_host": entry["code_host"],
+        "status": entry["status"],
+        "attached_at": entry["attached_at"],
+        "receipt": entry["receipt"],
+        "attachments": attachments,
+    })
+    parent = os.path.dirname(os.path.abspath(receipt_path))
+    try:
+        os.makedirs(parent, exist_ok=True)
+        with open(receipt_path, "w", encoding="utf-8") as fh:
+            fh.write(json.dumps(scrub_secrets(out), ensure_ascii=False, indent=2) + "\n")
+        return receipt_path
+    except OSError as exc:
+        if explicit_out:
+            raise Refused(f"cannot write receipt {receipt_path}: {exc}") from None
+        return None
+
+
+def attach_statement(
+    statement_path,
+    bundle_path=None,
+    sha=None,
+    out_receipt=None,
+    repo_dir=None,
+    env=None,
+    required=False,
+):
+    """Attach a built provenance statement/bundle to the active CODE_HOST adapter."""
+    base_env = dict(os.environ if env is None else env)
+    repo = repo_dir or base_env.get("WORKLOAD") or "."
+    stmt = verify_statement(statement_path, bundle_path=bundle_path)
+    resolved_sha = _resolve_attach_sha(stmt, explicit_sha=sha, repo=repo)
+    code_host = _safe_code_host(base_env.get("CODE_HOST"))
+    target = bundle_path or statement_path
+    receipt_path = out_receipt or f"{statement_path}.attestation-receipt.json"
+    script = os.path.join("adapters", code_host, "attest.sh") if code_host else None
+
+    if not script or not os.path.isfile(script):
+        reason = (
+            "CODE_HOST is not set"
+            if not code_host
+            else f"codehost adapter {code_host!r} has no attest.sh ({script})"
+        )
+        if required:
+            raise Refused(reason)
+        receipt_obj = {"stored": "skipped", "id": None, "sha": resolved_sha, "note": reason}
+        entry = {
+            "statement": statement_path,
+            "bundle": bundle_path,
+            "sha": resolved_sha,
+            "code_host": code_host,
+            "target": target,
+            "status": "skipped",
+            "attached_at": _now_iso(),
+            "receipt": receipt_obj,
+        }
+        written = _write_receipt_additive(receipt_path, entry, explicit_out=bool(out_receipt))
+        print(f"provenance: attach skipped: {reason}", file=sys.stderr)
+        if written:
+            print(f"provenance: receipt written: {written}", file=sys.stderr)
+        return {
+            "status": "skipped",
+            "reason": reason,
+            "sha": resolved_sha,
+            "code_host": code_host,
+            "receipt": receipt_obj,
+            "receipt_path": written,
+        }
+
+    proc = subprocess.run(
+        ["sh", script, resolved_sha, target],  # nosec B603
+        env=base_env,
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    if proc.returncode != 0:
+        err = scrub_text((proc.stderr or proc.stdout or "").strip())
+        detail = err.splitlines()[-1] if err else f"exit {proc.returncode}"
+        raise Refused(f"codehost attest failed ({code_host}): {detail}")
+
+    for line in scrub_text(proc.stderr or "").splitlines():
+        if line.strip():
+            print(line, file=sys.stderr)
+
+    lines = [ln.strip() for ln in (proc.stdout or "").splitlines() if ln.strip()]
+    if len(lines) != 1:
+        raise Refused(f"codehost attest ({code_host}) returned {len(lines)} stdout lines, want 1 JSON receipt line")
+    try:
+        raw_receipt = json.loads(lines[0])
+    except ValueError as exc:
+        raise Refused(f"codehost attest ({code_host}) returned invalid JSON receipt: {exc}") from None
+    if not isinstance(raw_receipt, dict):
+        raise Refused(f"codehost attest ({code_host}) receipt must be a JSON object")
+    receipt_obj = scrub_secrets(raw_receipt)
+    if _has_unredacted_secret(receipt_obj):
+        raise Refused("codehost attest receipt contains unredacted secret material")
+
+    entry = {
+        "statement": statement_path,
+        "bundle": bundle_path,
+        "sha": resolved_sha,
+        "code_host": code_host,
+        "target": target,
+        "status": "attached",
+        "attached_at": _now_iso(),
+        "receipt": receipt_obj,
+    }
+    written = _write_receipt_additive(receipt_path, entry, explicit_out=bool(out_receipt))
+    if receipt_obj.get("verify_cmd"):
+        print(f"provenance: verify remote attestation: {receipt_obj['verify_cmd']}", file=sys.stderr)
+    if receipt_obj.get("url"):
+        print(f"provenance: attestation url: {receipt_obj['url']}", file=sys.stderr)
+    if receipt_obj.get("note"):
+        print(f"provenance: {receipt_obj['note']}", file=sys.stderr)
+    if bundle_path:
+        print(
+            f"provenance: verify local bundle: python3 core/provenance.py verify --statement {statement_path} --bundle {bundle_path}",
+            file=sys.stderr,
+        )
+    else:
+        print(
+            f"provenance: verify statement: python3 core/provenance.py verify --statement {statement_path}",
+            file=sys.stderr,
+        )
+    if written:
+        print(f"provenance: receipt written: {written}", file=sys.stderr)
+    return {
+        "status": "attached",
+        "sha": resolved_sha,
+        "code_host": code_host,
+        "receipt": receipt_obj,
+        "receipt_path": written,
+    }
+
+
 def main(argv, env=None):
     base_env = dict(os.environ if env is None else env)
-    if not argv or argv[0] not in ("build", "verify"):
+    if not argv or argv[0] not in ("build", "verify", "attach"):
         print(
-            "usage: provenance.py build | verify --statement <path> [--bundle <bundle>] [--key <pub>] [--repo <dir>]",
+            "usage: provenance.py build [--attach] | verify --statement <path> [--bundle <bundle>] [--key <pub>] [--repo <dir>] | attach --statement <path> [--bundle <bundle>] [--sha <commit>] [--out-receipt <path>]",
             file=sys.stderr,
         )
         return 2
@@ -967,6 +1181,11 @@ def main(argv, env=None):
         parser.add_argument("--releases-log", dest="releases_log")
         parser.add_argument("--repo", dest="repo")
         parser.add_argument("--out-dir", dest="out_dir")
+        parser.add_argument("--attach", action="store_true")
+        parser.add_argument("--attach-required", dest="attach_required", action="store_true")
+        parser.add_argument("--bundle", default=None)
+        parser.add_argument("--sha", default=None)
+        parser.add_argument("--out-receipt", dest="out_receipt", default=None)
         try:
             ns, extra = parser.parse_known_args(argv[1:])
         except SystemExit:
@@ -994,7 +1213,65 @@ def main(argv, env=None):
         gaps = stmt["predicate"]["missing"]
         for gap in gaps:
             print(f"missing: {gap}", file=sys.stderr)
+        defer_attach = bool((base_env.get("PROVENANCE_DEFER_ATTACH") or "").strip())
+        want_attach = ns.attach or ns.attach_required
+        if want_attach and not defer_attach:
+            req = bool(ns.attach_required or (base_env.get("PROVENANCE_ATTACH_REQUIRED") or "").strip())
+            try:
+                attach_statement(
+                    path,
+                    bundle_path=ns.bundle or None,
+                    sha=ns.sha or None,
+                    out_receipt=ns.out_receipt or None,
+                    repo_dir=base_env.get("WORKLOAD") or None,
+                    env=base_env,
+                    required=req,
+                )
+            except Refused as refused:
+                print(refused)
+                return 1
         print(f"{path}\t{len(gaps)}")
+        return 0
+
+    if cmd == "attach":
+        parser = argparse.ArgumentParser(prog="provenance.py attach", add_help=False)
+        parser.add_argument("--statement", required=True)
+        parser.add_argument("--bundle", default=None)
+        parser.add_argument("--sha", default=None)
+        parser.add_argument("--out-receipt", dest="out_receipt", default=None)
+        parser.add_argument("--repo", default=None)
+        parser.add_argument("--required", action="store_true")
+        parser.add_argument("--attach-required", dest="attach_required", action="store_true")
+        try:
+            ns, extra = parser.parse_known_args(argv[1:])
+        except SystemExit:
+            print(
+                "usage: provenance.py attach --statement <path> [--bundle <bundle>] [--sha <commit>] [--out-receipt <path>]",
+                file=sys.stderr,
+            )
+            return 2
+        if extra:
+            print(f"provenance.py attach: unrecognized arguments: {' '.join(extra)}", file=sys.stderr)
+            return 2
+        req = bool(ns.required or ns.attach_required or (base_env.get("PROVENANCE_ATTACH_REQUIRED") or "").strip())
+        try:
+            res = attach_statement(
+                ns.statement,
+                bundle_path=ns.bundle or None,
+                sha=ns.sha or None,
+                out_receipt=ns.out_receipt or None,
+                repo_dir=ns.repo or None,
+                env=base_env,
+                required=req,
+            )
+        except Refused as refused:
+            print(refused)
+            return 1
+        if res["status"] == "skipped":
+            print(f"OK: {ns.statement} attach skipped ({res['reason']})")
+        else:
+            stored = res["receipt"].get("stored", "unknown")
+            print(f"OK: {ns.statement} attached ({res['code_host']}, stored={stored})")
         return 0
 
     parser = argparse.ArgumentParser(prog="provenance.py verify", add_help=False)

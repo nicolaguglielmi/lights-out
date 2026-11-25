@@ -221,6 +221,7 @@ chmod +x "$rec_bin/curl" "$rec_bin/git" "$rec_bin/date"
 git init -q -b main "$t/wl"
 git -C "$t/wl" -c commit.gpgsign=false commit -q --allow-empty -m wl
 printf '{"title":"t","body":"b"}\n' > "$t/pr.json"
+printf '{"_type":"https://in-toto.io/Statement/v1","subject":[{"name":"wl","digest":{"gitCommit":"%s"}}]}\n' "$sha" > "$t/att.json"
 
 # vrun ROOT OUTDIR VERB ARGS...: one GitHub verb of ROOT in a clean environment,
 # the recorders first on PATH, the GIT_CONFIG_* the Makefile would give it, no
@@ -250,6 +251,7 @@ vcall() {  # ROOT OUTDIR VERB: the verb with arguments of the shape adapters/git
     await) vrun "$1" "$2" await "$sha" gates ;;
     pr) vrun "$1" "$2" pr 7 ;;
     merge) vrun "$1" "$2" merge 7 "$sha" ;;
+    attest) vrun "$1" "$2" attest "$sha" "$t/att.json" ;;
     *) vrun "$1" "$2" "$3" ;;
   esac
 }
@@ -275,7 +277,7 @@ recorder_flaw() {  # ROOT VERBS: the verbs of ROOT's adapters/github/ to run
   for v in $run_verbs; do
     d=$w/ok/$v
     case "$v" in
-      bootstrap | open-pr | status | await | pr | merge | ready)
+      bootstrap | open-pr | status | await | pr | merge | ready | attest)
         grep -qxF "Authorization: Bearer $tok" "$d/rec/curl.stdin" 2>/dev/null \
           || { printf '%s: no curl call carried "Authorization: Bearer <token>" on stdin; the check proved nothing' "$v"; return 0; }
         grep -qF '[-H] [@-]' "$d/rec/curl.argv" 2>/dev/null \
@@ -317,6 +319,15 @@ recorder_flaw() {  # ROOT VERBS: the verbs of ROOT's adapters/github/ to run
         || { printf 'bootstrap on a repository that is not attached: want one stderr line naming ./go attach, exit 1 and no call'; return 0; }
       ;;
   esac
+  case " $run_verbs " in
+    *" attest "*)
+      v_attached="" v_repo=o/r v_token=$tok v_token_unset=""
+      d=$w/unattached/attest
+      vcall "$root" "$d" attest
+      [ "$vrc" -eq 1 ] && [ "$(awk 'END{print NR}' "$d/err")" -eq 1 ] && [ ! -s "$d/out" ] && [ -z "$(ls -A "$d/rec")" ] \
+        || { printf 'attest on a repository that is not attached: want one stderr line, empty stdout, exit 1 and no call'; return 0; }
+      ;;
+  esac
   flaw=$(leak_flaw "$w")
   [ -z "$flaw" ] || { printf '%s' "$flaw"; return 0; }
   return 0
@@ -340,7 +351,9 @@ flaw=$(credential_flaw .)
 [ -z "$flaw" ] || nogo "$flaw"
 flaw=$(makefile_flaw Makefile)
 [ -z "$flaw" ] || nogo "$flaw"
-flaw=$(recorder_flaw . "$verbs")
+opt_verbs=""
+[ ! -f adapters/github/attest.sh ] || opt_verbs=" attest"
+flaw=$(recorder_flaw . "$verbs$opt_verbs")
 [ -z "$flaw" ] || nogo "$flaw"
 flaw=$(grep_flaw .)
 [ -z "$flaw" ] || nogo "$flaw"
@@ -383,7 +396,7 @@ done
 printf 'username=x-access-token\npassword=%s\n' "$GITHUB_TOKEN"
 HELPER
 fresh
-control=$(surface_flaw "$bad")$(grep_flaw "$bad")$(recorder_flaw "$bad" "pr push")
+control=$(surface_flaw "$bad")$(grep_flaw "$bad")$(recorder_flaw "$bad" "pr push attest")
 [ -z "$control" ] || nogo "the self-test's good tree is not judged good: $control"
 cp "$t/helper-good.sh" "$gh/credential.sh"
 control=$(credential_flaw "$bad")
@@ -486,6 +499,9 @@ expect "a refusal that does not name .env" "does not name .env" "$(recorder_flaw
 fresh
 printf '#!/bin/sh\nset -eu\nhere=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)\n. "$here/adapters/github/env.sh"\ntmp=$(mktemp)\ngithub_api GET "/repos/$GITHUB_REPO" "$tmp" >/dev/null\n' > "$gh/bootstrap.sh"
 expect "a bootstrap that serves a repository that is not attached" "not attached" "$(recorder_flaw "$bad" "bootstrap")"
+fresh
+printf '#!/bin/sh\nset -eu\nhere=$(CDPATH= cd -- "$(dirname -- "$0")/../.." && pwd)\n. "$here/adapters/github/env.sh"\ntmp=$(mktemp)\ngithub_api POST "/repos/$GITHUB_REPO/attestations" "$tmp" "{}" >/dev/null\n' > "$gh/attest.sh"
+expect "an attest.sh that serves a repository that is not attached" "not attached" "$(recorder_flaw "$bad" "attest")"
 # A poller that reads its deadline before its first call (373da51's shape).
 for pv in ready await; do
   fresh
