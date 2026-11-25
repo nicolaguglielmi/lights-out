@@ -372,7 +372,46 @@ def _compute_fallback_usd(run_obj, day):
     return round(float(usd), 6) if isinstance(usd, (int, float)) and not isinstance(usd, bool) else None
 
 
-def _build_agents(doc, missing):
+def _normalize_jury(raw):
+    """Normalize optional M37 jury metadata without fabricating absent fields."""
+    if not isinstance(raw, dict):
+        return None
+    if not any(k in raw for k in ("reviewer_provider", "cross_vendor", "mode")):
+        return None
+    cross = raw.get("cross_vendor")
+    return {
+        "mode": raw.get("mode") if isinstance(raw.get("mode"), str) else None,
+        "cross_vendor": cross if isinstance(cross, bool) else None,
+        "author_provider": raw.get("author_provider") if isinstance(raw.get("author_provider"), str) else None,
+        "reviewer_provider": raw.get("reviewer_provider") if isinstance(raw.get("reviewer_provider"), str) else None,
+        "reviewer_model": raw.get("reviewer_model") if isinstance(raw.get("reviewer_model"), str) else None,
+        "reviewer_harness": raw.get("reviewer_harness") if isinstance(raw.get("reviewer_harness"), str) else None,
+        "reason": raw.get("reason") if isinstance(raw.get("reason"), str) else None,
+    }
+
+
+def _discover_crew_jury(ticket, env):
+    """Read optional jury metadata from .crew/<ticket>/(review/)out/run.json if present."""
+    if not ticket:
+        return None
+    crew_dir = (env.get("CREW_DIR") or ".crew").strip() or ".crew"
+    for parts in ((crew_dir, ticket, "review", "out", "run.json"), (crew_dir, ticket, "out", "run.json")):
+        path = os.path.join(*parts)
+        if not os.path.isfile(path):
+            continue
+        try:
+            with open(path, encoding="utf-8") as fh:
+                obj = json.load(fh)
+        except (OSError, ValueError):
+            continue
+        if isinstance(obj, dict):
+            norm = _normalize_jury(obj.get("jury"))
+            if norm is not None:
+                return norm
+    return None
+
+
+def _build_agents(doc, missing, extra_jury=None):
     if not isinstance(doc, dict):
         return []
     candidates = []
@@ -435,7 +474,7 @@ def _build_agents(doc, missing):
         in_sha = run_obj.get("input_sha256")
         in_sha = in_sha.strip().lower() if isinstance(in_sha, str) and in_sha.strip() else None
 
-        agents.append({
+        entry = {
             "kind": kind,
             "role": role,
             "attempt": attempt_num if isinstance(attempt_num, int) and not isinstance(attempt_num, bool) else None,
@@ -447,7 +486,14 @@ def _build_agents(doc, missing):
             "input_sha256": in_sha,
             "tokens": tokens,
             "usd": usd,
-        })
+        }
+        raw_jury = run_obj.get("jury")
+        if raw_jury is None and kind == "review":
+            raw_jury = doc.get("jury") if isinstance(doc.get("jury"), dict) else extra_jury
+        norm_jury = _normalize_jury(raw_jury)
+        if norm_jury is not None:
+            entry["jury"] = norm_jury
+        agents.append(entry)
 
     if not agents:
         missing.append("agents")
@@ -705,34 +751,56 @@ def statement(env):
             "spec_title": None,
         }
 
+    crew_jury = _discover_crew_jury(ticket, env)
     intake_section = _build_intake(doc, store, missing)
     adrs_section = _discover_adrs(repo, doc, ticket, tickets_dir, missing)
-    agents_section = _build_agents(doc, missing)
+    agents_section = _build_agents(doc, missing, extra_jury=crew_jury)
     gates_section = _build_gates(doc, missing)
     merge_section = _build_merge(doc, missing)
     human_section = _build_human_gate(answer_tuple, missing)
+
+    rev_obj = doc.get("review") if isinstance(doc, dict) and isinstance(doc.get("review"), dict) else {}
+    arch_obj = doc.get("architect") if isinstance(doc, dict) and isinstance(doc.get("architect"), dict) else {}
+    review_jury = _normalize_jury(
+        rev_obj.get("jury")
+        or (doc.get("jury") if isinstance(doc, dict) else None)
+        or arch_obj.get("jury")
+        or crew_jury
+    )
 
     dedup_missing = []
     for item in missing:
         if item not in dedup_missing:
             dedup_missing.append(item)
 
+    predicate = {
+        "builder": {"id": BUILDER_ID},
+        "built_at": _now_iso(),
+        "ticket": ticket_section,
+        "intake": intake_section,
+        "adrs": adrs_section,
+        "agents": agents_section,
+        "gates": gates_section,
+        "merge": merge_section,
+        "human_gate": human_section,
+        "missing": dedup_missing,
+    }
+    if review_jury is not None:
+        base_rev = rev_obj if rev_obj else arch_obj
+        predicate["review"] = {
+            "role": base_rev.get("role") or ("architect" if (arch_obj and not rev_obj) else "test-reviewer"),
+            "verdict": base_rev.get("verdict"),
+            "provider": base_rev.get("provider") or review_jury.get("reviewer_provider"),
+            "model": base_rev.get("model") or review_jury.get("reviewer_model"),
+            "harness": base_rev.get("harness") or review_jury.get("reviewer_harness"),
+            "jury": review_jury,
+        }
+
     stmt = {
         "_type": STATEMENT_TYPE,
         "subject": subj,
         "predicateType": PREDICATE_TYPE,
-        "predicate": {
-            "builder": {"id": BUILDER_ID},
-            "built_at": _now_iso(),
-            "ticket": ticket_section,
-            "intake": intake_section,
-            "adrs": adrs_section,
-            "agents": agents_section,
-            "gates": gates_section,
-            "merge": merge_section,
-            "human_gate": human_section,
-            "missing": dedup_missing,
-        },
+        "predicate": predicate,
     }
     return subject_id, scrub_secrets(stmt)
 
@@ -820,6 +888,14 @@ def verify_statement(statement_path, bundle_path=None, key_path=None, repo_dir=N
         usd = agent.get("usd")
         if usd is not None and (isinstance(usd, bool) or not isinstance(usd, (int, float)) or usd < 0):
             raise Refused(f"predicate.agents[{idx}].usd must be a non-negative number or null")
+        if "jury" in agent and agent["jury"] is not None and not isinstance(agent["jury"], dict):
+            raise Refused(f"predicate.agents[{idx}].jury must be an object or null")
+
+    if "review" in pred and pred["review"] is not None:
+        if not isinstance(pred["review"], dict):
+            raise Refused("predicate.review must be an object or null")
+        if "jury" in pred["review"] and pred["review"]["jury"] is not None and not isinstance(pred["review"]["jury"], dict):
+            raise Refused("predicate.review.jury must be an object or null")
 
     if _has_unredacted_secret(stmt):
         raise Refused("statement contains unredacted secret material")

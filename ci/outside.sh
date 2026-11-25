@@ -1,17 +1,18 @@
 #!/bin/sh
 # SPDX-License-Identifier: Apache-2.0
 #
-# ci-outside: docs/adr/0058 & docs/adr/0104 proved cold, no engine, no network.
+# ci-outside: docs/adr/0058, docs/adr/0104, docs/adr/0116, docs/adr/0129
+# & docs/adr/0130 proved cold, no engine, no network.
 #   (a) adapters outside the repository, fixtures/outside-adapters/
-#       json-files, file-delivery and file-codehost copied out of the checkout:
+#       json-files, file-delivery, file-codehost, file-registry, file-flags,
+#       file-tracker, file-eventbus and file-harness copied out of the checkout:
 #       make refuses any goal in one line before anything runs; passing the
 #       port's suite / trial+register admits it; linked at adapters/outside/*;
 #       one changed byte (even mid-trial) is refused again; a broken copy fails
 #       the suite, is not registered and stays refused; a symlink inside the tree
 #       is refused; outside/ on a port with no suite (ORCHESTRATOR) is refused;
-#       AGENT_HARNESS, wired to no trial, is refused naming its suite; a suite
-#       beside another goal on one command line tries nothing; no trial record
-#       outlives a suite.
+#       a suite beside another goal on one command line tries nothing; no trial
+#       record outlives a suite.
 #   (b) other CIs are surfaces, never judges (§6): the Jenkins, GitLab CI
 #       and CircleCI recipes (docs/adr/0095 §10) each run the lights-out
 #       wrapper, post its line under their own status context, and that
@@ -118,9 +119,6 @@ refused "a symlink in the tree" "STATE_STORE=outside/json-linked is refused" "sy
 
 m help ORCHESTRATOR=outside/json-files
 refused "a port with no suite" "ORCHESTRATOR=outside/json-files is refused" "no conformance suite"
-
-m help AGENT_HARNESS=outside/json-files
-refused "an outside harness, left (§1)" "AGENT_HARNESS=outside/json-files is refused" "harness-conformance"
 
 # A goal beside a suite is not a trial: it is admitted, or refused, first.
 m statestore-conformance STATE_STORE=outside/json-broken help
@@ -552,6 +550,89 @@ ln -s /etc/hostname "$ext/file-eventbus-linked/extra.sh"
 m help EVENT_BUS=outside/file-eventbus-linked
 refused "eventbus symlink in tree" "EVENT_BUS=outside/file-eventbus-linked is refused" "symlink"
 
+# --- a6: AGENT_HARNESS=outside/file-harness (ADR 0130) ---
+cp -R fixtures/outside-adapters/file-harness "$ext/file-harness"
+ah_var="AGENT_HARNESS=outside/file-harness"
+
+m help "$ah_var"
+refused "harness no proof" "$ah_var is refused" "harness-conformance GO" "./go harness-conformance $ah_var"
+[ ! -e "$root/adapters/outside/file-harness" ] || nogo "a6: no proof linked file-harness anyway"
+
+cp -R fixtures/outside-adapters/file-harness "$ext/file-harness-tamper"
+before_reg=$(cat "$reg")
+(cd "$root" && AGENT_HARNESS=outside/file-harness-tamper ADAPTERS_PATH="$ext" ADAPTERS_REGISTER="$reg" python3 core/adapters.py trial AGENT_HARNESS) \
+  || nogo "a6: trial file-harness-tamper failed"
+printf '\n' >> "$ext/file-harness-tamper/version.sh"
+tamper_rc=0
+(cd "$root" && AGENT_HARNESS=outside/file-harness-tamper ADAPTERS_PATH="$ext" ADAPTERS_REGISTER="$reg" python3 core/adapters.py register AGENT_HARNESS harness-conformance >/dev/null 2>&1) || tamper_rc=$?
+[ "$tamper_rc" -ne 0 ] || nogo "a6: register accepted harness tree mutated during trial"
+(cd "$root" && ADAPTERS_REGISTER="$reg" python3 core/adapters.py untrial AGENT_HARNESS) >/dev/null 2>&1 || true
+[ "$(cat "$reg")" = "$before_reg" ] || nogo "a6: mutated harness trial wrote to register"
+[ ! -e "$tmp/trial-AGENT_HARNESS" ] || nogo "a6: untrial left trial-AGENT_HARNESS behind"
+
+(cd "$root" && AGENT_HARNESS=outside/file-harness ADAPTERS_PATH="$ext" ADAPTERS_REGISTER="$reg" python3 core/adapters.py trial AGENT_HARNESS) \
+  || nogo "a6: trial AGENT_HARNESS failed"
+[ -e "$tmp/trial-AGENT_HARNESS" ] || nogo "a6: trial-AGENT_HARNESS record missing"
+m help "$ah_var"
+refused "harness on trial without ADAPTERS_TRIAL" "$ah_var is refused"
+m help "$ah_var" ADAPTERS_TRIAL=AGENT_HARNESS
+admitted "file-harness during trial with ADAPTERS_TRIAL=AGENT_HARNESS"
+
+ah_dir="$root/adapters/outside/file-harness"
+ver_out=$(sh "$ah_dir/version.sh") || nogo "a6: file-harness version.sh failed"
+case "$ver_out" in file-harness*) ;; *) nogo "a6: unexpected version.sh output: $ver_out" ;; esac
+
+ws_ah="$tmp/ws-ah"
+out_ah="$tmp/out-ah"
+mkdir -p "$ws_ah" "$out_ah"
+git -C "$ws_ah" init -q -b main 2>/dev/null || { git -C "$ws_ah" init -q && git -C "$ws_ah" symbolic-ref HEAD refs/heads/main; }
+printf 'base\n' > "$ws_ah/README.md"
+git -C "$ws_ah" add README.md
+GIT_AUTHOR_NAME=ci GIT_AUTHOR_EMAIL=ci@localhost GIT_COMMITTER_NAME=ci GIT_COMMITTER_EMAIL=ci@localhost \
+  git -C "$ws_ah" commit -q -m "initial"
+ah_base=$(git -C "$ws_ah" rev-parse HEAD)
+printf 'Ticket 0001: verify outside harness.\n' > "$tmp/ah-ticket.md"
+ah_in_sha=$(python3 -c 'import hashlib,sys; print(hashlib.sha256(open(sys.argv[1],"rb").read()).hexdigest())' "$tmp/ah-ticket.md")
+
+ROLE=dev-worker TICKET=0001 WORKSPACE="$ws_ah" BASE="$ah_base" OUT="$out_ah" \
+  TICKET_FILE="$tmp/ah-ticket.md" THINKING=high MAX_TURNS=4 TIMEOUT_S=30 TOKEN_BUDGET=2500 \
+  sh "$ah_dir/run.sh" || nogo "a6: file-harness run.sh failed"
+sh core/harness-check.sh "$out_ah" "$ws_ah" "$ah_base" || nogo "a6: file-harness output failed core/harness-check.sh"
+[ "$(jq -r '.harness' "$out_ah/run.json")" = "outside/file-harness" ] || nogo "a6: bad run.json .harness"
+[ "$(jq -r '.exit_code' "$out_ah/run.json")" = "0" ] || nogo "a6: bad run.json .exit_code"
+[ "$(jq -r '.input_sha256' "$out_ah/run.json")" = "$ah_in_sha" ] || nogo "a6: run.json .input_sha256 mismatch"
+[ -s "$out_ah/hooks.log" ] || nogo "a6: file-harness wrote empty hooks.log"
+! grep -qvE '^(ALLOW [^ ]+ -|DENY [^ ]+ .+)$' "$out_ah/hooks.log" || nogo "a6: malformed hooks.log"
+
+out_ah_rev="$tmp/out-ah-rev"
+mkdir -p "$out_ah_rev"
+ROLE=test-reviewer TICKET=0001 WORKSPACE="$ws_ah" BASE="$(git -C "$ws_ah" rev-parse HEAD)" OUT="$out_ah_rev" \
+  TICKET_FILE="$tmp/ah-ticket.md" THINKING=medium MAX_TURNS=4 TIMEOUT_S=30 TOKEN_BUDGET=2500 \
+  sh "$ah_dir/run.sh" || nogo "a6: file-harness reviewer run.sh failed"
+[ "$(head -n1 "$out_ah_rev/final.md")" = "APPROVED" ] || nogo "a6: reviewer final.md did not start with APPROVED"
+
+ah_digest=$(python3 core/adapters.py hash "$ext/file-harness")
+(cd "$root" && AGENT_HARNESS=outside/file-harness ADAPTERS_PATH="$ext" ADAPTERS_REGISTER="$reg" python3 core/adapters.py register AGENT_HARNESS harness-conformance) \
+  || nogo "a6: register AGENT_HARNESS failed"
+[ ! -e "$tmp/trial-AGENT_HARNESS" ] || nogo "a6: register AGENT_HARNESS left trial-AGENT_HARNESS behind"
+awk -F'\t' -v d="$ah_digest" '$1 == "AGENT_HARNESS" && $2 == "file-harness" && $3 == d && index($4, "harness-conformance@") == 1 { f = 1 } END { exit !f }' "$reg" 2>/dev/null \
+  || nogo "a6: register AGENT_HARNESS wrote no line for sha256 $ah_digest"
+
+rm -f "$root/adapters/outside/file-harness"
+m help "$ah_var"
+admitted "file-harness after register"
+[ -L "$root/adapters/outside/file-harness" ] || nogo "a6: admitted AGENT_HARNESS not linked"
+[ "$(readlink "$root/adapters/outside/file-harness")" = "$ext/file-harness" ] || nogo "a6: AGENT_HARNESS link mismatch"
+
+printf '\n' >> "$ext/file-harness/version.sh"
+m help "$ah_var"
+refused "harness one changed byte" "$ah_var is refused"
+
+cp -R fixtures/outside-adapters/file-harness "$ext/file-harness-linked"
+ln -s /etc/hostname "$ext/file-harness-linked/extra.sh"
+m help AGENT_HARNESS=outside/file-harness-linked
+refused "harness symlink in tree" "AGENT_HARNESS=outside/file-harness-linked is refused" "symlink"
+
 # --- b: a surface is never a judge (ADR 0058 §6, ADR 0095 §10) -------------------
 # The contexts the tower posts: the third argument of every status.sh call in core/.
 tower=$({
@@ -601,4 +682,4 @@ surfaces/gitlab-ci/.gitlab-ci.yml lights-out/gitlab-ci failed
 surfaces/circleci/config.yml lights-out/circleci failure
 EOF
 
-go_with "outside StateStore, Delivery, CodeHost, Registry, Flags, Tracker and EventBus refused, proven, admitted, refused again on one byte; the surfaces post under${contexts}, the tower under $(printf '%s' "$tower" | tr '\n' ' ' | sed 's/ $//')"
+go_with "outside StateStore, Delivery, CodeHost, Registry, Flags, Tracker, EventBus and AgentHarness refused, proven, admitted, refused again on one byte; the surfaces post under${contexts}, the tower under $(printf '%s' "$tower" | tr '\n' ' ' | sed 's/ $//')"
