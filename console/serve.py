@@ -726,9 +726,9 @@ class Handler(BaseHTTPRequestHandler):
             return self.send(409, {"error": "another press is running"})
         try:
             line, rc = self.run_ops(["sh", "core/console_ops.sh", "rollback", "--reason", reason, "--by", who])
-            return self.send(200, {"line": line, "exit": rc})
         finally:
-            press.release()
+            press.release()  # before the answer: a press sent on the 200 must find the lock free
+        return self.send(200, {"line": line, "exit": rc})
 
     def ops_freeze(self, who):
         code, msg = self._reject_unavailable_write("freeze")
@@ -748,9 +748,9 @@ class Handler(BaseHTTPRequestHandler):
             return self.send(409, {"error": "another press is running"})
         try:
             line, rc = self.run_ops(["sh", "core/console_ops.sh", "freeze", "--state", st, "--reason", reason, "--by", who])
-            return self.send(200, {"state": st, "line": line, "exit": rc})
         finally:
-            press.release()
+            press.release()  # before the answer: a press sent on the 200 must find the lock free
+        return self.send(200, {"state": st, "line": line, "exit": rc})
 
     def intake(self, who):
         """A client's words (docs/adr/0090 §8): `make intake` with the text as
