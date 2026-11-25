@@ -1,6 +1,6 @@
 # ADR 0103 — Dual-mode Junior + Expert Guided End-to-End Experience (`./go start`, `./go next`, and Console lifecycle guide)
 
-- Status: proposed
+- Status: accepted
 - Date: 2026-11-24
 - Milestone: Track 4 — Dual-mode Guided End-to-End Experience
 - Amends: ADR 0059 (adds `section#journey` after existing `#overview` panels while preserving `#your-turn` first); ADR 0097 (connects the seven-level path to live local repository state via `./go start` and `./go next`)

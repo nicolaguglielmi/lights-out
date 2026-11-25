@@ -1,6 +1,6 @@
 # ADR 0085 — The flow strip: one row of nodes per ticket, from the request to 100%, each with its verdict, its time and its one-line reason, computed by the logbook and drawn on the card, its back and its timeline
 
-- Status: proposed
+- Status: accepted
 - Date: 2026-11-14
 - Milestone: M52 (docs/PLAN.md, "Sprint 2026-11-14 — Il flusso a colpo
   d'occhio")

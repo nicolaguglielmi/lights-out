@@ -1,6 +1,6 @@
 # ADR 0068 — The kanban that is looked at: Trello's look without Trello's drag, a card face with labels and a badge row, a modal back for the drawer, a moved card that flies, a "Your turn only" filter, AA contrast proven in both themes
 
-- Status: proposed
+- Status: accepted
 - Date: 2026-11-10
 - Milestone: M17, second slice
 - Amends: ADR 0059 §1 (the drawer becomes the card's back, a modal

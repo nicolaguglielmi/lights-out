@@ -1,6 +1,6 @@
 # ADR 0097 — From zero to hero: a levelled path at the head of the tutorial, a dev container for a start with nothing installed, and the frozen console first on the site
 
-- Status: proposed (M64)
+- Status: accepted (M64)
 - Date: 2026-11-16
 - Milestone: M64 (docs/PLAN.md, "M64 — Da zero a eroe, e un avvio senza
   installare niente (ADR 0097)")

@@ -1,6 +1,6 @@
 # ADR 0076 — A mutant runs the tests that reach it: per-test coverage from the clean run selects them, the whole suite when coverage cannot say
 
-- Status: proposed (amends ADR 0015 §3 [the test command runs whole for every mutant]; keeps ADR 0074's amendment [the shards])
+- Status: accepted (amends ADR 0015 §3 [the test command runs whole for every mutant]; keeps ADR 0074's amendment [the shards])
 - Date: 2026-11-11
 
 ## Context

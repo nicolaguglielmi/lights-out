@@ -1,6 +1,6 @@
 # ADR 0087 — Budget burn and projection: the ledger counts the runs that stop without a PR, the spend panel shows the burn per hour and the day's projection against its limit, and the run in flight shows its tokens against `TOKEN_BUDGET` with a warning before the stop
 
-- Status: proposed
+- Status: accepted
 - Date: 2026-11-14
 - Amended by: ADR 0092 §7 (the budget, and the 80% warning, are the provider's `TOKEN_BUDGET_<PROVIDER>` when the role sets one)
 - Milestone: M54 (docs/PLAN.md, "Sprint 2026-11-14 — Il flusso a colpo

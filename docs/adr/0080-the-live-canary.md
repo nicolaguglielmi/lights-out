@@ -1,6 +1,6 @@
 # ADR 0080 — The live canary: each stage records when it started, when it was judged and its numbers as structures; the in-progress record names the running stage; a rollback records its reason; the console shows the stage in course and the rollback as they happen, one point per stage
 
-- Status: proposed
+- Status: accepted
 - Date: 2026-11-12
 - Milestone: M46 (docs/PLAN.md, "Sprint 2026-11-12", stream A, third slice)
 - Amends: ADR 0020 §4 and ADR 0025 §7 (the release record's stage entry

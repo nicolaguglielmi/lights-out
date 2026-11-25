@@ -1,6 +1,6 @@
 # ADR 0072 — Security scanning: SAST judges the diff, a signed SBOM per release, a passive DAST at staging
 
-- Status: proposed, deferred by the owner on 2026-11-11, then asked to be built the same day as M42 in three slices (renumbered M43 when it landed, M42 being ADR 0073's); 2026-11-11, decision 1 (SAST on the diff), decision 2 (the SBOM) and decision 3 (DAST at staging, off by default) built the same day, decision 4 in part; 2026-11-12, the scanner runs on one passive-scan thread ("The stable against itself"); see "Built" below
+- Status: accepted, deferred by the owner on 2026-11-11, then asked to be built the same day as M42 in three slices (renumbered M43 when it landed, M42 being ADR 0073's); 2026-11-11, decision 1 (SAST on the diff), decision 2 (the SBOM) and decision 3 (DAST at staging, off by default) built the same day, decision 4 in part; 2026-11-12, the scanner runs on one passive-scan thread ("The stable against itself"); see "Built" below
 - Date: 2026-11-11
 - Would amend: ADR 0015 §4 and ADR 0030 §3 (the SAST verdict and the runner's output), ADR 0053 §6 (`sast` leaves the green-base check), ADR 0024 and 0026 (an optional fifth Delivery verb), ADR 0013 §4 (a check at staging), ADR 0025 §1 (`publish.sh` also attests)
 

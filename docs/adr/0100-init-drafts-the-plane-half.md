@@ -1,6 +1,6 @@
 # ADR 0100 — `init` drafts the plane half when a container build file exists
 
-- Status: proposed (M66)
+- Status: accepted (M66)
 - Date: 2026-11-24
 - Milestone: M66
 - Amends: [ADR 0097 §4](0097-from-zero-to-hero-and-a-start-with-nothing-installed.md) (removes the blocker against drafting the plane half); [ADR 0042 §6–§7](0042-gates-anywhere-init-and-the-toolchain-contract.md) (`init` drafts the plane half alongside the gates half when a container build file exists); [ADR 0064 §3](0064-the-first-run-drafts-the-contract.md) (`init/summary.md` lists drafted plane files); [ADR 0098 §3–§4](0098-verify-from-the-proxy.md) (`WORKLOAD_PORT` extends the proxy/probe port beyond `8000`)

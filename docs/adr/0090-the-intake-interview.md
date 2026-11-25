@@ -1,6 +1,6 @@
 # ADR 0090 — The intake interview: a raw request, a guided conversation with `product`, proposed tickets with a perimeter from `architect`, and a person who confirms each one
 
-- Status: proposed (M57); amended 2026-11-14 (turn caps, the perimeter's search in one call)
+- Status: accepted (M57); amended 2026-11-14 (turn caps, the perimeter's search in one call)
 - Date: 2026-11-14
 - Milestone: M57 (docs/PLAN.md, "M57 — Il colloquio di intake (ADR 0090)")
 - Amends: ADR 0055 §1 (the tower's table gains four states and three

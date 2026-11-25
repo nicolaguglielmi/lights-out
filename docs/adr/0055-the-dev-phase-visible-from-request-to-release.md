@@ -1,6 +1,6 @@
 # ADR 0055 — The dev phase visible: three tower states before the ticket, the `product` role asks or confirms, a deterministic spec gate, one timeline per ticket and a read-only kanban in the console
 
-- Status: proposed
+- Status: accepted
 - Date: 2026-11-07
 - Milestone: M29
 - Amends: ADR 0019 §1 (the transition table gains three states and three steps); ADR 0023 §2(a) and ADR 0047 §3 (the console's second write, answering the product role, comes back, mirroring `./go answer`); ADR 0047 §2 (the logbook goes to 1.1) and §7 (the chain screen becomes the timeline; an overview screen joins); ADR 0020 §1 (the `adk` harness takes the owner's answers as later turns of one conversation).

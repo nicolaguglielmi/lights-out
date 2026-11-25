@@ -1,6 +1,6 @@
 # ADR 0089 — A read-only console snapshot: the console's own page with the logbook inlined, one file, nothing behind it
 
-- Status: proposed (M56)
+- Status: accepted (M56)
 - Date: 2026-11-14
 - Milestone: M56 (docs/PLAN.md, "Sprint 2026-11-14 — Il flusso a colpo d'occhio (M52–M56)", stream B)
 

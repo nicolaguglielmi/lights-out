@@ -1,6 +1,6 @@
 # ADR 0061 — Gates without a container: a standard-library package, `lights-out` on PyPI, runs the gates that need only git and Python as `gates --light`, names the ones that need the image, and never prints `GO: gates`
 
-- Status: proposed (amends ADR 0052 §3 [modules import their siblings relatively; one more excused process call]; ADR 0045 §6 [the hook recipes gain a `--light` variant])
+- Status: accepted (amends ADR 0052 §3 [modules import their siblings relatively; one more excused process call]; ADR 0045 §6 [the hook recipes gain a `--light` variant])
 - Date: 2026-11-08
 - Milestone: M35
 

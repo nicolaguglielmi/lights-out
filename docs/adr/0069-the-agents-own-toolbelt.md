@@ -1,6 +1,6 @@
 # ADR 0069 — The agent's own toolbelt: a Claude Code plugin served by this repository as its own marketplace, and `lights-out-gates mcp`, a read-only MCP server over the project map and the spec gate
 
-- Status: proposed (supersedes ADR 0054's "No MCP server" [§6 and the rejected alternative] for a read-only server the client launches; amends ADR 0061 §5 [the package's commands and its unknown-command line] and §10 [the server's place]; `core/map.py`'s `open_map` names the rebuild command its caller gives)
+- Status: accepted (supersedes ADR 0054's "No MCP server" [§6 and the rejected alternative] for a read-only server the client launches; amends ADR 0061 §5 [the package's commands and its unknown-command line] and §10 [the server's place]; `core/map.py`'s `open_map` names the rebuild command its caller gives)
 - Date: 2026-11-10
 - Milestone: M39, first slice
 

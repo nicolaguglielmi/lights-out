@@ -1,6 +1,6 @@
 # ADR 0105 — Plane and full E2E workflow from the single `lights-out` wrapper
 
-- Status: proposed (M67)
+- Status: accepted (M67)
 - Date: 2026-11-24
 - Milestone: M67
 - Amends: [ADR 0045](0045-one-command-one-package.md) (`lights-out` remains socket-free for read-only/gates and state-only commands while adding opt-in engine-socket mounting and host-mirrored `$out/platform` staging for plane and full E2E workflow commands)

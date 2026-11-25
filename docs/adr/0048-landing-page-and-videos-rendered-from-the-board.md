@@ -1,6 +1,6 @@
 # ADR 0048 — A landing page on GitHub Pages, with its videos rendered from the board in CI
 
-- Status: proposed (amends ADR 0035 §6 [the explainer is also hosted on Pages, the same file, served alone]; ci/gitea-compat.sh [lifts two checks for the Pages workflow])
+- Status: accepted (amends ADR 0035 §6 [the explainer is also hosted on Pages, the same file, served alone]; ci/gitea-compat.sh [lifts two checks for the Pages workflow])
 - Date: 2026-11-05
 - Milestone: visibility plan, after v0.1.0
 

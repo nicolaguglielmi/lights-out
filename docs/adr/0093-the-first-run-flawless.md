@@ -1,6 +1,6 @@
 # ADR 0093 — The first run, flawless: a preflight that moves a busy port, a demo that counts its steps, the repository's checks beside the plane, and the run's own console at the end
 
-- Status: proposed (M60)
+- Status: accepted (M60)
 - Date: 2026-11-16
 - Milestone: M60 (docs/PLAN.md, "Sprint 2026-11-16 (M58–M63)", "M60 — Il
   primo avvio senza intoppi (ADR 0093)")

@@ -1,6 +1,6 @@
 # ADR 0108 — `.crew/start-plan.env` Auto-Wiring, Explicit `--engine` Opt-In for Wrapper Gates, and Promote-to-Stable Clarity
 
-- Status: proposed
+- Status: accepted
 - Date: 2026-11-24
 - Milestone: Track 2 — UX Glue (`agy/p2-ux-glue`)
 - Amends:

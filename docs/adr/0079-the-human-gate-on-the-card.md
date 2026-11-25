@@ -1,6 +1,6 @@
 # ADR 0079 — The human gate on the card: the held release's card is the one card that drags, onto "Promote to 100%" or "Rollback"; the drop opens the same panel as the launch screen's buttons, nothing moves without its confirmation, and the record keeps the reason and the brief answered
 
-- Status: proposed
+- Status: accepted
 - Date: 2026-11-12
 - Milestone: M45 (docs/PLAN.md, "Sprint 2026-11-12", stream A, second slice)
 - Amends, for this one gesture only and by the owner's decision of

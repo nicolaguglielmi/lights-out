@@ -1,6 +1,6 @@
 # ADR 0052 — Where shell is allowed: the host, the contracts and thin entry points; logic in Python under `core/`, held by a ratchet
 
-- Status: proposed
+- Status: accepted
 - Date: 2026-11-06
 
 ## Context

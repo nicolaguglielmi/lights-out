@@ -1,6 +1,6 @@
 # ADR 0062 — `contract` judges the run: each `./go ci` check writes its stdout and exit code to a per-run record under `.crew/ci/`, and `contract` judges those records instead of running the checks a second time
 
-- Status: proposed (amends ADR 0060 §7 [the `ci` stage runs each check once; where the time is]; ADR 0011 §4 [a `ci/` check this `./go ci` already ran is judged from its record, not run again; the scan is unchanged])
+- Status: accepted (amends ADR 0060 §7 [the `ci` stage runs each check once; where the time is]; ADR 0011 §4 [a `ci/` check this `./go ci` already ran is judged from its record, not run again; the scan is unchanged])
 - Date: 2026-11-09
 - Milestone: M34
 

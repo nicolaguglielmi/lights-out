@@ -1,6 +1,6 @@
 # ADR 0078 — The why of a NO-GO, one click away: logbook 1.4 gives every rejected attempt a `why` (the gate, its line, its details and, for `sast`, the new findings), withheld until the attempt's `secrets` gate said GO; a click or Enter on any red gate opens one panel with it, the attempt, the attempts left and the next move
 
-- Status: proposed
+- Status: accepted
 - Date: 2026-11-12
 - Milestone: M47 (docs/PLAN.md, "Sprint 2026-11-12", stream A, first slice)
 - Amends: ADR 0047 §2 (the logbook goes to 1.4: optional additions, and

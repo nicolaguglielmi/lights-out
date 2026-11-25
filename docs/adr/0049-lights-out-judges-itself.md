@@ -1,6 +1,6 @@
 # ADR 0049 — lights-out judges its own changes: a hand-written contract at the root, the Action on every push and pull request with a judge built from the base, and the gates that cover only part of the repository said so
 
-- Status: proposed (amended by ADR 0074 §1 [a push is judged from its last green first-parent ancestor, not HEAD^1]; amends ADR 0042 §4 and resolved 10, ADR 0037 §3 [an attached repository's history finding is excused only by a fingerprint in the base's `.lights-out/.gitleaksignore`]; amends ADR 0042 §6 [init lists history findings; the python runners skip tests inside the package])
+- Status: accepted (amended by ADR 0074 §1 [a push is judged from its last green first-parent ancestor, not HEAD^1]; amends ADR 0042 §4 and resolved 10, ADR 0037 §3 [an attached repository's history finding is excused only by a fingerprint in the base's `.lights-out/.gitleaksignore`]; amends ADR 0042 §6 [init lists history findings; the python runners skip tests inside the package])
 - Date: 2026-11-05
 
 ## Context

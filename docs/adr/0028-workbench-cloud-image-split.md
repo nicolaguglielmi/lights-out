@@ -1,6 +1,6 @@
 # ADR 0028 — gcloud and terraform leave the base workbench for `workbench/cloud/Containerfile`, built `FROM` it; the profile says which flavour it needs and `./go` reads that one line
 
-- Status: accepted (amends ADR 0004 §1 [the tool list of the base image loses gcloud and terraform] and its first consequence [the 1 GB image that "serves nobody before M8" is answered here]; consistent with ADR 0012 §3 [the runner image is already built `FROM` the workbench image]); amended by ADR 0057 [never built until M31: gcloud and terraform leave the base now, the cloud image and `WORKBENCH_FLAVOUR` are written with L2]
+- Status: superseded by ADR 0057 (reconciled at v1.0.0: `workbench/cloud/` and `WORKBENCH_FLAVOUR` were never built; `workbench/Containerfile` consolidated image stages under ADR 0057; originally: amends ADR 0004 §1 [the tool list of the base image loses gcloud and terraform] and its first consequence [the 1 GB image that "serves nobody before M8" is answered here]; consistent with ADR 0012 §3 [the runner image is already built `FROM` the workbench image]); amended by ADR 0057 [never built until M31: gcloud and terraform leave the base now, the cloud image and `WORKBENCH_FLAVOUR` are written with L2]
 - Date: 2026-09-20
 - Milestone: M8
 

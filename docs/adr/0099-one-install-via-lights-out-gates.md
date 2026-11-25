@@ -1,6 +1,6 @@
 # ADR 0099 — One install via `lights-out-gates`: ship the POSIX `lights-out` wrapper beside `lights-out-gates` in one wheel so `uv tool install lights-out-gates` puts both on PATH
 
-- Status: proposed
+- Status: accepted
 - Date: 2026-11-23
 - Milestone: M69
 - Amends: ADR 0061 (amendment of 2026-11-09 §2: the package ships the POSIX `lights-out` wrapper alongside `lights-out-gates` via `script-files`); ADR 0045 (§2, §7: wrapper installation gains `uv tool install lights-out-gates` beside raw-URL `curl`, and the wrapper accepts `--version`); ADR 0075 (§1, §4: `package.yml`'s `dist` job verifies `lights-out` inside and from the wheel, and release notes carry the single install command)
