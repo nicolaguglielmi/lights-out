@@ -1,0 +1,1058 @@
+{
+  "schema": "lights-out/reviewer-catch-rate/1",
+  "date": "2026-11-25",
+  "environment": "localhost/lights-out-workbench:4150781479 (Podman)",
+  "suite": {
+    "fixtures_dir": "fixtures/reviewer-eval",
+    "cases_total": 12,
+    "defective_total": 6,
+    "clean_total": 6,
+    "roles": {
+      "test-reviewer": 9,
+      "architect": 3
+    }
+  },
+  "runs": [
+    {
+      "provider": "deterministic-gates",
+      "harness": "core/reviewer_eval.py",
+      "model": null,
+      "status": "executed",
+      "profile": "l0",
+      "metrics": {
+        "cases_total": 12,
+        "cases_evaluated": 12,
+        "cases_skipped": 0,
+        "defective_total": 6,
+        "clean_total": 6,
+        "defective_evaluated": 6,
+        "clean_evaluated": 6,
+        "caught": 2,
+        "missed": 4,
+        "false_positives": 0,
+        "true_negatives": 6,
+        "precision": 1.0,
+        "recall": 0.3333,
+        "f1": 0.5,
+        "accuracy": 0.6667,
+        "false_positive_rate": 0.0,
+        "per_class": {
+          "tautological-assertion": {
+            "expected_defective": true,
+            "total": 1,
+            "evaluated": 1,
+            "caught": 0,
+            "missed": 1,
+            "false_positives": 0,
+            "approved_clean": 0,
+            "catch_rate": 0.0
+          },
+          "silent-exception-swallow": {
+            "expected_defective": true,
+            "total": 1,
+            "evaluated": 1,
+            "caught": 0,
+            "missed": 1,
+            "false_positives": 0,
+            "approved_clean": 0,
+            "catch_rate": 0.0
+          },
+          "perimeter-escape": {
+            "expected_defective": true,
+            "total": 1,
+            "evaluated": 1,
+            "caught": 1,
+            "missed": 0,
+            "false_positives": 0,
+            "approved_clean": 0,
+            "catch_rate": 1.0
+          },
+          "off-by-one-boundary": {
+            "expected_defective": true,
+            "total": 1,
+            "evaluated": 1,
+            "caught": 0,
+            "missed": 1,
+            "false_positives": 0,
+            "approved_clean": 0,
+            "catch_rate": 0.0
+          },
+          "missing-regression-test": {
+            "expected_defective": true,
+            "total": 1,
+            "evaluated": 1,
+            "caught": 0,
+            "missed": 1,
+            "false_positives": 0,
+            "approved_clean": 0,
+            "catch_rate": 0.0
+          },
+          "unsafe-sql-migration": {
+            "expected_defective": true,
+            "total": 1,
+            "evaluated": 1,
+            "caught": 1,
+            "missed": 0,
+            "false_positives": 0,
+            "approved_clean": 0,
+            "catch_rate": 1.0
+          },
+          "clean-bugfix": {
+            "expected_defective": false,
+            "total": 4,
+            "evaluated": 4,
+            "caught": 0,
+            "missed": 0,
+            "false_positives": 0,
+            "approved_clean": 4,
+            "pass_rate": 1.0
+          },
+          "clean-expand-migration": {
+            "expected_defective": false,
+            "total": 1,
+            "evaluated": 1,
+            "caught": 0,
+            "missed": 0,
+            "false_positives": 0,
+            "approved_clean": 1,
+            "pass_rate": 1.0
+          },
+          "clean-contract-migration": {
+            "expected_defective": false,
+            "total": 1,
+            "evaluated": 1,
+            "caught": 0,
+            "missed": 0,
+            "false_positives": 0,
+            "approved_clean": 1,
+            "pass_rate": 1.0
+          }
+        }
+      },
+      "tokens": {
+        "input": 0,
+        "output": 0,
+        "thoughts": 0,
+        "cached": 0,
+        "total": 0
+      },
+      "cost_usd": {
+        "list_usd": 0.0,
+        "cached_adjusted_usd": 0.0
+      }
+    },
+    {
+      "provider": "gemini",
+      "harness": "google-genai",
+      "model": "gemini-3.8-flash",
+      "thinking": "high",
+      "status": "executed",
+      "profile": "l1",
+      "reviewer_only": {
+        "cases_total": 12,
+        "cases_evaluated": 12,
+        "cases_skipped": 0,
+        "defective_total": 6,
+        "clean_total": 6,
+        "defective_evaluated": 6,
+        "clean_evaluated": 6,
+        "caught": 5,
+        "missed": 1,
+        "false_positives": 0,
+        "true_negatives": 6,
+        "precision": 1.0,
+        "recall": 0.8333,
+        "f1": 0.9091,
+        "accuracy": 0.9167,
+        "false_positive_rate": 0.0,
+        "per_class": {
+          "tautological-assertion": {
+            "expected_defective": true,
+            "total": 1,
+            "evaluated": 1,
+            "caught": 1,
+            "missed": 0,
+            "false_positives": 0,
+            "approved_clean": 0,
+            "catch_rate": 1.0
+          },
+          "silent-exception-swallow": {
+            "expected_defective": true,
+            "total": 1,
+            "evaluated": 1,
+            "caught": 1,
+            "missed": 0,
+            "false_positives": 0,
+            "approved_clean": 0,
+            "catch_rate": 1.0
+          },
+          "perimeter-escape": {
+            "expected_defective": true,
+            "total": 1,
+            "evaluated": 1,
+            "caught": 1,
+            "missed": 0,
+            "false_positives": 0,
+            "approved_clean": 0,
+            "catch_rate": 1.0
+          },
+          "off-by-one-boundary": {
+            "expected_defective": true,
+            "total": 1,
+            "evaluated": 1,
+            "caught": 1,
+            "missed": 0,
+            "false_positives": 0,
+            "approved_clean": 0,
+            "catch_rate": 1.0
+          },
+          "missing-regression-test": {
+            "expected_defective": true,
+            "total": 1,
+            "evaluated": 1,
+            "caught": 1,
+            "missed": 0,
+            "false_positives": 0,
+            "approved_clean": 0,
+            "catch_rate": 1.0
+          },
+          "unsafe-sql-migration": {
+            "expected_defective": true,
+            "total": 1,
+            "evaluated": 1,
+            "caught": 0,
+            "missed": 1,
+            "false_positives": 0,
+            "approved_clean": 0,
+            "catch_rate": 0.0
+          },
+          "clean-bugfix": {
+            "expected_defective": false,
+            "total": 4,
+            "evaluated": 4,
+            "caught": 0,
+            "missed": 0,
+            "false_positives": 0,
+            "approved_clean": 4,
+            "pass_rate": 1.0
+          },
+          "clean-expand-migration": {
+            "expected_defective": false,
+            "total": 1,
+            "evaluated": 1,
+            "caught": 0,
+            "missed": 0,
+            "false_positives": 0,
+            "approved_clean": 1,
+            "pass_rate": 1.0
+          },
+          "clean-contract-migration": {
+            "expected_defective": false,
+            "total": 1,
+            "evaluated": 1,
+            "caught": 0,
+            "missed": 0,
+            "false_positives": 0,
+            "approved_clean": 1,
+            "pass_rate": 1.0
+          }
+        }
+      },
+      "combined_with_gates": {
+        "cases_total": 12,
+        "cases_evaluated": 12,
+        "cases_skipped": 0,
+        "defective_total": 6,
+        "clean_total": 6,
+        "defective_evaluated": 6,
+        "clean_evaluated": 6,
+        "caught": 6,
+        "missed": 0,
+        "false_positives": 0,
+        "true_negatives": 6,
+        "precision": 1.0,
+        "recall": 1.0,
+        "f1": 1.0,
+        "accuracy": 1.0,
+        "false_positive_rate": 0.0,
+        "per_class": {
+          "tautological-assertion": {
+            "expected_defective": true,
+            "total": 1,
+            "evaluated": 1,
+            "caught": 1,
+            "missed": 0,
+            "false_positives": 0,
+            "approved_clean": 0,
+            "catch_rate": 1.0
+          },
+          "silent-exception-swallow": {
+            "expected_defective": true,
+            "total": 1,
+            "evaluated": 1,
+            "caught": 1,
+            "missed": 0,
+            "false_positives": 0,
+            "approved_clean": 0,
+            "catch_rate": 1.0
+          },
+          "perimeter-escape": {
+            "expected_defective": true,
+            "total": 1,
+            "evaluated": 1,
+            "caught": 1,
+            "missed": 0,
+            "false_positives": 0,
+            "approved_clean": 0,
+            "catch_rate": 1.0
+          },
+          "off-by-one-boundary": {
+            "expected_defective": true,
+            "total": 1,
+            "evaluated": 1,
+            "caught": 1,
+            "missed": 0,
+            "false_positives": 0,
+            "approved_clean": 0,
+            "catch_rate": 1.0
+          },
+          "missing-regression-test": {
+            "expected_defective": true,
+            "total": 1,
+            "evaluated": 1,
+            "caught": 1,
+            "missed": 0,
+            "false_positives": 0,
+            "approved_clean": 0,
+            "catch_rate": 1.0
+          },
+          "unsafe-sql-migration": {
+            "expected_defective": true,
+            "total": 1,
+            "evaluated": 1,
+            "caught": 1,
+            "missed": 0,
+            "false_positives": 0,
+            "approved_clean": 0,
+            "catch_rate": 1.0
+          },
+          "clean-bugfix": {
+            "expected_defective": false,
+            "total": 4,
+            "evaluated": 4,
+            "caught": 0,
+            "missed": 0,
+            "false_positives": 0,
+            "approved_clean": 4,
+            "pass_rate": 1.0
+          },
+          "clean-expand-migration": {
+            "expected_defective": false,
+            "total": 1,
+            "evaluated": 1,
+            "caught": 0,
+            "missed": 0,
+            "false_positives": 0,
+            "approved_clean": 1,
+            "pass_rate": 1.0
+          },
+          "clean-contract-migration": {
+            "expected_defective": false,
+            "total": 1,
+            "evaluated": 1,
+            "caught": 0,
+            "missed": 0,
+            "false_positives": 0,
+            "approved_clean": 1,
+            "pass_rate": 1.0
+          }
+        }
+      },
+      "tokens": {
+        "input": 24023,
+        "output": 1912,
+        "thoughts": 43740,
+        "total": 69675,
+        "cached": 0
+      },
+      "total_latency_s": 361.103,
+      "mean_latency_s": 30.092,
+      "cost_usd": {
+        "list_usd": 0.189212,
+        "cached_adjusted_usd": 0.189212
+      },
+      "cases": [
+        {
+          "id": "01-tautological-assertion",
+          "defect_class": "tautological-assertion",
+          "expected_defective": true,
+          "expected_verdict": "CHANGES-REQUESTED",
+          "reviewer_role": "test-reviewer",
+          "deterministic_verdict": "APPROVED",
+          "deterministic_failed_gates": [],
+          "risk_level": "low",
+          "reviewer_verdict": "CHANGES-REQUESTED",
+          "combined_verdict": "CHANGES-REQUESTED",
+          "tokens": {
+            "input": 1927,
+            "output": 115,
+            "thoughts": 1536,
+            "cached": 0,
+            "total": 3578
+          },
+          "latency_s": 18.161,
+          "cost_usd": {
+            "list_usd": 0.007637,
+            "cached_adjusted_usd": 0.007637
+          }
+        },
+        {
+          "id": "02-silent-exception-swallow",
+          "defect_class": "silent-exception-swallow",
+          "expected_defective": true,
+          "expected_verdict": "CHANGES-REQUESTED",
+          "reviewer_role": "test-reviewer",
+          "deterministic_verdict": "APPROVED",
+          "deterministic_failed_gates": [],
+          "risk_level": "low",
+          "reviewer_verdict": "CHANGES-REQUESTED",
+          "combined_verdict": "CHANGES-REQUESTED",
+          "tokens": {
+            "input": 2079,
+            "output": 147,
+            "thoughts": 732,
+            "cached": 0,
+            "total": 2958
+          },
+          "latency_s": 9.894,
+          "cost_usd": {
+            "list_usd": 0.004855,
+            "cached_adjusted_usd": 0.004855
+          }
+        },
+        {
+          "id": "03-perimeter-escape",
+          "defect_class": "perimeter-escape",
+          "expected_defective": true,
+          "expected_verdict": "CHANGES-REQUESTED",
+          "reviewer_role": "test-reviewer",
+          "deterministic_verdict": "CHANGES-REQUESTED",
+          "deterministic_failed_gates": [
+            "perimeter"
+          ],
+          "risk_level": "low",
+          "reviewer_verdict": "CHANGES-REQUESTED",
+          "combined_verdict": "CHANGES-REQUESTED",
+          "tokens": {
+            "input": 2002,
+            "output": 140,
+            "thoughts": 1336,
+            "cached": 0,
+            "total": 3478
+          },
+          "latency_s": 14.451,
+          "cost_usd": {
+            "list_usd": 0.007037,
+            "cached_adjusted_usd": 0.007037
+          }
+        },
+        {
+          "id": "04-off-by-one-boundary",
+          "defect_class": "off-by-one-boundary",
+          "expected_defective": true,
+          "expected_verdict": "CHANGES-REQUESTED",
+          "reviewer_role": "test-reviewer",
+          "deterministic_verdict": "APPROVED",
+          "deterministic_failed_gates": [],
+          "risk_level": "low",
+          "reviewer_verdict": "CHANGES-REQUESTED",
+          "combined_verdict": "CHANGES-REQUESTED",
+          "tokens": {
+            "input": 1883,
+            "output": 201,
+            "thoughts": 1189,
+            "cached": 0,
+            "total": 3273
+          },
+          "latency_s": 12.913,
+          "cost_usd": {
+            "list_usd": 0.006625,
+            "cached_adjusted_usd": 0.006625
+          }
+        },
+        {
+          "id": "05-missing-regression-test",
+          "defect_class": "missing-regression-test",
+          "expected_defective": true,
+          "expected_verdict": "CHANGES-REQUESTED",
+          "reviewer_role": "test-reviewer",
+          "deterministic_verdict": "APPROVED",
+          "deterministic_failed_gates": [],
+          "risk_level": "low",
+          "reviewer_verdict": "CHANGES-REQUESTED",
+          "combined_verdict": "CHANGES-REQUESTED",
+          "tokens": {
+            "input": 2057,
+            "output": 164,
+            "thoughts": 1477,
+            "cached": 0,
+            "total": 3698
+          },
+          "latency_s": 14.992,
+          "cost_usd": {
+            "list_usd": 0.007697,
+            "cached_adjusted_usd": 0.007697
+          }
+        },
+        {
+          "id": "06-unsafe-sql-migration",
+          "defect_class": "unsafe-sql-migration",
+          "expected_defective": true,
+          "expected_verdict": "CHANGES-REQUESTED",
+          "reviewer_role": "architect",
+          "deterministic_verdict": "CHANGES-REQUESTED",
+          "deterministic_failed_gates": [
+            "migration-safety"
+          ],
+          "risk_level": "high",
+          "reviewer_verdict": "APPROVED",
+          "combined_verdict": "CHANGES-REQUESTED",
+          "tokens": {
+            "input": 1558,
+            "output": 133,
+            "thoughts": 10400,
+            "cached": 0,
+            "total": 12091
+          },
+          "latency_s": 74.099,
+          "cost_usd": {
+            "list_usd": 0.040667,
+            "cached_adjusted_usd": 0.040667
+          }
+        },
+        {
+          "id": "07-clean-discount-fix",
+          "defect_class": "clean-bugfix",
+          "expected_defective": false,
+          "expected_verdict": "APPROVED",
+          "reviewer_role": "test-reviewer",
+          "deterministic_verdict": "APPROVED",
+          "deterministic_failed_gates": [],
+          "risk_level": "low",
+          "reviewer_verdict": "APPROVED",
+          "combined_verdict": "APPROVED",
+          "tokens": {
+            "input": 2370,
+            "output": 174,
+            "thoughts": 2759,
+            "cached": 0,
+            "total": 5303
+          },
+          "latency_s": 23.397,
+          "cost_usd": {
+            "list_usd": 0.012776,
+            "cached_adjusted_usd": 0.012776
+          }
+        },
+        {
+          "id": "08-clean-retry-backoff",
+          "defect_class": "clean-bugfix",
+          "expected_defective": false,
+          "expected_verdict": "APPROVED",
+          "reviewer_role": "test-reviewer",
+          "deterministic_verdict": "APPROVED",
+          "deterministic_failed_gates": [],
+          "risk_level": "low",
+          "reviewer_verdict": "APPROVED",
+          "combined_verdict": "APPROVED",
+          "tokens": {
+            "input": 1982,
+            "output": 209,
+            "thoughts": 1349,
+            "cached": 0,
+            "total": 3540
+          },
+          "latency_s": 14.915,
+          "cost_usd": {
+            "list_usd": 0.007329,
+            "cached_adjusted_usd": 0.007329
+          }
+        },
+        {
+          "id": "09-clean-expand-migration",
+          "defect_class": "clean-expand-migration",
+          "expected_defective": false,
+          "expected_verdict": "APPROVED",
+          "reviewer_role": "architect",
+          "deterministic_verdict": "APPROVED",
+          "deterministic_failed_gates": [],
+          "risk_level": "high",
+          "reviewer_verdict": "APPROVED",
+          "combined_verdict": "APPROVED",
+          "tokens": {
+            "input": 1678,
+            "output": 91,
+            "thoughts": 2318,
+            "cached": 0,
+            "total": 4087
+          },
+          "latency_s": 21.797,
+          "cost_usd": {
+            "list_usd": 0.010292,
+            "cached_adjusted_usd": 0.010292
+          }
+        },
+        {
+          "id": "10-clean-pagination-bounds",
+          "defect_class": "clean-bugfix",
+          "expected_defective": false,
+          "expected_verdict": "APPROVED",
+          "reviewer_role": "test-reviewer",
+          "deterministic_verdict": "APPROVED",
+          "deterministic_failed_gates": [],
+          "risk_level": "low",
+          "reviewer_verdict": "APPROVED",
+          "combined_verdict": "APPROVED",
+          "tokens": {
+            "input": 2372,
+            "output": 290,
+            "thoughts": 16373,
+            "cached": 0,
+            "total": 19035
+          },
+          "latency_s": 118.862,
+          "cost_usd": {
+            "list_usd": 0.064265,
+            "cached_adjusted_usd": 0.064265
+          }
+        },
+        {
+          "id": "11-clean-error-propagation",
+          "defect_class": "clean-bugfix",
+          "expected_defective": false,
+          "expected_verdict": "APPROVED",
+          "reviewer_role": "test-reviewer",
+          "deterministic_verdict": "APPROVED",
+          "deterministic_failed_gates": [],
+          "risk_level": "low",
+          "reviewer_verdict": "APPROVED",
+          "combined_verdict": "APPROVED",
+          "tokens": {
+            "input": 2440,
+            "output": 178,
+            "thoughts": 2269,
+            "cached": 0,
+            "total": 4887
+          },
+          "latency_s": 17.866,
+          "cost_usd": {
+            "list_usd": 0.011006,
+            "cached_adjusted_usd": 0.011006
+          }
+        },
+        {
+          "id": "12-clean-contract-migration",
+          "defect_class": "clean-contract-migration",
+          "expected_defective": false,
+          "expected_verdict": "APPROVED",
+          "reviewer_role": "architect",
+          "deterministic_verdict": "APPROVED",
+          "deterministic_failed_gates": [],
+          "risk_level": "high",
+          "reviewer_verdict": "APPROVED",
+          "combined_verdict": "APPROVED",
+          "tokens": {
+            "input": 1675,
+            "output": 70,
+            "thoughts": 2002,
+            "cached": 0,
+            "total": 3747
+          },
+          "latency_s": 19.756,
+          "cost_usd": {
+            "list_usd": 0.009026,
+            "cached_adjusted_usd": 0.009026
+          }
+        }
+      ],
+      "operational_notes": [
+        "Initial 90s client timeout hit HTTP 504 DEADLINE_EXCEEDED twice on 06-unsafe-sql-migration (architect, thinking=high); 120s timeout completed in 74.099s (10,400 thinking tokens) returning APPROVED (missed DROP COLUMN rollback defect, which deterministic migration-safety caught).",
+        "With thinking=medium on 06-unsafe-sql-migration in an isolated probe, Gemini completed in 11.886s (2,645 total tokens) and returned CHANGES-REQUESTED."
+      ]
+    }
+  ],
+  "map_brief_architect_compare": {
+    "provider": "gemini",
+    "harness": "google-genai",
+    "model": "gemini-3.8-flash",
+    "role": "architect",
+    "thinking": "high",
+    "status": "executed",
+    "cases_total": 6,
+    "off": {
+      "cases_evaluated": 6,
+      "correct": 6,
+      "accuracy": 1.0,
+      "total_prompt_bytes": 48069,
+      "mean_prompt_bytes": 8011.5,
+      "tokens": {
+        "input": 21235,
+        "output": 789,
+        "thoughts": 13425,
+        "total": 35449,
+        "cached": 8076
+      },
+      "mean_total_tokens": 5908.2,
+      "total_latency_s": 139.713,
+      "mean_latency_s": 23.285,
+      "matched_slice_adr_citations": 0,
+      "matched_slice_page_citations": 3,
+      "cost_usd": {
+        "list_usd": 0.069229,
+        "cached_adjusted_usd": 0.063777
+      }
+    },
+    "on": {
+      "cases_evaluated": 6,
+      "correct": 6,
+      "accuracy": 1.0,
+      "total_prompt_bytes": 65618,
+      "mean_prompt_bytes": 10936.3,
+      "tokens": {
+        "input": 27372,
+        "output": 790,
+        "thoughts": 14933,
+        "total": 43095,
+        "cached": 14186
+      },
+      "mean_total_tokens": 7182.5,
+      "total_latency_s": 134.818,
+      "mean_latency_s": 22.47,
+      "matched_slice_adr_citations": 0,
+      "matched_slice_page_citations": 3,
+      "cost_usd": {
+        "list_usd": 0.07949,
+        "cached_adjusted_usd": 0.069915
+      }
+    },
+    "delta": {
+      "accuracy": 0.0,
+      "prompt_bytes": 17549,
+      "input_tokens": 6137,
+      "total_tokens": 7646,
+      "latency_s": -4.895,
+      "matched_slice_adr_citations": 0,
+      "matched_slice_page_citations": 0
+    },
+    "rows": [
+      {
+        "id": "0001-honest",
+        "expected_verdict": "APPROVED",
+        "slice_bytes": 3721,
+        "slice_adrs_count": 9,
+        "slice_pages_count": 4,
+        "off": {
+          "verdict": "APPROVED",
+          "correct": true,
+          "prompt_bytes": 8649,
+          "tokens": {
+            "input": 3780,
+            "output": 160,
+            "thoughts": 3237,
+            "cached": 985,
+            "total": 7177
+          },
+          "latency_s": 37.271,
+          "cost_usd": {
+            "list_usd": 0.015574,
+            "cached_adjusted_usd": 0.014909
+          },
+          "matched_slice_adrs": [],
+          "cited_pages": [
+            "app/README.md"
+          ]
+        },
+        "on": {
+          "verdict": "APPROVED",
+          "correct": true,
+          "prompt_bytes": 12376,
+          "tokens": {
+            "input": 5068,
+            "output": 146,
+            "thoughts": 5626,
+            "cached": 3032,
+            "total": 10840
+          },
+          "latency_s": 42.558,
+          "cost_usd": {
+            "list_usd": 0.025446,
+            "cached_adjusted_usd": 0.023399
+          },
+          "matched_slice_adrs": [],
+          "cited_pages": [
+            "app/README.md"
+          ]
+        }
+      },
+      {
+        "id": "0005-geocoder",
+        "expected_verdict": "APPROVED",
+        "slice_bytes": 4337,
+        "slice_adrs_count": 9,
+        "slice_pages_count": 5,
+        "off": {
+          "verdict": "APPROVED",
+          "correct": true,
+          "prompt_bytes": 22487,
+          "tokens": {
+            "input": 7892,
+            "output": 281,
+            "thoughts": 6293,
+            "cached": 5851,
+            "total": 14466
+          },
+          "latency_s": 52.346,
+          "cost_usd": {
+            "list_usd": 0.030572,
+            "cached_adjusted_usd": 0.026622
+          },
+          "matched_slice_adrs": [],
+          "cited_pages": [
+            "app/README.md"
+          ]
+        },
+        "on": {
+          "verdict": "APPROVED",
+          "correct": true,
+          "prompt_bytes": 26830,
+          "tokens": {
+            "input": 9400,
+            "output": 280,
+            "thoughts": 5557,
+            "cached": 7352,
+            "total": 15237
+          },
+          "latency_s": 45.098,
+          "cost_usd": {
+            "list_usd": 0.028939,
+            "cached_adjusted_usd": 0.023976
+          },
+          "matched_slice_adrs": [],
+          "cited_pages": [
+            "app/README.md"
+          ]
+        }
+      },
+      {
+        "id": "0012-capacity",
+        "expected_verdict": "APPROVED",
+        "slice_bytes": 2166,
+        "slice_adrs_count": 7,
+        "slice_pages_count": 4,
+        "off": {
+          "verdict": "APPROVED",
+          "correct": true,
+          "prompt_bytes": 5334,
+          "tokens": {
+            "input": 2703,
+            "output": 76,
+            "thoughts": 1061,
+            "cached": 679,
+            "total": 3840
+          },
+          "latency_s": 12.256,
+          "cost_usd": {
+            "list_usd": 0.006291,
+            "cached_adjusted_usd": 0.005833
+          },
+          "matched_slice_adrs": [],
+          "cited_pages": []
+        },
+        "on": {
+          "verdict": "APPROVED",
+          "correct": true,
+          "prompt_bytes": 7506,
+          "tokens": {
+            "input": 3467,
+            "output": 80,
+            "thoughts": 1301,
+            "cached": 984,
+            "total": 4848
+          },
+          "latency_s": 14.738,
+          "cost_usd": {
+            "list_usd": 0.007779,
+            "cached_adjusted_usd": 0.007115
+          },
+          "matched_slice_adrs": [],
+          "cited_pages": []
+        }
+      },
+      {
+        "id": "0020-metrics",
+        "expected_verdict": "APPROVED",
+        "slice_bytes": 2473,
+        "slice_adrs_count": 8,
+        "slice_pages_count": 4,
+        "off": {
+          "verdict": "APPROVED",
+          "correct": true,
+          "prompt_bytes": 4320,
+          "tokens": {
+            "input": 2456,
+            "output": 116,
+            "thoughts": 829,
+            "cached": 0,
+            "total": 3401
+          },
+          "latency_s": 11.206,
+          "cost_usd": {
+            "list_usd": 0.005386,
+            "cached_adjusted_usd": 0.005386
+          },
+          "matched_slice_adrs": [],
+          "cited_pages": []
+        },
+        "on": {
+          "verdict": "APPROVED",
+          "correct": true,
+          "prompt_bytes": 6799,
+          "tokens": {
+            "input": 3325,
+            "output": 85,
+            "thoughts": 594,
+            "cached": 984,
+            "total": 4004
+          },
+          "latency_s": 9.467,
+          "cost_usd": {
+            "list_usd": 0.00504,
+            "cached_adjusted_usd": 0.004376
+          },
+          "matched_slice_adrs": [],
+          "cited_pages": []
+        }
+      },
+      {
+        "id": "0022-db-name",
+        "expected_verdict": "APPROVED",
+        "slice_bytes": 1095,
+        "slice_adrs_count": 5,
+        "slice_pages_count": 3,
+        "off": {
+          "verdict": "APPROVED",
+          "correct": true,
+          "prompt_bytes": 2496,
+          "tokens": {
+            "input": 1821,
+            "output": 47,
+            "thoughts": 741,
+            "cached": 0,
+            "total": 2609
+          },
+          "latency_s": 9.569,
+          "cost_usd": {
+            "list_usd": 0.004321,
+            "cached_adjusted_usd": 0.004321
+          },
+          "matched_slice_adrs": [],
+          "cited_pages": []
+        },
+        "on": {
+          "verdict": "APPROVED",
+          "correct": true,
+          "prompt_bytes": 3597,
+          "tokens": {
+            "input": 2241,
+            "output": 58,
+            "thoughts": 762,
+            "cached": 0,
+            "total": 3061
+          },
+          "latency_s": 10.053,
+          "cost_usd": {
+            "list_usd": 0.004756,
+            "cached_adjusted_usd": 0.004756
+          },
+          "matched_slice_adrs": [],
+          "cited_pages": []
+        }
+      },
+      {
+        "id": "0001-sast-probe",
+        "expected_verdict": "CHANGES-REQUESTED",
+        "slice_bytes": 3721,
+        "slice_adrs_count": 9,
+        "slice_pages_count": 4,
+        "off": {
+          "verdict": "CHANGES-REQUESTED",
+          "correct": true,
+          "prompt_bytes": 4783,
+          "tokens": {
+            "input": 2583,
+            "output": 109,
+            "thoughts": 1264,
+            "cached": 561,
+            "total": 3956
+          },
+          "latency_s": 17.065,
+          "cost_usd": {
+            "list_usd": 0.007086,
+            "cached_adjusted_usd": 0.006707
+          },
+          "matched_slice_adrs": [],
+          "cited_pages": [
+            "app/README.md"
+          ]
+        },
+        "on": {
+          "verdict": "CHANGES-REQUESTED",
+          "correct": true,
+          "prompt_bytes": 8510,
+          "tokens": {
+            "input": 3871,
+            "output": 141,
+            "thoughts": 1093,
+            "cached": 1834,
+            "total": 5105
+          },
+          "latency_s": 12.904,
+          "cost_usd": {
+            "list_usd": 0.007531,
+            "cached_adjusted_usd": 0.006293
+          },
+          "matched_slice_adrs": [],
+          "cited_pages": [
+            "app/README.md"
+          ]
+        }
+      }
+    ],
+    "operational_notes": [
+      "0001-honest (off) hit one transient 0-output-token response before succeeding on single bounded retry (37.271s total)."
+    ]
+  },
+  "blocked_or_not_run": [
+    {
+      "provider": "anthropic",
+      "harness": "claude-code / litellm",
+      "model": "claude-sonnet-5-5",
+      "status": "blocked_billing",
+      "reason": "Account credit balance too low to access the Anthropic API (observed in Podman L1 ADK eval: req_<redacted>; see docs/plans/live-validation-2026-11-25.md)."
+    },
+    {
+      "provider": "openai",
+      "harness": "codex",
+      "model": "gpt-6.1-sol",
+      "status": "not_run",
+      "reason": "OPENAI_API_KEY absent from .env / environment."
+    },
+    {
+      "provider": "zai",
+      "harness": "claude-code",
+      "model": "glm-5.3",
+      "status": "not_run",
+      "reason": "ZAI_API_KEY absent from .env / environment."
+    }
+  ]
+}

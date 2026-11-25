@@ -1,0 +1,457 @@
+{
+  "schema": "lights-out/architect-map-brief-compare/1",
+  "mode": "live",
+  "role": "architect",
+  "stopped_reason": null,
+  "summary": {
+    "cases_total": 6,
+    "off": {
+      "cases_evaluated": 6,
+      "correct": 6,
+      "accuracy": 1.0,
+      "total_prompt_bytes": 48069,
+      "mean_prompt_bytes": 8011.5,
+      "tokens": {
+        "input": 21235,
+        "output": 789,
+        "thoughts": 13425,
+        "total": 35449
+      },
+      "mean_total_tokens": 5908.2,
+      "total_latency_s": 139.713,
+      "mean_latency_s": 23.285,
+      "matched_slice_adr_citations": 0,
+      "matched_slice_page_citations": 3
+    },
+    "on": {
+      "cases_evaluated": 6,
+      "correct": 6,
+      "accuracy": 1.0,
+      "total_prompt_bytes": 65618,
+      "mean_prompt_bytes": 10936.3,
+      "tokens": {
+        "input": 27372,
+        "output": 790,
+        "thoughts": 14933,
+        "total": 43095
+      },
+      "mean_total_tokens": 7182.5,
+      "total_latency_s": 134.818,
+      "mean_latency_s": 22.47,
+      "matched_slice_adr_citations": 0,
+      "matched_slice_page_citations": 3
+    },
+    "delta": {
+      "accuracy": 0.0,
+      "prompt_bytes": 17549,
+      "input_tokens": 6137,
+      "total_tokens": 7646,
+      "latency_s": -4.895,
+      "matched_slice_adr_citations": 0,
+      "matched_slice_page_citations": 0
+    }
+  },
+  "rows": [
+    {
+      "id": "0001-honest",
+      "expected_verdict": "APPROVED",
+      "slice_bytes": 3721,
+      "slice_adrs": [
+        "0005",
+        "0006",
+        "0015",
+        "0016",
+        "0021",
+        "0023",
+        "0029",
+        "0037",
+        "0091"
+      ],
+      "slice_pages": [
+        ".claude/context/handoffs/claude-m57-turn-cap.md",
+        "app/README.md",
+        "app/worker.md",
+        "docs/reference.md"
+      ],
+      "off": {
+        "status": "ok",
+        "provider": "gemini",
+        "model": "gemini-3.8-flash",
+        "verdict": "APPROVED",
+        "correct": true,
+        "reason": "The diff adheres to all structural criteria:\n- It stays strictly within the ticket's declared perimeter (`app/backend/meetups/geocoder_client.py`, `app/backend/tests/test_geocoder_client.py`, `app/contracts/geocoder/examples.json`, and `app/README.md`).\n- It introduces no new abstractions, adapters, or external dependencies, implementing the smallest possible change to handle 404 responses directly in `geocoder_client.py`.\n- It preserves existing boundaries between the application, the contract specification, and the external geocoder dependency.\n- It introduces no undocumented thresholds, magic numbers, or ungrounded policy choices, and does not touch structural areas requiring an architectural decision record.",
+        "prompt_bytes": 8649,
+        "prompt_tokens_approx": 2162.25,
+        "input_sha256": "7a695465e265f5b4c849553d9568998d3d87d5d45660418f823bc53b1b65c1bc",
+        "tokens": {
+          "input": 3780,
+          "output": 160,
+          "thoughts": 3237,
+          "cached": 985,
+          "total": 7177
+        },
+        "latency_s": 37.271,
+        "cited_adrs": [],
+        "matched_slice_adrs": [],
+        "cited_pages": [
+          "app/README.md"
+        ]
+      },
+      "on": {
+        "status": "ok",
+        "provider": "gemini",
+        "model": "gemini-3.8-flash",
+        "verdict": "APPROVED",
+        "correct": true,
+        "reason": "The diff satisfies all architectural criteria:\n- It stays strictly within the ticket's declared perimeter (`app/README.md`, `app/backend/meetups/geocoder_client.py`, `app/backend/tests/test_geocoder_client.py`, and `app/contracts/geocoder/examples.json`).\n- It introduces no new abstractions, adapters, or external dependencies, choosing the minimal implementation in `geocode()` to treat 404 responses as no result.\n- It respects existing architectural boundaries and contract conventions without leaking external or vendor concepts.\n- It requires no architectural decision record as it involves no schema migrations, auth/payment changes, or platform modifications.",
+        "prompt_bytes": 12376,
+        "prompt_tokens_approx": 3094.0,
+        "input_sha256": "1830ef1a0f9d000eaa918a500b31f7eea2aa8fa8129bf0889f9f82258ac494a2",
+        "tokens": {
+          "input": 5068,
+          "output": 146,
+          "thoughts": 5626,
+          "cached": 3032,
+          "total": 10840
+        },
+        "latency_s": 42.558,
+        "cited_adrs": [],
+        "matched_slice_adrs": [],
+        "cited_pages": [
+          "app/README.md"
+        ]
+      }
+    },
+    {
+      "id": "0005-geocoder",
+      "expected_verdict": "APPROVED",
+      "slice_bytes": 4337,
+      "slice_adrs": [
+        "0005",
+        "0006",
+        "0015",
+        "0016",
+        "0021",
+        "0023",
+        "0029",
+        "0037",
+        "0091"
+      ],
+      "slice_pages": [
+        ".claude/context/handoffs/claude-m57-turn-cap.md",
+        "app/README.md",
+        "app/worker.md",
+        "docs/reference.md",
+        "docs/tutorial.md"
+      ],
+      "off": {
+        "status": "ok",
+        "provider": "gemini",
+        "model": "gemini-3.8-flash",
+        "verdict": "APPROVED",
+        "correct": true,
+        "reason": "The diff adheres strictly to the ticket perimeter and platform architectural boundaries:\n\n- Touched files remain entirely within the perimeter declared in the ticket (`app/backend/meetups/geocoder_client.py`, `app/backend/meetups/app.py`, `app/fakes/geocoder/server.py`, `app/contracts/geocoder/examples.json`, `app/backend/tests/test_geocoder_client.py`, and `app/README.md`).\n- No unnecessary abstractions, adapters, or external dependencies are introduced. The only new abstraction is `GeocoderAmbiguous`, an exception specifically requested to pass candidate listings up from the client without conflating ambiguous responses with dependency failures.\n- System boundaries are respected: `geocoder_client.py` encapsulates external payload parsing, validation, and error translation, while `app.py` handles HTTP response mapping (422 for ambiguous results, 502 for dependency unavailability) and prevents invalid meetup creation before database execution.\n- No magic numbers or unreasoned policy decisions are introduced. The `delay_seconds: 2.5` addition in `examples.json` directly tests the client timeout threshold as specified.\n- The change does not touch database schemas, authentication mechanisms, package manifests, or platform configuration, so no new architectural decision record is required.",
+        "prompt_bytes": 22487,
+        "prompt_tokens_approx": 5621.75,
+        "input_sha256": "7455dc5c1f2fb11183fb71a5568cccfd697fb5f95ebba5cd4b51e09d9fdc76eb",
+        "tokens": {
+          "input": 7892,
+          "output": 281,
+          "thoughts": 6293,
+          "cached": 5851,
+          "total": 14466
+        },
+        "latency_s": 52.346,
+        "cited_adrs": [],
+        "matched_slice_adrs": [],
+        "cited_pages": [
+          "app/README.md"
+        ]
+      },
+      "on": {
+        "status": "ok",
+        "provider": "gemini",
+        "model": "gemini-3.8-flash",
+        "verdict": "APPROVED",
+        "correct": true,
+        "reason": "The diff adheres strictly to the ticket's perimeter and acceptance criteria without introducing unnecessary abstractions or dependencies:\n\n- Perimeter: Edits are confined to `app/README.md`, `app/backend/meetups/app.py`, `app/backend/meetups/geocoder_client.py`, `app/backend/tests/test_geocoder_client.py`, `app/contracts/geocoder/examples.json`, and `app/fakes/geocoder/server.py`.\n- Abstractions & Boundaries: Adds only the domain-specific exception `GeocoderAmbiguous` to distinguish ambiguous venue queries from service unavailability, cleanly handled in `app.py` before meetup creation. The coordinate extraction error handling wraps `KeyError`, `ValueError`, and `TypeError` into the existing `GeocoderUnavailable` without adding superfluous exception hierarchies or intermediate adapters.\n- Contracts & Fakes: The fake geocoder server adds minimal support for `delay_seconds` via `time.sleep`, allowing contract-driven timeout assertions without changing existing behavior.\n- Documentation & Numbers: `app/README.md` is updated to document each geocoder outcome and response code, and all values introduced in `examples.json` serve directly as fixture data satisfying contract specifications. No ADR is required as the change does not alter persistence, auth, or platform boundaries.",
+        "prompt_bytes": 26830,
+        "prompt_tokens_approx": 6707.5,
+        "input_sha256": "325155e10c87bafe4c9f27e7bc75f70166bd3aa5974ea8fcc1650c247b5221e1",
+        "tokens": {
+          "input": 9400,
+          "output": 280,
+          "thoughts": 5557,
+          "cached": 7352,
+          "total": 15237
+        },
+        "latency_s": 45.098,
+        "cited_adrs": [],
+        "matched_slice_adrs": [],
+        "cited_pages": [
+          "app/README.md"
+        ]
+      }
+    },
+    {
+      "id": "0012-capacity",
+      "expected_verdict": "APPROVED",
+      "slice_bytes": 2166,
+      "slice_adrs": [
+        "0005",
+        "0015",
+        "0016",
+        "0023",
+        "0029",
+        "0037",
+        "0091"
+      ],
+      "slice_pages": [
+        ".claude/context/handoffs/claude-m57-turn-cap.md",
+        "app/worker.md",
+        "docs/reference.md",
+        "docs/tutorial.md"
+      ],
+      "off": {
+        "status": "ok",
+        "provider": "gemini",
+        "model": "gemini-3.8-flash",
+        "verdict": "APPROVED",
+        "correct": true,
+        "reason": "The diff stays strictly within the declared perimeter (`app/backend/meetups/app.py` and `app/README.md`) for the `impl` network member. It introduces no new abstractions or dependencies, using Pydantic's existing `Field(ge=1)` to enforce the minimum capacity requirement specified in the ticket, and updates documentation accordingly.",
+        "prompt_bytes": 5334,
+        "prompt_tokens_approx": 1333.5,
+        "input_sha256": "689137ddac739ba66489813442aed5204ce868a88848a56df02cb145de546fcc",
+        "tokens": {
+          "input": 2703,
+          "output": 76,
+          "thoughts": 1061,
+          "cached": 679,
+          "total": 3840
+        },
+        "latency_s": 12.256,
+        "cited_adrs": [],
+        "matched_slice_adrs": [],
+        "cited_pages": []
+      },
+      "on": {
+        "status": "ok",
+        "provider": "gemini",
+        "model": "gemini-3.8-flash",
+        "verdict": "APPROVED",
+        "correct": true,
+        "reason": "The change stays strictly within the perimeter declared in the ticket (`app/backend/meetups/app.py` and `app/README.md`). It introduces no new dependencies or unnecessary abstractions, using Pydantic's built-in `Field(ge=1)` validation directly on `MeetupCreateRequest.capacity` to enforce the minimum capacity requirement specified by the ticket.",
+        "prompt_bytes": 7506,
+        "prompt_tokens_approx": 1876.5,
+        "input_sha256": "04709dd0f9f8cd6e1195194dd900215073b7f657f58c6999ffab94dc0daa48fb",
+        "tokens": {
+          "input": 3467,
+          "output": 80,
+          "thoughts": 1301,
+          "cached": 984,
+          "total": 4848
+        },
+        "latency_s": 14.738,
+        "cited_adrs": [],
+        "matched_slice_adrs": [],
+        "cited_pages": []
+      }
+    },
+    {
+      "id": "0020-metrics",
+      "expected_verdict": "APPROVED",
+      "slice_bytes": 2473,
+      "slice_adrs": [
+        "0005",
+        "0006",
+        "0015",
+        "0016",
+        "0021",
+        "0029",
+        "0037",
+        "0091"
+      ],
+      "slice_pages": [
+        ".claude/context/handoffs/claude-m57-turn-cap.md",
+        "app/worker.md",
+        "docs/reference.md",
+        "docs/tutorial.md"
+      ],
+      "off": {
+        "status": "ok",
+        "provider": "gemini",
+        "model": "gemini-3.8-flash",
+        "verdict": "APPROVED",
+        "correct": true,
+        "reason": "The diff stays strictly within the declared perimeter (`app/backend/meetups/metrics.py`, `app/backend/meetups/app.py`, and `app/backend/tests/test_metrics.py`). It represents the minimal structural change required to rename `metrics_text` to `render_metrics`, updating the call site in `app.py` and adding the test asserting that `http_server_request_duration_seconds_count` is present. It introduces no new abstractions, external dependencies, magic numbers, or boundary crossings.",
+        "prompt_bytes": 4320,
+        "prompt_tokens_approx": 1080.0,
+        "input_sha256": "d7473d82eb2c114e461440c377da7896e062647a529a63fdd795073d010d6d27",
+        "tokens": {
+          "input": 2456,
+          "output": 116,
+          "thoughts": 829,
+          "cached": 0,
+          "total": 3401
+        },
+        "latency_s": 11.206,
+        "cited_adrs": [],
+        "matched_slice_adrs": [],
+        "cited_pages": []
+      },
+      "on": {
+        "status": "ok",
+        "provider": "gemini",
+        "model": "gemini-3.8-flash",
+        "verdict": "APPROVED",
+        "correct": true,
+        "reason": "The diff strictly adheres to the perimeter (`app/backend/meetups/metrics.py`, `app/backend/meetups/app.py`, and `app/backend/tests/test_metrics.py`). It performs the exact rename requested (`metrics_text` to `render_metrics`), updates the call site and test suite accordingly, and introduces no new dependencies, abstractions, or unexplained thresholds.",
+        "prompt_bytes": 6799,
+        "prompt_tokens_approx": 1699.75,
+        "input_sha256": "992b3107e120a8189095b62e156d98ca5d851ff792727688c277419a08dcd2f0",
+        "tokens": {
+          "input": 3325,
+          "output": 85,
+          "thoughts": 594,
+          "cached": 984,
+          "total": 4004
+        },
+        "latency_s": 9.467,
+        "cited_adrs": [],
+        "matched_slice_adrs": [],
+        "cited_pages": []
+      }
+    },
+    {
+      "id": "0022-db-name",
+      "expected_verdict": "APPROVED",
+      "slice_bytes": 1095,
+      "slice_adrs": [
+        "0005",
+        "0015",
+        "0016",
+        "0029",
+        "0037"
+      ],
+      "slice_pages": [
+        ".claude/context/handoffs/claude-m57-turn-cap.md",
+        "app/worker.md",
+        "docs/reference.md"
+      ],
+      "off": {
+        "status": "ok",
+        "provider": "gemini",
+        "model": "gemini-3.8-flash",
+        "verdict": "APPROVED",
+        "correct": true,
+        "reason": "The change stays strictly within the declared perimeter (`app/backend/meetups/db.py`), introduces no new abstractions or dependencies, and achieves the ticket's goal with the minimal necessary edit to the database connection call.",
+        "prompt_bytes": 2496,
+        "prompt_tokens_approx": 624.0,
+        "input_sha256": "cbe16192bdda2bc9e8d6c25b35a77d71c5a02a3540517d0cdf03bf281aeb09af",
+        "tokens": {
+          "input": 1821,
+          "output": 47,
+          "thoughts": 741,
+          "cached": 0,
+          "total": 2609
+        },
+        "latency_s": 9.569,
+        "cited_adrs": [],
+        "matched_slice_adrs": [],
+        "cited_pages": []
+      },
+      "on": {
+        "status": "ok",
+        "provider": "gemini",
+        "model": "gemini-3.8-flash",
+        "verdict": "APPROVED",
+        "correct": true,
+        "reason": "The diff stays within the perimeter (`app/backend/meetups/db.py`) and satisfies the ticket with the minimal possible change—passing `application_name=\"meetups\"` directly to `psycopg.connect`. It introduces no new abstractions, dependencies, or architectural boundaries.",
+        "prompt_bytes": 3597,
+        "prompt_tokens_approx": 899.25,
+        "input_sha256": "68d5582d4b9cc4ab89c4aa8976aa0369a645388a1873c6c2857c8c085c1ca444",
+        "tokens": {
+          "input": 2241,
+          "output": 58,
+          "thoughts": 762,
+          "cached": 0,
+          "total": 3061
+        },
+        "latency_s": 10.053,
+        "cited_adrs": [],
+        "matched_slice_adrs": [],
+        "cited_pages": []
+      }
+    },
+    {
+      "id": "0001-sast-probe",
+      "expected_verdict": "CHANGES-REQUESTED",
+      "slice_bytes": 3721,
+      "slice_adrs": [
+        "0005",
+        "0006",
+        "0015",
+        "0016",
+        "0021",
+        "0023",
+        "0029",
+        "0037",
+        "0091"
+      ],
+      "slice_pages": [
+        ".claude/context/handoffs/claude-m57-turn-cap.md",
+        "app/README.md",
+        "app/worker.md",
+        "docs/reference.md"
+      ],
+      "off": {
+        "status": "ok",
+        "provider": "gemini",
+        "model": "gemini-3.8-flash",
+        "verdict": "CHANGES-REQUESTED",
+        "correct": true,
+        "reason": "The diff modifies `app/backend/meetups/app.py`, which is outside the paths declared in the ticket's `## Perimeter` section (`app/backend/meetups/geocoder_client.py`, `app/fakes/geocoder/server.py`, `app/contracts/geocoder/examples.json`, `app/backend/tests/test_geocoder_*.py`, and `app/README.md`). Changes must be confined to the perimeter files.",
+        "prompt_bytes": 4783,
+        "prompt_tokens_approx": 1195.75,
+        "input_sha256": "9686f407cc5960d9dc10e0c00df19400c6b8177bfc243d34fb1d008fed407f31",
+        "tokens": {
+          "input": 2583,
+          "output": 109,
+          "thoughts": 1264,
+          "cached": 561,
+          "total": 3956
+        },
+        "latency_s": 17.065,
+        "cited_adrs": [],
+        "matched_slice_adrs": [],
+        "cited_pages": [
+          "app/README.md"
+        ]
+      },
+      "on": {
+        "status": "ok",
+        "provider": "gemini",
+        "model": "gemini-3.8-flash",
+        "verdict": "CHANGES-REQUESTED",
+        "correct": true,
+        "reason": "The diff modifies `app/backend/meetups/app.py`, which is outside the perimeter declared in the ticket (`app/backend/meetups/geocoder_client.py`, `app/fakes/geocoder/server.py`, `app/contracts/geocoder/examples.json`, `app/backend/tests/test_geocoder_*.py`, and `app/README.md`).\n\nAdditionally, it introduces an unused `_fixture_eval_probe` helper calling `eval()` rather than implementing any of the geocoder contract or client changes required by the ticket. All changes must remain strictly within the declared perimeter files.",
+        "prompt_bytes": 8510,
+        "prompt_tokens_approx": 2127.5,
+        "input_sha256": "737010b729396043c6130b41638ac580e908d67374e36e68909577eaed7c5f41",
+        "tokens": {
+          "input": 3871,
+          "output": 141,
+          "thoughts": 1093,
+          "cached": 1834,
+          "total": 5105
+        },
+        "latency_s": 12.904,
+        "cited_adrs": [],
+        "matched_slice_adrs": [],
+        "cited_pages": [
+          "app/README.md"
+        ]
+      }
+    }
+  ]
+}

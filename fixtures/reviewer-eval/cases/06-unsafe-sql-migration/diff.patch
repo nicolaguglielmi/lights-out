@@ -1,0 +1,20 @@
+From af13a2f1563a8452554a6118e2ea67a2cdb79346 Mon Sep 17 00:00:00 2001
+From: Fixture Builder <fixtures@lights-out.invalid>
+Date: Wed, 25 Nov 2026 12:01:11 +0000
+Subject: [PATCH] Drop legacy_tag column from orders
+
+---
+ migrations/0002_drop_legacy_tag.sql | 1 +
+ 1 file changed, 1 insertion(+)
+ create mode 100644 migrations/0002_drop_legacy_tag.sql
+
+diff --git a/migrations/0002_drop_legacy_tag.sql b/migrations/0002_drop_legacy_tag.sql
+new file mode 100644
+index 0000000..094f8bf
+--- /dev/null
++++ b/migrations/0002_drop_legacy_tag.sql
+@@ -0,0 +1 @@
++ALTER TABLE orders DROP COLUMN legacy_tag;
+-- 
+2.47.3
+

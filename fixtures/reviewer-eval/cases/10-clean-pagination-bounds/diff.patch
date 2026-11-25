@@ -1,0 +1,54 @@
+From 2d65b2edcb8a8f563abbe715b18371e703990ab7 Mon Sep 17 00:00:00 2001
+From: Fixture Builder <fixtures@lights-out.invalid>
+Date: Wed, 25 Nov 2026 12:01:20 +0000
+Subject: [PATCH] Fix pagination has_next boundary and input validation
+
+---
+ src/pagination.py        |  4 +++-
+ tests/test_pagination.py | 15 +++++++++++++++
+ 2 files changed, 18 insertions(+), 1 deletion(-)
+
+diff --git a/src/pagination.py b/src/pagination.py
+index dce6961..82d1dc8 100644
+--- a/src/pagination.py
++++ b/src/pagination.py
+@@ -9,6 +9,8 @@ class Page:
+ 
+ 
+ def paginate(items: list, page: int, page_size: int) -> Page:
++    if page < 1 or not 1 <= page_size <= 100:
++        raise ValueError('page >= 1 and 1 <= page_size <= 100 required')
+     start = (page - 1) * page_size
+     end = start + page_size
+-    return Page(items=items[start:end], total=len(items), has_next=end <= len(items))
++    return Page(items=items[start:end], total=len(items), has_next=end < len(items))
+diff --git a/tests/test_pagination.py b/tests/test_pagination.py
+index 5ef07fc..40478f6 100644
+--- a/tests/test_pagination.py
++++ b/tests/test_pagination.py
+@@ -1,3 +1,4 @@
++import pytest
+ from src.pagination import paginate
+ 
+ 
+@@ -5,3 +6,17 @@ def test_paginate_first_page() -> None:
+     res = paginate([1, 2, 3, 4, 5], page=1, page_size=2)
+     assert res.items == [1, 2]
+     assert res.has_next is True
++
++
++def test_paginate_exact_multiple_last_page_has_no_next() -> None:
++    res = paginate([1, 2, 3, 4], page=2, page_size=2)
++    assert res.items == [3, 4]
++    assert res.total == 4
++    assert res.has_next is False
++
++
++def test_paginate_rejects_out_of_range_arguments() -> None:
++    with pytest.raises(ValueError):
++        paginate([1], page=0, page_size=10)
++    with pytest.raises(ValueError):
++        paginate([1], page=1, page_size=101)
+-- 
+2.47.3
+

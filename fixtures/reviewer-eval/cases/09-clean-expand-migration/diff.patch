@@ -1,0 +1,21 @@
+From fec93d8578af8701a188dd56ee58e6240f2e1dd5 Mon Sep 17 00:00:00 2001
+From: Fixture Builder <fixtures@lights-out.invalid>
+Date: Wed, 25 Nov 2026 12:01:19 +0000
+Subject: [PATCH] Add priority_tier column with default on orders
+
+---
+ migrations/0003_add_priority_tier.sql | 2 ++
+ 1 file changed, 2 insertions(+)
+ create mode 100644 migrations/0003_add_priority_tier.sql
+
+diff --git a/migrations/0003_add_priority_tier.sql b/migrations/0003_add_priority_tier.sql
+new file mode 100644
+index 0000000..56f5c2f
+--- /dev/null
++++ b/migrations/0003_add_priority_tier.sql
+@@ -0,0 +1,2 @@
++ALTER TABLE orders ADD COLUMN priority_tier TEXT NOT NULL DEFAULT 'standard';
++CREATE INDEX IF NOT EXISTS idx_orders_priority_tier ON orders (priority_tier);
+-- 
+2.47.3
+

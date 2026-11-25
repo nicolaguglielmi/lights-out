@@ -1,0 +1,21 @@
+{
+  "schema": "lights-out/reviewer-eval-replay/1",
+  "case_id": "05-missing-regression-test",
+  "role": "test-reviewer",
+  "provider": "gemini",
+  "model": "gemini-3.8-flash",
+  "thinking": "high",
+  "recorded_at": "2026-11-25T12:08:56Z",
+  "input_sha256": "4c172b054684f070e7bddf89b999e5f0b2c00b252ceb06973b957d38daf3eb0f",
+  "verdict": "CHANGES-REQUESTED",
+  "reason": "The acceptance criteria require a test that specifically exercises `now_ts == coupon.expires_at` and asserts `CouponExpiredError` (a test that would fail against the unfixed `>` check). \n\nHowever, the added test `test_well_expired_coupon_raises` calls `validate_coupon(coupon, 2500)` against a coupon with `expires_at=2000`. Because `2500 > 2000`, this test exercises `now_ts > coupon.expires_at` and passes against the unfixed code rather than testing the boundary case where `now_ts == coupon.expires_at` (e.g. `validate_coupon(coupon, 2000)`).",
+  "raw_response": "CHANGES-REQUESTED\n\nThe acceptance criteria require a test that specifically exercises `now_ts == coupon.expires_at` and asserts `CouponExpiredError` (a test that would fail against the unfixed `>` check). \n\nHowever, the added test `test_well_expired_coupon_raises` calls `validate_coupon(coupon, 2500)` against a coupon with `expires_at=2000`. Because `2500 > 2000`, this test exercises `now_ts > coupon.expires_at` and passes against the unfixed code rather than testing the boundary case where `now_ts == coupon.expires_at` (e.g. `validate_coupon(coupon, 2000)`).",
+  "tokens": {
+    "input": 2057,
+    "output": 164,
+    "thoughts": 1477,
+    "cached": 0,
+    "total": 3698
+  },
+  "latency_s": 14.992
+}

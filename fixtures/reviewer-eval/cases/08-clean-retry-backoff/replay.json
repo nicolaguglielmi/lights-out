@@ -1,0 +1,21 @@
+{
+  "schema": "lights-out/reviewer-eval-replay/1",
+  "case_id": "08-clean-retry-backoff",
+  "role": "test-reviewer",
+  "provider": "gemini",
+  "model": "gemini-3.8-flash",
+  "thinking": "high",
+  "recorded_at": "2026-11-25T12:18:36Z",
+  "input_sha256": "7c6290597c360688b2cc49a500fe01198f695419454cd713bab065af49811968",
+  "verdict": "APPROVED",
+  "reason": "The diff satisfies all acceptance criteria and stays strictly within the declared perimeter (`src/backoff.py` and `tests/test_backoff.py`).\n\n1. `compute_delay` validates `attempt >= 0`, `base_s > 0`, and `max_s >= base_s`, raising `ValueError` when invalid, and caps return values at `max_s` using `min(max_s, base_s * (2 ** attempt))`.\n2. `tests/test_backoff.py` verifies `attempt=0` (`0.5`), growth at `attempt=3` (`4.0`), ceiling cap at `attempt=10` (`8.0`), and `ValueError` on `attempt=-1`.\n3. The added tests would fail against the baseline implementation, which previously returned uncapped delay `512.0` for `attempt=10` and `0.25` without error for `attempt=-1`.",
+  "raw_response": "APPROVED\n\nThe diff satisfies all acceptance criteria and stays strictly within the declared perimeter (`src/backoff.py` and `tests/test_backoff.py`).\n\n1. `compute_delay` validates `attempt >= 0`, `base_s > 0`, and `max_s >= base_s`, raising `ValueError` when invalid, and caps return values at `max_s` using `min(max_s, base_s * (2 ** attempt))`.\n2. `tests/test_backoff.py` verifies `attempt=0` (`0.5`), growth at `attempt=3` (`4.0`), ceiling cap at `attempt=10` (`8.0`), and `ValueError` on `attempt=-1`.\n3. The added tests would fail against the baseline implementation, which previously returned uncapped delay `512.0` for `attempt=10` and `0.25` without error for `attempt=-1`.",
+  "tokens": {
+    "input": 1982,
+    "output": 209,
+    "thoughts": 1349,
+    "cached": 0,
+    "total": 3540
+  },
+  "latency_s": 14.915
+}

@@ -1,0 +1,21 @@
+{
+  "schema": "lights-out/reviewer-eval-replay/1",
+  "case_id": "02-silent-exception-swallow",
+  "role": "test-reviewer",
+  "provider": "gemini",
+  "model": "gemini-3.8-flash",
+  "thinking": "high",
+  "recorded_at": "2026-11-25T12:08:11Z",
+  "input_sha256": "dbe1bd7886192452834dc7ca7e0501b53c60aeffe0b027b5b928afd7e6ece6a0",
+  "verdict": "CHANGES-REQUESTED",
+  "reason": "The diff fails both acceptance criteria:\n\n1. In `src/billing_audit.py`, `record_invoice_event` catches `Exception` and swallows it silently (`pass`), returning `True`. The acceptance criterion requires it to raise `AuditWriteError` chained from the underlying error (e.g. `raise AuditWriteError(...) from err`), never swallowing failures silently.\n2. In `tests/test_billing_audit.py`, `test_record_invoice_event_handles_store_failure` asserts that calling `record_invoice_event` with `FailingStore` returns `True`, rather than asserting that `AuditWriteError` is raised.",
+  "raw_response": "CHANGES-REQUESTED\n\nThe diff fails both acceptance criteria:\n\n1. In `src/billing_audit.py`, `record_invoice_event` catches `Exception` and swallows it silently (`pass`), returning `True`. The acceptance criterion requires it to raise `AuditWriteError` chained from the underlying error (e.g. `raise AuditWriteError(...) from err`), never swallowing failures silently.\n2. In `tests/test_billing_audit.py`, `test_record_invoice_event_handles_store_failure` asserts that calling `record_invoice_event` with `FailingStore` returns `True`, rather than asserting that `AuditWriteError` is raised.",
+  "tokens": {
+    "input": 2079,
+    "output": 147,
+    "thoughts": 732,
+    "cached": 0,
+    "total": 2958
+  },
+  "latency_s": 9.894
+}

@@ -1,0 +1,21 @@
+{
+  "schema": "lights-out/reviewer-eval-replay/1",
+  "case_id": "06-unsafe-sql-migration",
+  "role": "architect",
+  "provider": "gemini",
+  "model": "gemini-3.8-flash",
+  "thinking": "high",
+  "recorded_at": "2026-11-25T12:23:03Z",
+  "input_sha256": "a435d9433ebcdfb0dad4213fc0c321e01e51f6603f4bdd37a09de63fee32a77c",
+  "verdict": "APPROVED",
+  "reason": "The diff stays strictly within the perimeter declared in the ticket (`migrations/0002_drop_legacy_tag.sql`). It introduces no new abstractions, adapters, or external dependencies, blurs no architectural boundaries, and introduces no magic numbers or unexplained thresholds.\n\nThe database migration in `migrations/0002_drop_legacy_tag.sql` is a structural change that has no architectural decision record under `docs/adr/`. However, because the ticket did not ask for a record, changes are not requested on that basis. Evaluating correctness regarding canary deployment rollback safety and contract phases belongs to verification rather than structural architecture review.",
+  "raw_response": "APPROVED\n\nThe diff stays strictly within the perimeter declared in the ticket (`migrations/0002_drop_legacy_tag.sql`). It introduces no new abstractions, adapters, or external dependencies, blurs no architectural boundaries, and introduces no magic numbers or unexplained thresholds.\n\nThe database migration in `migrations/0002_drop_legacy_tag.sql` is a structural change that has no architectural decision record under `docs/adr/`. However, because the ticket did not ask for a record, changes are not requested on that basis. Evaluating correctness regarding canary deployment rollback safety and contract phases belongs to verification rather than structural architecture review.",
+  "tokens": {
+    "input": 1558,
+    "output": 133,
+    "thoughts": 10400,
+    "cached": 0,
+    "total": 12091
+  },
+  "latency_s": 74.099
+}

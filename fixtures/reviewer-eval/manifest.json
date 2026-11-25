@@ -1,0 +1,126 @@
+{
+  "schema": "lights-out/reviewer-eval-manifest/1",
+  "description": "12 labeled diff evaluation cases (6 defective across distinct gate/reviewer classes, 6 clean).",
+  "cases": [
+    {
+      "id": "01-tautological-assertion",
+      "title": "Clamp negative shipping fee to zero",
+      "path": "cases/01-tautological-assertion",
+      "expected_defective": true,
+      "expected_verdict": "CHANGES-REQUESTED",
+      "defect_class": "tautological-assertion",
+      "reviewer_role": "test-reviewer",
+      "test_globs": "tests/*:*/tests/*:test_*.py:*_test.py"
+    },
+    {
+      "id": "02-silent-exception-swallow",
+      "title": "Surface audit store write failures",
+      "path": "cases/02-silent-exception-swallow",
+      "expected_defective": true,
+      "expected_verdict": "CHANGES-REQUESTED",
+      "defect_class": "silent-exception-swallow",
+      "reviewer_role": "test-reviewer",
+      "test_globs": "tests/*:*/tests/*:test_*.py:*_test.py"
+    },
+    {
+      "id": "03-perimeter-escape",
+      "title": "Normalize currency codes within declared perimeter",
+      "path": "cases/03-perimeter-escape",
+      "expected_defective": true,
+      "expected_verdict": "CHANGES-REQUESTED",
+      "defect_class": "perimeter-escape",
+      "reviewer_role": "test-reviewer",
+      "test_globs": "tests/*:*/tests/*:test_*.py:*_test.py"
+    },
+    {
+      "id": "04-off-by-one-boundary",
+      "title": "Enforce strict daily request quota",
+      "path": "cases/04-off-by-one-boundary",
+      "expected_defective": true,
+      "expected_verdict": "CHANGES-REQUESTED",
+      "defect_class": "off-by-one-boundary",
+      "reviewer_role": "test-reviewer",
+      "test_globs": "tests/*:*/tests/*:test_*.py:*_test.py"
+    },
+    {
+      "id": "05-missing-regression-test",
+      "title": "Reject expired coupon on exact expiry timestamp",
+      "path": "cases/05-missing-regression-test",
+      "expected_defective": true,
+      "expected_verdict": "CHANGES-REQUESTED",
+      "defect_class": "missing-regression-test",
+      "reviewer_role": "test-reviewer",
+      "test_globs": "tests/*:*/tests/*:test_*.py:*_test.py"
+    },
+    {
+      "id": "06-unsafe-sql-migration",
+      "title": "Rollback-unsafe DROP COLUMN migration",
+      "path": "cases/06-unsafe-sql-migration",
+      "expected_defective": true,
+      "expected_verdict": "CHANGES-REQUESTED",
+      "defect_class": "unsafe-sql-migration",
+      "reviewer_role": "architect",
+      "test_globs": "tests/*:*/tests/*:test_*.py:*_test.py"
+    },
+    {
+      "id": "07-clean-discount-fix",
+      "title": "Validate discount percentage and clamp net total",
+      "path": "cases/07-clean-discount-fix",
+      "expected_defective": false,
+      "expected_verdict": "APPROVED",
+      "defect_class": "clean-bugfix",
+      "reviewer_role": "test-reviewer",
+      "test_globs": "tests/*:*/tests/*:test_*.py:*_test.py"
+    },
+    {
+      "id": "08-clean-retry-backoff",
+      "title": "Cap exponential retry delay",
+      "path": "cases/08-clean-retry-backoff",
+      "expected_defective": false,
+      "expected_verdict": "APPROVED",
+      "defect_class": "clean-bugfix",
+      "reviewer_role": "test-reviewer",
+      "test_globs": "tests/*:*/tests/*:test_*.py:*_test.py"
+    },
+    {
+      "id": "09-clean-expand-migration",
+      "title": "Add rollback-safe expand SQL migration",
+      "path": "cases/09-clean-expand-migration",
+      "expected_defective": false,
+      "expected_verdict": "APPROVED",
+      "defect_class": "clean-expand-migration",
+      "reviewer_role": "architect",
+      "test_globs": "tests/*:*/tests/*:test_*.py:*_test.py"
+    },
+    {
+      "id": "10-clean-pagination-bounds",
+      "title": "Fix off-by-one has_next and page validation",
+      "path": "cases/10-clean-pagination-bounds",
+      "expected_defective": false,
+      "expected_verdict": "APPROVED",
+      "defect_class": "clean-bugfix",
+      "reviewer_role": "test-reviewer",
+      "test_globs": "tests/*:*/tests/*:test_*.py:*_test.py"
+    },
+    {
+      "id": "11-clean-error-propagation",
+      "title": "Propagate LedgerIOError on corrupt ledger JSON",
+      "path": "cases/11-clean-error-propagation",
+      "expected_defective": false,
+      "expected_verdict": "APPROVED",
+      "defect_class": "clean-bugfix",
+      "reviewer_role": "test-reviewer",
+      "test_globs": "tests/*:*/tests/*:test_*.py:*_test.py"
+    },
+    {
+      "id": "12-clean-contract-migration",
+      "title": "Contract cleanup migration with Contract-After",
+      "path": "cases/12-clean-contract-migration",
+      "expected_defective": false,
+      "expected_verdict": "APPROVED",
+      "defect_class": "clean-contract-migration",
+      "reviewer_role": "architect",
+      "test_globs": "tests/*:*/tests/*:test_*.py:*_test.py"
+    }
+  ]
+}

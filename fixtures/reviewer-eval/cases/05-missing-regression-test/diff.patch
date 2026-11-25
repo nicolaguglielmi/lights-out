@@ -1,0 +1,44 @@
+From 58969c7c316400b6ce90098a596da02fa8ef6522 Mon Sep 17 00:00:00 2001
+From: Fixture Builder <fixtures@lights-out.invalid>
+Date: Wed, 25 Nov 2026 12:01:10 +0000
+Subject: [PATCH] Reject coupon at exact expiry timestamp
+
+---
+ src/coupons.py        | 2 +-
+ tests/test_coupons.py | 9 ++++++++-
+ 2 files changed, 9 insertions(+), 2 deletions(-)
+
+diff --git a/src/coupons.py b/src/coupons.py
+index dd1fc76..205409d 100644
+--- a/src/coupons.py
++++ b/src/coupons.py
+@@ -13,6 +13,6 @@ class Coupon:
+ 
+ 
+ def validate_coupon(coupon: Coupon, now_ts: int) -> int:
+-    if now_ts > coupon.expires_at:
++    if now_ts >= coupon.expires_at:
+         raise CouponExpiredError(f'coupon {coupon.code} expired')
+     return coupon.discount_pct
+diff --git a/tests/test_coupons.py b/tests/test_coupons.py
+index 93d7ad3..4f2773e 100644
+--- a/tests/test_coupons.py
++++ b/tests/test_coupons.py
+@@ -1,6 +1,13 @@
+-from src.coupons import Coupon, validate_coupon
++import pytest
++from src.coupons import Coupon, CouponExpiredError, validate_coupon
+ 
+ 
+ def test_active_coupon_returns_discount() -> None:
+     coupon = Coupon(code='SAVE10', discount_pct=10, expires_at=2000)
+     assert validate_coupon(coupon, 1500) == 10
++
++
++def test_well_expired_coupon_raises() -> None:
++    coupon = Coupon(code='SAVE10', discount_pct=10, expires_at=2000)
++    with pytest.raises(CouponExpiredError):
++        validate_coupon(coupon, 2500)
+-- 
+2.47.3
+

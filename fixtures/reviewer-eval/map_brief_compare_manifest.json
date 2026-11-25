@@ -1,0 +1,42 @@
+{
+  "schema": "lights-out/architect-map-brief-manifest/1",
+  "description": "Representative repository tickets and patches for live MAP_BRIEF=off vs MAP_BRIEF=on architect comparison.",
+  "cases": [
+    {
+      "id": "0001-honest",
+      "ticket_path": "tickets/0001.md",
+      "patch_path": "fixtures/0001/dev-worker/patch",
+      "expected_verdict": "APPROVED"
+    },
+    {
+      "id": "0005-geocoder",
+      "ticket_path": "tickets/0005.md",
+      "patch_path": "fixtures/0005/dev-worker/patch",
+      "expected_verdict": "APPROVED"
+    },
+    {
+      "id": "0012-capacity",
+      "ticket_path": "tickets/0012.md",
+      "patch_path": "fixtures/0012/impl/dev-worker/patch",
+      "expected_verdict": "APPROVED"
+    },
+    {
+      "id": "0020-metrics",
+      "ticket_path": "tickets/0020.md",
+      "patch_path": "fixtures/0020/dev-worker/patch",
+      "expected_verdict": "APPROVED"
+    },
+    {
+      "id": "0022-db-name",
+      "ticket_path": "tickets/0022.md",
+      "patch_path": "fixtures/0022/dev-worker/patch",
+      "expected_verdict": "APPROVED"
+    },
+    {
+      "id": "0001-sast-probe",
+      "ticket_path": "tickets/0001.md",
+      "patch_path": "app/fixtures/gates/sast-finding/0001-M4-fixture-sast-finding-one-bandit-finding-never-inv.patch",
+      "expected_verdict": "CHANGES-REQUESTED"
+    }
+  ]
+}
