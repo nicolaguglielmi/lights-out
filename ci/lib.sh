@@ -92,7 +92,11 @@ record_check() {
   mkdir -p "$CI_RECORDS"
   rm -f "$CI_RECORDS/$2.rc"
   record_rc=0
+  record_t0=$(date +%s)
   sh "$1" > "$CI_RECORDS/$2.out" || record_rc=$?
+  # Each check's duration, on stderr: a demo over its budget names the
+  # check that took the time (docs/adr/0093 §6).
+  printf '[ci] %s: %s s\n' "$2" "$(( $(date +%s) - record_t0 ))" >&2
   cat "$CI_RECORDS/$2.out"
   printf '%s\n' "$record_rc" > "$CI_RECORDS/$2.rc"
   return "$record_rc"
