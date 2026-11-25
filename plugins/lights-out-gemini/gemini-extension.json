@@ -1,5 +1,5 @@
 {
   "name": "lights-out-gemini",
-  "version": "0.9.0",
+  "version": "1.0.0",
   "description": "Numeric gates in the session: /lights-out:gates and /lights-out:spec answer one GO or NO-GO line, and a pre-commit hook stops a commit the light gates refuse."
 }

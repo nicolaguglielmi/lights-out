@@ -1,7 +1,7 @@
 {
   "name": "lights-out",
   "displayName": "lights-out",
-  "version": "0.9.0",
+  "version": "1.0.0",
   "description": "Numeric gates in the session: /lights-out:gates and /lights-out:spec answer one GO or NO-GO line, a pre-commit hook stops a commit the light gates refuse, and a read-only MCP server answers which ADRs govern a file, which tests cover it, which tickets touched it.",
   "author": {
     "name": "Nicola Guglielmi"

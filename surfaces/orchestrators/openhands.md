@@ -7,7 +7,7 @@ OpenHands manages multi-step coding sessions inside sandboxes and opens pull req
 In a host runner or CI job with Podman or Docker (full 8-gate container judge):
 
 ```sh
-curl -fsSLo /usr/local/bin/lights-out https://raw.githubusercontent.com/nicolaguglielmi/lights-out/v0.9.0/lights-out
+curl -fsSLo /usr/local/bin/lights-out https://raw.githubusercontent.com/nicolaguglielmi/lights-out/v1.0.0/lights-out
 chmod +x /usr/local/bin/lights-out
 ```
 

@@ -16,7 +16,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "lights-out-gates"
-version = "0.9.0"
+version = "1.0.0"
 description = "One install for lights-out: the POSIX container wrapper (lights-out) and the containerless light tier (lights-out-gates)."
 readme = "README.md"
 license = "Apache-2.0"

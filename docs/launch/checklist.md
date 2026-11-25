@@ -367,6 +367,27 @@ L1 evals `8/8` passing in `docs/plans/live-validation-2026-11-25.md`),
 - [ ] **A dry run** of `package.yml` (`workflow_dispatch`, `dry_run`) on the
   pushed release commit, then **tag `v0.9.0`** on `main` (owner's act) to
   publish both signed images, `lights-out-gates` `0.9.0` on PyPI, synced
+  Actions, wiki, and Marketplace drafts. Not done before `1.0.0` was
+  prepared on top of it: the next tag is `v1.0.0`.
+
+### Release 1.0.0 (prepared 2026-11-25)
+
+GA hardening on top of the `0.9.0` cut: full `11/11` port conformance
+(ADR 0133, `M91`), CodeHost merge attestations (ADR 0134, `M92`), the
+thresholds view and complete worker ledger that close `M17` (ADR 0135,
+`M93`), the active `ci/` shell ratchet (ADR 0136, `M94`), the labeled-diff
+reviewer evaluation `./go reviewer-eval` (ADR 0137, `M95`), the read-only
+`./go portfolio` and the frozen `v1.0` workload contract checked by
+`ci/contract-v1.sh` (ADR 0138, `M96`), and the ADR lifecycle
+reconciliation (ADR 0139, `M97`).
+
+- [x] **The release commit on `main`**: wrapper `lights-out` (`version=1.0.0`),
+  `pyproject.toml`, the three plugin manifests, Actions, CI surfaces,
+  `site/index.html`, active docs bumped to `1.0.0`, and prose in
+  `docs/releases/v1.0.0.md`.
+- [ ] **A dry run** of `package.yml` (`workflow_dispatch`, `dry_run`) on the
+  pushed release commit, then **tag `v1.0.0`** on `main` (owner's act) to
+  publish both signed images, `lights-out-gates` `1.0.0` on PyPI, synced
   Actions, wiki, and Marketplace drafts.
 
 ### The Python package on PyPI (M35)
