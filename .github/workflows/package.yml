@@ -254,8 +254,17 @@ jobs:
           case "$PROOF" in "GO: test-proof — "*) ;; *) echo "gates: test-proof was not GO under its own name"; exit 1 ;; esac
           case "$INTEGRITY" in "GO: test-integrity — "*) ;; *) echo "gates: test-integrity was not GO under its own name"; exit 1 ;; esac
           [ "$BAD_OUTCOME" = failure ] || { echo "the Action did not fail on NO-GO"; exit 1; }
-          runs=$(curl -sS -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
-            "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/check-runs?filter=all&per_page=100")
+          # The API lists a check run a few seconds after the step that posted it
+          # (seen 2026-11-25, run 45668621191: six of seven): read again until the
+          # six Action tests are there, 60 s at most (a decision).
+          i=0
+          while :; do
+            runs=$(curl -sS -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
+              "$GITHUB_API_URL/repos/$GITHUB_REPOSITORY/commits/$GITHUB_SHA/check-runs?filter=all&per_page=100")
+            n=$(printf '%s' "$runs" | jq '[.check_runs[] | select(.name | startswith("lights-out ")) | select(.name | contains("(Action test"))] | length')
+            [ "$n" -ge 6 ] || [ "$i" -ge 12 ] && break
+            i=$((i + 1)); sleep 5
+          done
           printf '%s' "$runs" | jq -r '.check_runs[] | select(.name | startswith("lights-out ")) | "\(.id) \(.name): \(.conclusion), \(.output.title)"'
           # check NAME-PREFIX CONCLUSION LINE PER-GATE-LINES: a check run with that title, and its summary one line per gate.
           check() {
