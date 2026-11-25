@@ -1,6 +1,6 @@
 # ADR 0091 — Closed decisions: a `Decide` port, the perimeter asked file by file, and a screen for instructions aimed at an agent
 
-- Status: proposed (M58)
+- Status: accepted (M58)
 - Date: 2026-11-16
 - Milestone: M58 (docs/PLAN.md, "M58 — Decisioni chiuse: perimetro e filtro anti-injection (ADR 0091)")
 - Amends: ADR 0090 §3 (the perimeter step can ask instead of search), §7

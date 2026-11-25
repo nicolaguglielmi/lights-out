@@ -1,7 +1,7 @@
 # 0098 — Verify from the proxy
 
 - **Date**: 2026-11-23
-- **Status**: Accepted (amends [ADR 0011](0011-slo-queries-and-metric-shape-gate-at-m1.md), [ADR 0013](0013-launchpad-canary-verify-rollback-at-l0.md), [ADR 0030 §3](0030-workload-port.md), [ADR 0066](0066-a-canary-that-cannot-be-judged.md))
+- Status: accepted (amends [ADR 0011](0011-slo-queries-and-metric-shape-gate-at-m1.md), [ADR 0013](0013-launchpad-canary-verify-rollback-at-l0.md), [ADR 0030 §3](0030-workload-port.md), [ADR 0066](0066-a-canary-that-cannot-be-judged.md))
 
 ## Context
 

@@ -1,6 +1,6 @@
 # ADR 0074 — Judge what was never judged: a push's range starts at its last green ancestor, every green check records its range, and mutation skips the lines a recorded green already judged
 
-- Status: proposed (amends ADR 0049 §2 [the range of a push]; ADR 0015 §3 [which lines mutation mutates])
+- Status: accepted (amends ADR 0049 §2 [the range of a push]; ADR 0015 §3 [which lines mutation mutates])
 - Date: 2026-11-11
 
 ## Context

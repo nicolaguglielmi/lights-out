@@ -1,7 +1,7 @@
 # 0101 — Repository `origin` remote as CodeHost
 
 - **Date**: 2026-11-24
-- **Status**: Accepted
+- Status: accepted
 - **Milestone**: M68
 - **Amends**: [ADR 0024 §1](0024-ports-and-adapters.md), [ADR 0037 §1](0037-the-workload-is-a-repository.md), [ADR 0043 §1–§2](0043-github-code-host-and-attached-release.md), [ADR 0058 §8](0058-outside-adapters-and-other-cis-as-surfaces.md)
 

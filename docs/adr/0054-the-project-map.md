@@ -1,6 +1,6 @@
 # ADR 0054 — The project map: a SQLite file rebuilt from one commit at every merge, a docs-drift check, a docs ticket after a merge, and the map's slice in the worker's brief behind a switch
 
-- Status: proposed
+- Status: accepted
 - Date: 2026-11-07
 - Milestone: M28
 

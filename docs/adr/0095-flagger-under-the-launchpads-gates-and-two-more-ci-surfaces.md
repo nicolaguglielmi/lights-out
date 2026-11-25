@@ -1,6 +1,6 @@
 # ADR 0095 — Flagger under the launchpad's gates, and two more CIs as surfaces: `adapters/flagger/` lets Flagger's own analysis roll a canary back while the launchpad opens each step and the human answer opens 100%; GitLab CI and CircleCI post the gates' line under their own context
 
-- Status: proposed (amends ADR 0051 §4 [the k3s cluster script takes the controller from the adapter that asks for it] and §5 [a workload's `k8s/` may hold one subdirectory per Delivery adapter]; ADR 0058 §6 [the recipes for GitLab CI and CircleCI are written, each under its own context] and §9 [Flagger is built]; plan §4 [`flagger` joins the Delivery row])
+- Status: accepted (amends ADR 0051 §4 [the k3s cluster script takes the controller from the adapter that asks for it] and §5 [a workload's `k8s/` may hold one subdirectory per Delivery adapter]; ADR 0058 §6 [the recipes for GitLab CI and CircleCI are written, each under its own context] and §9 [Flagger is built]; plan §4 [`flagger` joins the Delivery row])
 - Date: 2026-11-16
 - Milestone: M62
 

@@ -1,6 +1,6 @@
 # ADR 0065 — One proof per commit: a commit already green on a branch is not judged again on `main`, a docs-only push skips the demo, and each branch writes its own handoff
 
-- Status: proposed (amends ADR 0002 [what the workflows run on a push]; the milestone skill's hand-off step)
+- Status: accepted (amends ADR 0002 [what the workflows run on a push]; the milestone skill's hand-off step)
 - Date: 2026-11-09
 - Milestone: none; the coordinator's landing process (`.claude/context/HANDOFF.md`)
 

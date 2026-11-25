@@ -1,6 +1,6 @@
 # ADR 0083 — Cost and time per ticket: a dated price table in `profiles/`, a spend ledger in the tower, a budget per ticket and per day that stops the next attempt
 
-- Status: proposed (M50)
+- Status: accepted (M50)
 - Date: 2026-11-12
 - Amended by: ADR 0092 §5-§6 (a `cached_input` price; cached input priced at it when the run reports `tokens.cached`, and `cost_basis` on every ledger entry)
 - Amended by: ADR 0087 (a failed attempt's run enters the ledger; `./go spend`

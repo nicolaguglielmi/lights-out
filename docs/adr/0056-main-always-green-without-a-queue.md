@@ -1,6 +1,6 @@
 # ADR 0056 — Main always green without a queue: no re-judge on disjoint perimeters, main checked after merge, bisect and revert
 
-- Status: proposed
+- Status: accepted
 - Date: 2026-11-07
 - Milestone: M30
 - Amends ADR 0019 §1 (the transition table: `merged` requests `mainline`,

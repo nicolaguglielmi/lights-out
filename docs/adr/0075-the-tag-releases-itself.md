@@ -1,6 +1,6 @@
 # ADR 0075 — The tag releases itself: PyPI by trusted publishing, the two Action repositories synced, the release drafted; a dispatch is a dry run
 
-- Status: proposed
+- Status: accepted
 - Date: 2026-11-11
 - Amends: ADR 0057 §4 (`id-token: write` on a second job, `pypi`) and §7
   (the Action repositories are refreshed by the workflow, not by hand);

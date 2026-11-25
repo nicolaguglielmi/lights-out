@@ -1,6 +1,6 @@
 # ADR 0082 — The delivery measures, from the logbook: four DORA keys over a window, a measure the record cannot give is not measured
 
-- Status: proposed (M48)
+- Status: accepted (M48)
 - Date: 2026-11-12
 
 ## Context

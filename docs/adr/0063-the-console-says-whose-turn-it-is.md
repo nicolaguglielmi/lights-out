@@ -1,6 +1,6 @@
 # ADR 0063 — The console says whose turn it is: the kanban fits the flow under four bands, every ticket carries a now line read through a checked copy of the tower's table, the timeline reads top-down, the overview opens with what waits for a person, the editor keeps its verdict in view
 
-- Status: proposed
+- Status: accepted
 - Date: 2026-11-09
 - Milestone: M17, first slice (ADR 0047's open decision 2 folds M17's
   dashboard into the console)

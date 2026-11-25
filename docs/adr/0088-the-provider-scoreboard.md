@@ -1,6 +1,6 @@
 # ADR 0088 — The provider scoreboard: per provider and harness, from the run logbooks and a curated dataset whose every row names its source
 
-- Status: proposed (M55)
+- Status: accepted (M55)
 - Date: 2026-11-14
 - Milestone: M55 (docs/PLAN.md, "Sprint 2026-11-14 — Il flusso a colpo d'occhio (M52–M56)", stream B)
 

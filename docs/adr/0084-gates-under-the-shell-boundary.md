@@ -1,6 +1,6 @@
 # ADR 0084 — `gates/` under the shell boundary: the wrapper stays shell, the logic moves to `core/gates/`, the ratchet holds both
 
-- Status: proposed (M51); amended 2026-11-16 (M61, the second slice)
+- Status: accepted (M51); amended 2026-11-16 (M61, the second slice)
 - Date: 2026-11-13
 
 ## Context

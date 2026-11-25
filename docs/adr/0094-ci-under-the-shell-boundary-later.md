@@ -1,6 +1,6 @@
 # ADR 0094 — `ci/` under the shell boundary, later: where its Python lives, and its debt
 
-- Status: proposed (M61)
+- Status: accepted (M61)
 - Date: 2026-11-16
 
 ## Context

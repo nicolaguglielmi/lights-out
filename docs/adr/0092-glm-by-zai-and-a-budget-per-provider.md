@@ -1,6 +1,6 @@
 # ADR 0092 — GLM by Z.ai is the fourth provider (`MODEL_PROVIDER=zai`, on `claude-code` and the ADK roles), `TOKEN_BUDGET` can differ per provider, and the ledger prices cached input at the vendor's cached rate
 
-- Status: proposed (M59)
+- Status: accepted (M59)
 - Date: 2026-11-16
 - Amends: ADR 0040 §1, §2, §5 (a fourth provider, its key and its thinking
   map; `glm-` ids join `ci/model-free.sh`), ADR 0041 §2 (a harness may run

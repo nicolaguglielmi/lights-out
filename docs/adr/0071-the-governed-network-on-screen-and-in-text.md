@@ -1,6 +1,6 @@
 # ADR 0071 — The governed network, on screen and in text: logbook 1.3 keeps each attempt's workers, its patch (capped, and shown only once the secrets gate passed it) and every gate's line; a `#network` screen draws the tower, the six roles, the workers, the gates lighting GO or NO-GO, the rework loop and the human gate, beside the stream of attempts and the files by perimeter; `./go network` prints the same facts in the same words from the same logbook; at L0 with no key the screen replays the logbook's own record, labelled as a replay
 
-- Status: proposed
+- Status: accepted
 - Date: 2026-11-11
 - Milestone: M17, third slice
 - Amends: ADR 0047 §2 (the logbook goes to 1.3: optional additions only);

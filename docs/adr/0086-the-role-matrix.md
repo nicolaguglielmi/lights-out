@@ -1,6 +1,6 @@
 # ADR 0086 — The role matrix: one row per role on the Overview, its provider, harness, thinking, the tokens of its last run against its budget, and its state, read from the profile, `roles/` and the ledger
 
-- Status: proposed
+- Status: accepted
 - Date: 2026-11-14
 - Milestone: M53 (docs/PLAN.md, "Sprint 2026-11-14 — Il flusso a colpo
   d'occhio")

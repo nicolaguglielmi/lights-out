@@ -1,6 +1,6 @@
 # ADR 0081 — The evidence pack per release: one signed file that names its sources and its gaps
 
-- Status: proposed
+- Status: accepted
 - Date: 2026-11-12
 - Milestone: M49 (docs/PLAN.md, "Sprint 2026-11-12", stream B)
 

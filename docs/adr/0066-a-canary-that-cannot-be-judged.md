@@ -2,7 +2,7 @@
 
 *Numbered 0063 on its branch, `claude/sharp-khayyam-dcb1de`; renumbered 0066 at the merge, because the console's ADR on another branch took 0063 too.*
 
-- Status: proposed (amends ADR 0013 §2 [query text; `metric-shape` skips `job`, `instance` in `by (...)`], §4 [`deploy.sh` with `--no-deps`; `slo.sh`'s query errors; `demo-rollback`'s assertion]; ADR 0044 §8 [a Metrics query that errors is `cannot judge`, for `./go verify` too], §9 [`ci/metrics.sh` gains the error cases]; ADR 0030's Workload contract [`load.sh` exits non-zero when it cannot set up])
+- Status: accepted (amends ADR 0013 §2 [query text; `metric-shape` skips `job`, `instance` in `by (...)`], §4 [`deploy.sh` with `--no-deps`; `slo.sh`'s query errors; `demo-rollback`'s assertion]; ADR 0044 §8 [a Metrics query that errors is `cannot judge`, for `./go verify` too], §9 [`ci/metrics.sh` gains the error cases]; ADR 0030's Workload contract [`load.sh` exits non-zero when it cannot set up])
 - Date: 2026-11-09
 - Milestone: M34 follow-up
 

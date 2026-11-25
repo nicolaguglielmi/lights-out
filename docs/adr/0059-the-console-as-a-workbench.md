@@ -1,6 +1,6 @@
 # ADR 0059 — The console as a workbench: an interactive kanban that moves no card, a light and dark theme, ADR search from the project map in logbook 1.2, the specs screen and a request editor checked by the spec gate itself, saved through `./go request`'s recipe
 
-- Status: proposed
+- Status: accepted
 - Date: 2026-11-08
 - Milestone: M33
 - Amends: ADR 0047 §2 (the logbook goes to 1.2: the project map's ADRs

@@ -1,6 +1,6 @@
 # ADR 0051 — Delivery on Kubernetes: `adapters/argo-rollouts/` drives a Rollout with kubectl alone, through declared steps and a traffic router, and is proved by the unchanged conformance suite on a k3s node beside the L0 plane
 
-- Status: proposed (builds the third candidate of ADR 0024 §5; amends ADR 0030 [the Workload contract gains an optional `k8s/`]; plan §4's Delivery row gains `argo-rollouts`)
+- Status: accepted (builds the third candidate of ADR 0024 §5; amends ADR 0030 [the Workload contract gains an optional `k8s/`]; plan §4's Delivery row gains `argo-rollouts`)
 - Date: 2026-11-06
 - Milestone: M25
 

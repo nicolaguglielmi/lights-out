@@ -1,6 +1,6 @@
 # ADR 0044 — Ops without the plane: an incident document in (`./go incident`), a post mortem out (`./go postmortem`) through a fourth ops-triage tool `file_postmortem`; every timeline entry anchored to an id the document holds and printed beside that evidence; every action item a ticket through the Tracker's new `put` verb; the Metrics port gains `promql` on `METRICS_URL`, and the plane's `prometheus` adapter calls it with its own URL
 
-- Status: proposed (draft for M22; amendments listed under "Amends")
+- Status: accepted (shipped M22; amendments listed under "Amends")
 - Date: 2026-11-04
 - Milestone: M22
 

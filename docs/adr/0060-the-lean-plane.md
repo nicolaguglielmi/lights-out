@@ -1,6 +1,6 @@
 # ADR 0060 — The lean plane: a `sqlite` StateStore and a `spool` EventBus on files under `.crew/`, the emulators opt-in, two conformance suites as the proof; the Gitea runner leaves and every workload's merge is built by the release step
 
-- Status: proposed (amends ADR 0039 [superseded: no runner], ADR 0025 §4
+- Status: accepted (amends ADR 0039 [superseded: no runner], ADR 0025 §4
   and §5 [no image job; the release step builds the merge for every
   workload], ADR 0043 §4 [the bundled workload takes the attached path],
   ADR 0019 §2 §3 [new default adapters, same verbs], ADR 0002 [the

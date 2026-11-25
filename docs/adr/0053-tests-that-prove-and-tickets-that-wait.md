@@ -1,6 +1,6 @@
 # ADR 0053 — Tests that prove something, and tickets that wait: a test the PR adds must fail on the base, the diff may not weaken tests, two open tickets never hold the same file, and an attached repository's base is green before its first ticket
 
-- Status: proposed (amends ADR 0015 §2 [two gates join `GATES`]; ADR 0021 §5 [one gate reads the ticket when it is given, to excuse a declared removal]; ADR 0030 §2 and ADR 0042 §1 [twelve keys: `WORKLOAD_TEST_PATHS`]; ADR 0019 §1 [the `assign` step has two preconditions of its own])
+- Status: accepted (amends ADR 0015 §2 [two gates join `GATES`]; ADR 0021 §5 [one gate reads the ticket when it is given, to excuse a declared removal]; ADR 0030 §2 and ADR 0042 §1 [twelve keys: `WORKLOAD_TEST_PATHS`]; ADR 0019 §1 [the `assign` step has two preconditions of its own])
 - Date: 2026-11-07
 - Milestone: M27
 

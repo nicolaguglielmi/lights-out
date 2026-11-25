@@ -1,6 +1,6 @@
 # ADR 0045 — One command, one package: `ghcr.io/nicolaguglielmi/lights-out:<version>` is the workbench plus the committed tree; a POSIX wrapper `lights-out` runs `init`, `gates`, `triage` and `postmortem` on any repository, mounted read-only, with one output directory and never the engine socket, judging a range by its base's contract; a composite Action posts the gates line as a check; agent hooks call the wrapper before a commit; `./go doctor` says what the host lacks, one line per item
 
-- Status: proposed (amends ADR 0042 §4 [through the wrapper, `gates` and `init` never get the socket]; ADR 0037 §1 [the source may be a read-only mount, the draft goes to an output directory]; plan §16 M23 [the Action's acceptance is in lights-out's own workflow, §8]); amended by ADR 0057 [a gates image beside the full one, the Action at the root, keyless signing]; amended by ADR 0064 [no contract at the head: a removal and a first run are two lines; `init HEAD=`]
+- Status: accepted (amends ADR 0042 §4 [through the wrapper, `gates` and `init` never get the socket]; ADR 0037 §1 [the source may be a read-only mount, the draft goes to an output directory]; plan §16 M23 [the Action's acceptance is in lights-out's own workflow, §8]); amended by ADR 0057 [a gates image beside the full one, the Action at the root, keyless signing]; amended by ADR 0064 [no contract at the head: a removal and a first run are two lines; `init HEAD=`]
 - Date: 2026-11-04
 - Milestone: M23
 

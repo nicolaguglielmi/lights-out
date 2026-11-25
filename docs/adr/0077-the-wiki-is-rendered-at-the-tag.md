@@ -1,6 +1,6 @@
 # ADR 0077 — The wiki is rendered from the repository at the tag, never edited by hand
 
-- Status: proposed
+- Status: accepted
 - Date: 2026-11-12
 - Amends: ADR 0075 §1 (a sixth release job, `wiki`, after `release`);
   ADR 0065 §1 (`wiki` is exempt from the `plan` gate like the other
