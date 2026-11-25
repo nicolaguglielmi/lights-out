@@ -144,7 +144,29 @@ class Config:
 CFG = None
 state = {"bytes": None, "book": None, "etag": None, "read_at": None, "read_error": None, "seq": 0}
 state_cond = threading.Condition()
-press = threading.Lock()
+class Press:
+    """One press at a time. The thread that holds it lets go before it
+    answers (send() releases it): a press sent on a 200 must find it free
+    (2026-11-25: assign, rollback and freeze answered first, and the next
+    press got 409 under load)."""
+
+    def __init__(self):
+        self._lock = threading.Lock()
+        self._mine = threading.local()
+
+    def acquire(self, blocking=True):
+        if self._lock.acquire(blocking):
+            self._mine.held = True
+            return True
+        return False
+
+    def release(self):
+        if getattr(self._mine, "held", False):
+            self._mine.held = False
+            self._lock.release()
+
+
+press = Press()
 reading = threading.Lock()  # the loop and a press never run the reader at once
 
 
@@ -289,6 +311,7 @@ class Handler(BaseHTTPRequestHandler):
     server_version = "lights-out-console"
 
     def send(self, code, body, kind="application/json", tag=None):
+        press.release()  # a no-op unless this thread holds it
         if isinstance(body, (dict, list)):
             body = json.dumps(body).encode()
         self.send_response(code)
