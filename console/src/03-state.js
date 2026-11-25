@@ -558,6 +558,60 @@ function renderPatchPre(text) {
   }
   return h("pre", {cls: "diff-view"}, children);
 }
+let threshFilter = "all";
+let threshQuery = "";
+function juryBadge(t) {
+  const j = t && typeof t.jury === "object" ? t.jury : null;
+  if (!j) return null;
+  const cross = j.cross_vendor === true;
+  const cls = cross ? "GO" : "pending";
+  const pair = [j.author_provider || "author", j.reviewer_provider || "reviewer"].join(" → ");
+  const text = cross ? "Jury: cross-provider (" + pair + ")" : "Jury: " + shown(j.mode || "review") + " (" + shown(j.reviewer_provider || j.reviewer_harness) + ")";
+  return h("span", {cls: "chip jury-badge " + cls, "data-cross-vendor": String(cross), title: j.reason || text}, text);
+}
+function provenanceBadge(t) {
+  const ps = t && typeof t.provenance_summary === "object" ? t.provenance_summary : null;
+  if (!ps) return null;
+  const complete = ps.complete === true && ps.signed === true;
+  const cls = complete ? "GO" : (ps.missing_count > 0 ? "pending" : "none");
+  const digest = ps.statement_sha256 ? String(ps.statement_sha256).slice(0, 12) : "no-sha";
+  const label = "Receipt: " + (ps.signed ? "signed" : "unsigned") + " · " + (ps.complete ? "complete" : ps.missing_count + " missing") + " (" + digest + ")";
+  return h("span", {cls: "chip prov-badge " + cls, "data-signed": String(!!ps.signed), "data-complete": String(!!ps.complete), title: ps.statement || label}, label);
+}
+function jurySummaryLine(t) {
+  const j = t && typeof t.jury === "object" ? t.jury : null;
+  if (!j) return null;
+  const kind = j.cross_vendor ? "cross-provider" : shown(j.mode || "standard");
+  const details = [kind, j.author_provider && j.reviewer_provider ? j.author_provider + " → " + j.reviewer_provider : null,
+    j.reviewer_model ? "model " + j.reviewer_model : null, j.reason || null].filter(Boolean);
+  return details.join(" · ");
+}
+function provenanceReceiptLine(t) {
+  const ps = t && typeof t.provenance_summary === "object" ? t.provenance_summary : null;
+  if (!ps) return null;
+  const parts = [ps.signed ? "signed" : "unsigned", ps.complete ? "complete" : ps.missing_count + " missing",
+    ps.statement_sha256 ? "sha256 " + String(ps.statement_sha256).slice(0, 12) : null,
+    Number.isInteger(ps.gates_count) ? ps.gates_count + " gates" : null,
+    Number.isInteger(ps.adrs_count) ? ps.adrs_count + " ADRs" : null].filter(Boolean);
+  return parts.join(" · ");
+}
+function provenanceReceiptPanel(t) {
+  const ps = t && typeof t.provenance_summary === "object" ? t.provenance_summary : null;
+  const j = t && typeof t.jury === "object" ? t.jury : null;
+  if (!ps && !j) return null;
+  return h("div", {cls: "panel", id: "ticket-attestation"},
+    h("h2", {}, "Attestation & Cross-Provider Jury"),
+    h("div", {cls: "badges", style: "margin-bottom:8px"}, juryBadge(t), provenanceBadge(t)),
+    dl([
+      j ? ["Jury selection", jurySummaryLine(t)] : null,
+      ps ? ["Statement subject", shown(ps.subject) + (ps.statement ? " (" + ps.statement + ")" : "")] : null,
+      ps && ps.statement_sha256 ? ["Statement sha256", h("span", {cls: "mono"}, ps.statement_sha256)] : null,
+      ps && ps.bundle_sha256 ? ["Signature bundle", h("span", {cls: "mono"}, ps.bundle_sha256)] : null,
+      ps ? ["Lineage coverage", ps.adrs_count + " ADR(s) · " + ps.agents_count + " agent run(s) · " + ps.gates_count + " gate(s)"] : null,
+      ps && Array.isArray(ps.missing) && ps.missing.length ? ["Missing evidence", ps.missing.join(", ")] : null,
+      ps && ps.codehost_attestation ? ["Codehost attestation", JSON.stringify(ps.codehost_attestation)] : null,
+    ]));
+}
 function gateExplorerPanel(t) {
   const whys = [];
   if (t.ci && t.ci.why) whys.push(t.ci.why);

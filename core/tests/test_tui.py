@@ -405,13 +405,13 @@ class TuiReducerAndViewsTest(unittest.TestCase):
 
         state = tui.reduce_key(state, "1")
         visited = []
-        for _ in range(5):
+        for _ in range(len(tui.VIEWS)):
             state = tui.reduce_key(state, "TAB")
             visited.append(tui.VIEWS[state.view])
-        self.assertEqual(visited, ["tickets", "workers", "gates", "canary", "overview"])
+        self.assertEqual(visited, ["tickets", "workers", "gates", "canary", "thresholds", "overview"])
 
         state = tui.reduce_key(state, "BTAB")
-        self.assertEqual(tui.VIEWS[state.view], "canary")
+        self.assertEqual(tui.VIEWS[state.view], "thresholds")
 
     def test_ticket_navigation_and_live_search_filter(self) -> None:
         state = tui.make_state(sample_logbook_1_8(), view="tickets")

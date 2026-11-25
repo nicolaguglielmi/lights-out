@@ -524,7 +524,9 @@ function screenTicket(id) {
       stageStrip(t, "stages"),
       flowDetail(t, "flow"),
       liveLine(t),
+      t.jury || t.provenance_summary ? h("div", {cls: "badges", style: "margin:8px 0"}, juryBadge(t), provenanceBadge(t)) : null,
       h("p", {cls: "muted", style: "margin: 0"}, "Last verdict: ", chip(t.outcome.verdict), " ", shown(t.outcome.judge), ": ", h("span", {cls: "mono"}, shown(t.outcome.line)))),
+    provenanceReceiptPanel(t),
     answerPanel(t),
     h("p", {cls: "lede"}, "Every phase from the request to the release, one row each, each from its record, under the band it belongs to. Check it against the code host: ",
       h("code", {}, "./go audit TICKET=" + t.id)),
@@ -853,17 +855,103 @@ function screenLaunch() {
 }
 
 // --- screen 5 ----------------------------------------------------------
+function _threshField(t) {
+  const active = "active" in t ? t.active : t.value;
+  const def = "default" in t ? t.default : (t.overridden ? "platform default" : active);
+  const changed = "changed" in t ? !!t.changed : !!t.overridden;
+  const overridden = !!t.overridden;
+  const src = t.source || t.file || "—";
+  const prov = t.provenance && typeof t.provenance === "object"
+    ? t.provenance
+    : (t.provenance_kind ? {kind: t.provenance_kind, text: ""} : null);
+  const commit = t.last_commit && typeof t.last_commit === "object" ? t.last_commit : null;
+  const history = Array.isArray(t.history) ? t.history : (commit ? [commit] : []);
+  return {key: t.id || t.key, rawKey: t.key, active, def, changed, overridden, src,
+    scope: t.scope || t.judge || "gates", role: t.role || null, prov, commit, history};
+}
 function screenThresholds() {
+  const mode = typeof personaMode === "function" ? personaMode() : "junior";
   const out = [h("h1", {}, "Thresholds"),
-    h("p", {cls: "lede"}, "Every number that can stop a change, where it is set, and why it has that value.")];
-  if (unread(book.thresholds)) out.push(h("div", {cls: "panel"}, err(book.thresholds)));
-  else out.push(h("div", {cls: "panel", tabindex: "0", role: "region", "aria-label": "Thresholds and provenance table"}, h("table", {},
-    h("tr", {}, ["Key", "Value", "Judges", "Set in", "Provenance"].map((c) => h("th", {}, c))),
-    book.thresholds.map((t) => h("tr", {"data-overridden": t.overridden ? "true" : null},
-      h("td", {cls: "mono"}, t.key), h("td", {cls: "mono"}, t.value), h("td", {}, t.judge),
-      h("td", {cls: "mono"}, t.file + (t.overridden ? " (overrides the platform)" : ""),
-        t.overridden ? [" ", h("span", {cls: "chip pending"}, "override")] : null),
-      h("td", {}, t.provenance ? h("span", {}, h("b", {}, t.provenance.kind + ": "), t.provenance.text) : h("span", {cls: "chip NO-GO"}, "undeclared")))))));
+    h("p", {cls: "lede"}, mode === "senior"
+      ? "Threshold drift, override provenance, active source precedence, and policy commit history across gates, rework, mainline, and roles."
+      : "Every safety limit and budget that governs your changes: what changed from platform defaults, where it comes from, and why.")];
+  if (unread(book.thresholds)) {
+    out.push(h("div", {cls: "panel"}, err(book.thresholds)));
+  } else {
+    const items = (Array.isArray(book.thresholds) ? book.thresholds : []).map(_threshField);
+    const overriddenCount = items.filter((x) => x.overridden).length;
+    const changedCount = items.filter((x) => x.changed).length;
+    const withProvCount = items.filter((x) => x.prov && x.prov.text).length;
+    const missingProvCount = items.length - withProvCount;
+
+    out.push(h("div", {cls: "panel", id: "thresholds-governance", "data-persona-view": mode},
+      h("div", {cls: "thresh-summary", id: "thresholds-summary"},
+        h("div", {cls: "thresh-stat"}, h("div", {cls: "thresh-stat-val"}, String(items.length)), h("div", {cls: "thresh-stat-lbl"}, "Governed keys")),
+        h("div", {cls: "thresh-stat"}, h("div", {cls: "thresh-stat-val"}, String(changedCount)), h("div", {cls: "thresh-stat-lbl"}, "Modified vs default")),
+        h("div", {cls: "thresh-stat"}, h("div", {cls: "thresh-stat-val"}, String(overriddenCount)), h("div", {cls: "thresh-stat-lbl"}, "Overridden sources")),
+        h("div", {cls: "thresh-stat"}, h("div", {cls: "thresh-stat-val"}, withProvCount + " / " + items.length), h("div", {cls: "thresh-stat-lbl"}, "Documented provenance"))),
+      mode === "junior"
+        ? h("p", {cls: "muted", id: "thresholds-guide", style: "margin:0"}, "Guided view: modified overrides sit highlighted above defaults. Use Cockpit mode for full per-file git commit history.")
+        : h("p", {cls: "muted", id: "thresholds-guide", style: "margin:0"}, "Cockpit telemetry: showing default -> active values, override precedence, provenance kinds, and last 5 policy commits per source.")));
+
+    const q = threshQuery.trim().toLowerCase();
+    const matched = items.filter((x) => {
+      if (threshFilter === "overridden" && !x.overridden) return false;
+      if (threshFilter === "changed" && !x.changed) return false;
+      if (threshFilter === "missing" && x.prov && x.prov.text) return false;
+      if (!q) return true;
+      const hay = [x.key, x.rawKey, x.src, x.scope, x.role || "", x.prov ? x.prov.kind + " " + x.prov.text : "",
+        x.commit ? x.commit.short + " " + x.commit.subject : ""].join(" ").toLowerCase();
+      return hay.includes(q);
+    });
+    const sorted = matched.slice().sort((a, b) => (b.changed - a.changed) || (b.overridden - a.overridden) || String(a.key).localeCompare(String(b.key)));
+
+    const filters = [
+      ["all", "All (" + items.length + ")"],
+      ["changed", "Changed (" + changedCount + ")"],
+      ["overridden", "Overridden (" + overriddenCount + ")"],
+      ["missing", "No provenance (" + missingProvCount + ")"],
+    ];
+    const redraw = () => { if (typeof render === "function") render(); };
+    out.push(h("div", {cls: "controls thresh-controls"},
+      h("input", {type: "search", id: "thresholds-q", value: threshQuery, placeholder: "Filter key, source, role, provenance, commit…",
+        "aria-label": "Filter thresholds", oninput: (e) => { threshQuery = e.target.value; redraw(); }}),
+      h("div", {cls: "thresh-filters", role: "group", "aria-label": "Threshold filters"},
+        filters.map(([fid, label]) => h("button", {type: "button", cls: "thresh-chip-btn", "data-filter": fid,
+          "aria-pressed": String(threshFilter === fid), onclick: () => { threshFilter = fid; redraw(); }}, label)))));
+
+    const cols = mode === "senior"
+      ? ["Key", "Scope", "Default → Active", "Source", "Provenance", "History"]
+      : ["Key", "Default → Active", "Judges", "Set in", "Provenance"];
+    const rows = sorted.map((x) => {
+      const valCell = x.changed && x.def !== null && x.def !== undefined && x.def !== ""
+        ? [h("span", {cls: "mono thresh-default"}, String(x.def)), h("span", {cls: "mono thresh-active"}, shown(x.active))]
+        : h("span", {cls: "mono thresh-active"}, x.active === "" ? "(empty)" : shown(x.active));
+      const provCell = x.prov && x.prov.text
+        ? h("span", {}, h("b", {}, x.prov.kind + ": "), x.prov.text)
+        : h("span", {cls: "chip NO-GO"}, "undeclared");
+      const srcCell = [h("span", {cls: "mono"}, x.src),
+        x.changed ? [" ", h("span", {cls: "chip pending"}, "modified")]
+          : (x.overridden ? [" ", h("span", {cls: "chip pending"}, "override")] : null)];
+      const histCell = x.history.length
+        ? h("div", {},
+            x.commit ? h("div", {cls: "mono"}, x.commit.short + " · " + shown(x.commit.subject)) : null,
+            x.history.length > 1 ? h("details", {cls: "thresh-hist"},
+              h("summary", {}, x.history.length + " commit(s)"),
+              h("ul", {}, x.history.map((c) => h("li", {cls: "mono"}, c.short + " " + String(c.at || "").slice(0, 10) + " — " + shown(c.subject))))) : null)
+        : (x.commit ? h("span", {cls: "mono"}, x.commit.short + " " + shown(x.commit.subject)) : h("span", {cls: "muted"}, "no git history"));
+      return mode === "senior"
+        ? h("tr", {"data-overridden": x.overridden ? "true" : null, "data-changed": x.changed ? "true" : null, "data-key": x.key},
+            h("td", {cls: "mono"}, x.key), h("td", {}, x.role ? x.scope + ":" + x.role : x.scope),
+            h("td", {}, valCell), h("td", {}, srcCell), h("td", {}, provCell), h("td", {}, histCell))
+        : h("tr", {"data-overridden": x.overridden ? "true" : null, "data-changed": x.changed ? "true" : null, "data-key": x.key},
+            h("td", {cls: "mono"}, x.key), h("td", {}, valCell), h("td", {}, x.scope),
+            h("td", {}, srcCell), h("td", {}, provCell));
+    });
+    out.push(h("div", {cls: "panel table-scroll", tabindex: "0", role: "region", "aria-label": "Thresholds and provenance table"},
+      rows.length ? h("table", {id: "thresholds-table"}, h("tr", {}, cols.map((c) => h("th", {}, c))), rows)
+        : h("p", {cls: "muted"}, "No thresholds match the active filter.")));
+  }
   // What the contract gives the agents (docs/adr/0073 §10): the lines `./go
   // agents` prints, verbatim; a logbook before 1.3 has none to show.
   if (book.agents !== undefined) out.push(h("h2", {}, "Agents"), h("div", {cls: "panel", id: "agents"},

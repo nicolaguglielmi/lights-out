@@ -578,11 +578,24 @@ pre.diff-view { margin: 8px 0 0; padding: 10px 12px; border: 1px solid var(--lin
 .chart-card { border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; background: var(--bg); }
 svg.slo-chart, svg.ts-chart { display: block; width: 100%; height: auto; }
 svg.slo-chart text, svg.ts-chart text { font: 11px system-ui, -apple-system, "Segoe UI", sans-serif; fill: var(--muted); }
-.adr-filters { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 0; }
-.adr-chip-btn { min-height: max(32px, var(--target-size)); padding: 4px 10px; border: 1px solid var(--control-border); border-radius: 999px; background: var(--bg); color: var(--ink); font-size: 0.8125rem; cursor: pointer; }
-.adr-chip-btn[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); background: var(--panel); font-weight: 700; }
+.adr-filters, .thresh-filters { display: flex; flex-wrap: wrap; gap: 6px; margin: 8px 0 0; }
+.adr-chip-btn, .thresh-chip-btn { min-height: max(32px, var(--target-size)); padding: 4px 10px; border: 1px solid var(--control-border); border-radius: 999px; background: var(--bg); color: var(--ink); font-size: 0.8125rem; cursor: pointer; }
+.adr-chip-btn[aria-pressed="true"], .thresh-chip-btn[aria-pressed="true"] { border-color: var(--accent); color: var(--accent); background: var(--panel); font-weight: 700; }
+.thresh-summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 10px; margin-bottom: 12px; }
+.thresh-stat { border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; background: var(--surface-subtle); }
+.thresh-stat-val { font: 700 1.25rem/1.2 var(--mono); color: var(--ink); }
+.thresh-stat-lbl { font-size: 0.78rem; color: var(--muted); margin-top: 2px; }
+.table-scroll { overflow-x: auto; }
+tr[data-changed="true"] { background: var(--wait-bg); }
+.thresh-default { color: var(--muted); text-decoration: line-through; margin-right: 6px; }
+.thresh-active { font-weight: 700; color: var(--ink); }
+.thresh-hist { margin: 4px 0 0; }
+.thresh-hist summary { cursor: pointer; color: var(--muted); font-size: 0.8rem; }
+.thresh-hist ul { margin: 4px 0 0 16px; padding: 0; font-size: 0.78rem; }
+.jury-badge, .prov-badge { display: inline-flex; align-items: center; gap: 4px; }
+.prov-receipt-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 8px 14px; margin-top: 8px; }
 @media (prefers-reduced-motion: reduce) {
-  .card, .card:hover, button, nav a, select, input, textarea, .intake-card, .cmd-k-btn, .cmd-item-btn, .ops-actions button, .adr-chip-btn {
+  .card, .card:hover, button, nav a, select, input, textarea, .intake-card, .cmd-k-btn, .cmd-item-btn, .ops-actions button, .adr-chip-btn, .thresh-chip-btn {
     transition: none; transform: none;
   }
   dialog[open], .net-new, .net-graph svg .net-new .node, .net-graph svg .net-new .dot,
@@ -592,7 +605,7 @@ svg.slo-chart text, svg.ts-chart text { font: 11px system-ui, -apple-system, "Se
 }
 @media (forced-colors: active) {
   .chip, .status-pill, nav a.on, .persona-switch button[aria-pressed="true"],
-  .cmd-item-btn[aria-selected="true"], .adr-chip-btn[aria-pressed="true"],
+  .cmd-item-btn[aria-selected="true"], .adr-chip-btn[aria-pressed="true"], .thresh-chip-btn[aria-pressed="true"],
   .hive-tabs button[aria-selected="true"], .hive-phase-btn[aria-current="step"],
   .card[data-turn="you"] {
     outline: 2px solid Highlight;

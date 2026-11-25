@@ -83,16 +83,45 @@ def price(prices, provider, model, day):
     return None
 
 
+def _member_run(m):
+    """Normalize either a flattened tower member or a raw `{id, run}` network member."""
+    if not isinstance(m, dict):
+        return {}
+    inner = m.get("run")
+    if isinstance(inner, dict):
+        merged = dict(inner)
+        for key, value in m.items():
+            if key != "run" and (key not in merged or merged[key] is None):
+                merged[key] = value
+        if "replayed" not in merged:
+            merged["replayed"] = merged.get("harness") == "replay"
+        return merged
+    return m
+
+
+def _empty_failed_member(m):
+    """True when a failed or uninitialized network sub-worker crashed before recording model usage."""
+    tokens = m.get("tokens")
+    has_tokens = isinstance(tokens, dict) and any(
+        isinstance(tokens.get(k), int) and not isinstance(tokens.get(k), bool) for k in ("input", "output")
+    )
+    empty_usage = not has_tokens and not m.get("model") and not m.get("provider")
+    return empty_usage and (m.get("failed") is True or m.get("harness") == "unknown")
+
+
 def cost(run, prices, day):
     """(usd, None) for a run on DAY (YYYY-MM-DD), or (None, why)."""
     if run.get("replayed") is True:
         return 0, None
     if isinstance(run.get("members"), list):
         total = 0
-        for m in run["members"]:
-            usd, why = cost(m if isinstance(m, dict) else {}, prices, day)
+        for raw_member in run["members"]:
+            member = _member_run(raw_member)
+            if _empty_failed_member(member):
+                continue
+            usd, why = cost(member, prices, day)
             if usd is None:
-                return None, f"member {m.get('id') if isinstance(m, dict) else '?'}: {why}"
+                return None, f"member {member.get('id') or '?'}: {why}"
             total += usd
         return round(total, 6), None
     provider, model = run.get("provider"), run.get("model")
@@ -133,7 +162,11 @@ def cost_basis(run, prices, day):
     if run.get("replayed") is True:
         return "uncached"
     if isinstance(run.get("members"), list):
-        got = {cost_basis(m, prices, day) for m in run["members"]}
+        got = {
+            cost_basis(_member_run(m), prices, day)
+            for m in run["members"]
+            if not _empty_failed_member(_member_run(m))
+        }
         return "cached" if got == {"cached"} else "uncached"
     p = price(prices, run.get("provider"), run.get("model"), day)
     return "cached" if _cached(run["tokens"], p) is not None else "uncached"
@@ -220,9 +253,71 @@ def ledger(doc):
     return [e for e in (doc.get("spend") or []) if isinstance(e, dict)] if isinstance(doc, dict) else []
 
 
-def on_day(docs, day):
-    """Every ledger entry of DOCS ({id: doc}) dated DAY (UTC)."""
-    return [e for doc in docs.values() for e in ledger(doc) if str(e.get("at") or "")[:10] == day]
+def release_ledger(releases_log=None, prices_path=PRICES):
+    """Ledger entries extracted from `brief_run` objects in `.crew/releases.jsonl` (ADR 0135)."""
+    path = releases_log or os.environ.get("RELEASES_LOG") or ".crew/releases.jsonl"
+    if not path or not os.path.isfile(path):
+        return []
+    out = []
+    prices, unread = None, None
+    try:
+        with open(path, encoding="utf-8") as fh:
+            raw_lines = fh.read().splitlines()
+    except OSError:
+        return []
+    for raw in raw_lines:
+        if not raw.strip():
+            continue
+        try:
+            line = json.loads(raw)
+        except ValueError:
+            continue
+        if not isinstance(line, dict):
+            continue
+        brief_run = line.get("brief_run")
+        if not isinstance(brief_run, dict):
+            continue
+        at = str(brief_run.get("at") or line.get("at") or "")
+        if prices is None and unread is None:
+            prices, unread = load_prices(prices_path)
+        run_norm = dict(brief_run)
+        if "replayed" not in run_norm:
+            run_norm["replayed"] = run_norm.get("harness") == "replay"
+        day = at[:10] if len(at) >= 10 else ""
+        usd, why = cost(run_norm, prices, day)
+        basis = cost_basis(run_norm, prices, day) if usd is not None else None
+        if usd is None and unread and why == "no price table":
+            why = unread
+        record = line.get("record") if isinstance(line.get("record"), dict) else {}
+        entry = {
+            "step": "promote",
+            "attempt": None,
+            "role": run_norm.get("role") or "release",
+            "harness": run_norm.get("harness"),
+            "provider": run_norm.get("provider"),
+            "model": run_norm.get("model"),
+            "replayed": run_norm.get("replayed") is True,
+            "tokens": run_norm.get("tokens"),
+            "duration_s": run_norm.get("duration_s"),
+            "cost_usd": usd,
+            "cost_unknown": why,
+            "cost_basis": basis,
+            "at": at,
+            "ticket": line.get("ticket"),
+            "version": record.get("version") or line.get("version"),
+        }
+        if run_norm.get("failed"):
+            entry["failed"] = run_norm.get("stop") or "the run failed"
+        out.append(entry)
+    return out
+
+
+def on_day(docs, day, release_runs=None):
+    """Every ledger entry of DOCS ({id: doc}) and optional release_runs dated DAY (UTC)."""
+    items = [e for doc in docs.values() for e in ledger(doc) if str(e.get("at") or "")[:10] == day]
+    if release_runs:
+        items.extend(e for e in release_runs if str(e.get("at") or "")[:10] == day)
+    return items
 
 
 def stop(mine, today, lim):
@@ -266,8 +361,18 @@ def add(row, e):
         row["agent_s"] += e["duration_s"]
 
 
-def report(docs):
-    """{tickets, roles, days, total} from DOCS ({id: doc}) (§5)."""
+def _record_spend_entry(out, e, *, ticket_row=None):
+    if ticket_row is not None:
+        add(ticket_row, e)
+    add(out["roles"].setdefault(e.get("role") or "unknown",
+                                {"cost_usd": 0, "runs": 0, "unknown": 0, "agent_s": 0}), e)
+    add(out["days"].setdefault(str(e.get("at") or "")[:10] or "unknown",
+                               {"cost_usd": 0, "runs": 0, "unknown": 0}), e)
+    add(out["total"], e)
+
+
+def report(docs, release_runs=None):
+    """{tickets, roles, days, total} from DOCS ({id: doc}) and optional release_runs (§5, ADR 0135)."""
     out = {"tickets": {}, "roles": {}, "days": {}, "total": {"cost_usd": 0, "runs": 0, "unknown": 0}}
     for tid, doc in docs.items():
         history = [h for h in (doc.get("history") or []) if isinstance(h, dict)]
@@ -275,13 +380,12 @@ def report(docs):
         row = {"cost_usd": 0, "runs": 0, "unknown": 0, "agent_s": 0,
                "elapsed_s": round((last - first).total_seconds()) if first and last else None}
         for e in ledger(doc):
-            add(row, e)
-            add(out["roles"].setdefault(e.get("role") or "unknown",
-                                        {"cost_usd": 0, "runs": 0, "unknown": 0, "agent_s": 0}), e)
-            add(out["days"].setdefault(str(e.get("at") or "")[:10] or "unknown",
-                                       {"cost_usd": 0, "runs": 0, "unknown": 0}), e)
-            add(out["total"], e)
+            _record_spend_entry(out, e, ticket_row=row)
         out["tickets"][tid] = row
+    for e in release_runs or ():
+        tid = e.get("ticket")
+        ticket_row = out["tickets"].get(tid) if isinstance(tid, str) else None
+        _record_spend_entry(out, e, ticket_row=ticket_row)
     return out
 
 
@@ -324,12 +428,13 @@ def lines(got, lim, b=None):
 MIN_HOURS = 1.0
 
 
-def burn(docs, lim):
+def burn(docs, lim, release_runs=None):
     """The known cost per hour of the last day that has a run, and the day's
     spend at that rate until 24:00 UTC, as of its last run: no clock is read.
     None when no ledger has an entry. LIM is limits()'s dict, or the error of
     a malformed value (then the day has no limit to compare)."""
-    entries = [(when(e.get("at")), e) for doc in docs.values() for e in ledger(doc)]
+    raw_entries = [e for doc in docs.values() for e in ledger(doc)] + list(release_runs or ())
+    entries = [(when(e.get("at")), e) for e in raw_entries]
     entries = [(t, e) for t, e in entries if t is not None]
     if not entries:
         return None
@@ -425,12 +530,13 @@ def main(argv, env=None):
     except ValueError as exc:
         print(exc)
         return 1
-    got = report(docs)
+    rel_runs = release_ledger(env.get("RELEASES_LOG") or ".crew/releases.jsonl")
+    got = report(docs, release_runs=rel_runs)
     try:
         lim = limits()
     except ValueError as exc:
         lim = str(exc)
-    for line in lines(got, lim, burn(docs, lim)):
+    for line in lines(got, lim, burn(docs, lim, release_runs=rel_runs)):
         print(f"[spend] {line}", file=sys.stderr)
     print(summary(got))
     return 0
