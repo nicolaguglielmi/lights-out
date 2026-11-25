@@ -15,7 +15,7 @@
 #     - uses: actions/checkout@v7
 #       with:
 #         fetch-depth: 0
-#     - uses: nicolaguglielmi/lights-out@v0.8.1
+#     - uses: nicolaguglielmi/lights-out@v0.9.0
 #
 # `gates: test-proof` or `gates: test-integrity` runs only those gates, as
 # the two standalone Actions in actions/ do. Up to v0.2.0 the path was

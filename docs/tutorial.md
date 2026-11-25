@@ -1195,9 +1195,10 @@ One install gives you both `lights-out` and `lights-out-gates`:
 uv tool install lights-out-gates
 ```
 
-PyPI `0.8.1` still ships `lights-out-gates` alone until the next release;
-until then, install from `git+https://github.com/nicolaguglielmi/lights-out`
-or download the wrapper of the same version directly with `curl`:
+PyPI `0.9.0` ships both `lights-out` and `lights-out-gates` together
+(to install an unreleased commit, use
+`git+https://github.com/nicolaguglielmi/lights-out`,
+or download the wrapper of the same version directly with `curl`):
 
 ```sh
 mkdir -p ~/.local/bin   # any directory on your PATH
@@ -1266,7 +1267,7 @@ steps:
   - uses: actions/checkout@v7
     with:
       fetch-depth: 0
-  - uses: nicolaguglielmi/lights-out@v0.8.1
+  - uses: nicolaguglielmi/lights-out@v0.9.0
 ```
 
 **Proven on one outside repository.** With `@v0.3.0` published, the Action

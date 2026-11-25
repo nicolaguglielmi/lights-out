@@ -59,7 +59,7 @@ runs:
   using: composite
   steps:
     - id: run
-      uses: nicolaguglielmi/lights-out@v0.8.1
+      uses: nicolaguglielmi/lights-out@v0.9.0
       with:
         gates: test-proof
         base: ${{ inputs.base }}

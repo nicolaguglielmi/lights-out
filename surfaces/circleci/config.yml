@@ -40,7 +40,7 @@ jobs:
             set -u
             if ! command -v lights-out >/dev/null 2>&1; then
               mkdir -p "$HOME/bin"
-              curl -fsSLo "$HOME/bin/lights-out" https://raw.githubusercontent.com/nicolaguglielmi/lights-out/v0.8.1/lights-out
+              curl -fsSLo "$HOME/bin/lights-out" https://raw.githubusercontent.com/nicolaguglielmi/lights-out/v0.9.0/lights-out
               chmod +x "$HOME/bin/lights-out"
               export PATH="$HOME/bin:$PATH"
             fi

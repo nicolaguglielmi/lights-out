@@ -346,7 +346,7 @@ html:not(.js) .scene:first-child{opacity:1;visibility:visible;transform:none}
 <header class="hero" id="top">
   <div class="field" aria-hidden="true"><svg id="runway" viewBox="0 0 1600 1000" preserveAspectRatio="xMaxYMid slice"></svg><div class="house"></div></div>
   <div class="wrap">
-    <div class="eyebrow"><span class="dot"></span>GO / NO-GO · v0.8.1 · Apache-2.0</div>
+    <div class="eyebrow"><span class="dot"></span>GO / NO-GO · v0.9.0 · Apache-2.0</div>
     <h1>Your AI agents ship code. <em>Who checks it?</em></h1>
     <p class="lead">Tests pass and CI is green, yet nobody verified that those tests prove anything. lights-out judges every pull request an agent opens with numbers, not opinions: the new tests must fail without the change, the mutants on the changed lines must die, nothing may leave the ticket's files. What passes takes 5% of the traffic, rolls itself back on errors, and waits for one human GO before 100%. With Claude Code, Codex or Gemini CLI at the keyboard.</p>
     <div class="cta">
@@ -646,7 +646,7 @@ lights-out demo: a ticket goes from a request to a canary that rolls itself back
       <div class="panel reveal" id="try-repo">
         <h3>Gates on your repository</h3>
         <p>On every pull request, from <a href="https://github.com/marketplace/actions/lights-out-gates">the Action on the Marketplace</a>. With no <code>.lights-out/</code> contract yet, its first check is NO-GO and carries one drafted from your base, with the two commands that commit it.</p>
-        <div class="code"><button class="copy" type="button" data-copy="permissions:&#10;  contents: read&#10;  checks: write&#10;steps:&#10;  - uses: actions/checkout@v7&#10;    with:&#10;      fetch-depth: 0&#10;  - uses: nicolaguglielmi/lights-out@v0.8.1">copy</button>
+        <div class="code"><button class="copy" type="button" data-copy="permissions:&#10;  contents: read&#10;  checks: write&#10;steps:&#10;  - uses: actions/checkout@v7&#10;    with:&#10;      fetch-depth: 0&#10;  - uses: nicolaguglielmi/lights-out@v0.9.0">copy</button>
 <pre>permissions:
   contents: read
   checks: write
@@ -654,15 +654,15 @@ steps:
   - uses: actions/checkout@v7
     with:
       fetch-depth: 0
-  - uses: nicolaguglielmi/lights-out@v0.8.1</pre></div>
+  - uses: nicolaguglielmi/lights-out@v0.9.0</pre></div>
         <p>From the clone, one command: <code>./go try ~/code/your-repo</code> drafts the contract, runs the eight gates on your last commit, and prints the three commands that keep the draft.</p>
-        <p>The <code>lights-out</code> wrapper runs init, the gates, guided <code>start</code>/<code>next</code> setup, and opt-in plane and E2E workflow commands from the container images inside your repository without cloning lights-out. One install gives you both <code>lights-out</code> and the light CLI <code>lights-out-gates</code> (PyPI <code>0.8.1</code> carries <code>lights-out-gates</code> alone; the next release adds <code>lights-out</code> to the package):</p>
+        <p>The <code>lights-out</code> wrapper runs init, the gates, guided <code>start</code>/<code>next</code> setup, and opt-in plane and E2E workflow commands from the container images inside your repository without cloning lights-out. One install gives you both <code>lights-out</code> and the light CLI <code>lights-out-gates</code> (PyPI <code>0.9.0</code> ships both executables together):</p>
         <div class="code"><button class="copy" type="button" data-copy="uv tool install lights-out-gates">copy</button>
 <pre><span class="p">$ </span>uv tool install lights-out-gates</pre></div>
         <p class="fine">Or, without Python, download the standalone POSIX wrapper directly:</p>
-        <div class="code"><button class="copy" type="button" data-copy="mkdir -p ~/.local/bin&#10;curl -fsSL -o ~/.local/bin/lights-out https://raw.githubusercontent.com/nicolaguglielmi/lights-out/v0.8.1/lights-out&#10;chmod +x ~/.local/bin/lights-out">copy</button>
+        <div class="code"><button class="copy" type="button" data-copy="mkdir -p ~/.local/bin&#10;curl -fsSL -o ~/.local/bin/lights-out https://raw.githubusercontent.com/nicolaguglielmi/lights-out/v0.9.0/lights-out&#10;chmod +x ~/.local/bin/lights-out">copy</button>
 <pre><span class="p">$ </span>mkdir -p ~/.local/bin
-<span class="p">$ </span>curl -fsSL -o ~/.local/bin/lights-out https://raw.githubusercontent.com/nicolaguglielmi/lights-out/v0.8.1/lights-out
+<span class="p">$ </span>curl -fsSL -o ~/.local/bin/lights-out https://raw.githubusercontent.com/nicolaguglielmi/lights-out/v0.9.0/lights-out
 <span class="p">$ </span>chmod +x ~/.local/bin/lights-out</pre></div>
         <div class="code"><button class="copy" type="button" data-copy="cd ~/code/your-repo&#10;lights-out doctor&#10;lights-out init&#10;cp -R ~/.local/state/lights-out/your-repo/.lights-out/. .lights-out/&#10;git add .lights-out &amp;&amp; git commit -m &quot;add lights-out contract&quot;&#10;lights-out gates">copy</button>
 <pre><span class="p">$ </span>cd ~/code/your-repo
@@ -671,7 +671,7 @@ steps:
 <span class="p">$ </span>cp -R ~/.local/state/lights-out/your-repo/.lights-out/. .lights-out/
 <span class="p">$ </span>git add .lights-out &amp;&amp; git commit -m "add lights-out contract"
 <span class="p">$ </span>lights-out gates     <span class="m"># judges the last commit</span></pre></div>
-        <p class="fine">Image <code>ghcr.io/nicolaguglielmi/lights-out-gates:0.8.1</code>, amd64 and arm64, 508 MB unpacked, signed keyless with Sigstore: <a href="https://github.com/nicolaguglielmi/lights-out#gates-on-your-repository">verify it, or pin it by digest</a>. <code>test-proof</code> and <code>test-integrity</code> are also Actions of their own.</p>
+        <p class="fine">Image <code>ghcr.io/nicolaguglielmi/lights-out-gates:0.9.0</code>, amd64 and arm64, 508 MB unpacked, signed keyless with Sigstore: <a href="https://github.com/nicolaguglielmi/lights-out#gates-on-your-repository">verify it, or pin it by digest</a>. <code>test-proof</code> and <code>test-integrity</code> are also Actions of their own.</p>
         <p class="fine">No engine at hand? <code>uvx lights-out-gates --light</code> runs the gates that need only git and Python, in under a second, and names the ones it did not run.</p>
         <p class="fine">With git alone, <a href="https://github.com/nicolaguglielmi/lights-out/blob/main/docs/use-on-your-repo.md#plain-git-hooks">a <code>pre-commit</code> and a <code>pre-push</code> hook</a> run the light tier before each commit and the full gates before each push.</p>
       </div>

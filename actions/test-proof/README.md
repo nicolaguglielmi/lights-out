@@ -14,13 +14,13 @@ steps:
   - uses: actions/checkout@v7
     with:
       fetch-depth: 0
-  - uses: nicolaguglielmi/test-proof@v0.8.1
+  - uses: nicolaguglielmi/test-proof@v0.9.0
 ```
 
 That repository holds a copy of this Action at the same version, for its Marketplace page. The same Action from the lights-out repository:
 
 ```yaml
-  - uses: nicolaguglielmi/lights-out/actions/test-proof@v0.8.1
+  - uses: nicolaguglielmi/lights-out/actions/test-proof@v0.9.0
 ```
 
 `fetch-depth: 0` is needed: the Action judges the range from the pull request's base, and a shallow checkout does not hold it. The Action prints one `GO` or `NO-GO` line and posts it as a check run on the pull request's head commit. Linux runners only: it needs docker.

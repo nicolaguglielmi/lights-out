@@ -308,9 +308,10 @@ One install puts both the `lights-out` wrapper and the light tier
 uv tool install lights-out-gates
 ```
 
-PyPI `0.8.1` still ships `lights-out-gates` alone; the next release adds
-`lights-out` to the package (until then, install from
-`git+https://github.com/nicolaguglielmi/lights-out`, or use `curl` below).
+From PyPI `0.9.0` onward, `lights-out-gates` ships both `lights-out` and
+`lights-out-gates` together ([ADR 0099](adr/0099-one-install-via-lights-out-gates.md));
+to install an unreleased commit, use
+`git+https://github.com/nicolaguglielmi/lights-out`, or use `curl` below.
 Without Python, download the wrapper of the same version directly:
 
 ```sh
@@ -774,7 +775,7 @@ steps:
   - uses: actions/checkout@v7
     with:
       fetch-depth: 0
-  - uses: nicolaguglielmi/lights-out@v0.8.1
+  - uses: nicolaguglielmi/lights-out@v0.9.0
 ```
 
 - **The check run's summary** has one line per gate, the gates that did not
@@ -791,12 +792,12 @@ steps:
   that the tests a change adds or changes fail on its base.
   `test-integrity` runs test-weakening, then mutation on the changed lines.
 - **Two standalone Actions** run one of those each:
-  `nicolaguglielmi/lights-out/actions/test-proof@v0.8.1` and
-  `nicolaguglielmi/lights-out/actions/test-integrity@v0.8.1`. Their sources
+  `nicolaguglielmi/lights-out/actions/test-proof@v0.9.0` and
+  `nicolaguglielmi/lights-out/actions/test-integrity@v0.9.0`. Their sources
   are `actions/test-proof/` and `actions/test-integrity/`. Each also has a
   repository of its own for its Marketplace page, with a copy at the same
-  version: `nicolaguglielmi/test-proof@v0.8.1` and
-  `nicolaguglielmi/test-integrity@v0.8.1`.
+  version: `nicolaguglielmi/test-proof@v0.9.0` and
+  `nicolaguglielmi/test-integrity@v0.9.0`.
 - Linux runners only. The Action needs docker.
 - A fork PR's token cannot write checks. The post is skipped with a warning,
   and the job status still carries the verdict.
@@ -1005,9 +1006,10 @@ uv tool install lights-out-gates
 STAGED=1` in the hook needs no install at all. PyPI refused the name
 `lights-out`, too close to an existing project (`lightsout`), so both
 commands ship inside the `lights-out-gates` package (ADR 0061, amendment
-2026-11-09; ADR 0099). PyPI `0.8.1` carries `lights-out-gates` alone until
-the next release; until then, or to run an unreleased commit, install from
-the repository (or use the `curl` fallback under [the wrapper](#without-cloning-lights-out-the-wrapper)):
+2026-11-09; ADR 0099). Starting with `0.9.0`, PyPI `lights-out-gates`
+ships both `lights-out` and `lights-out-gates` together (prior `0.8.x` PyPI
+releases shipped `lights-out-gates` alone); to run an unreleased commit,
+install from the repository (or use the `curl` fallback under [the wrapper](#without-cloning-lights-out-the-wrapper)):
 
 ```bash
 uv tool install git+https://github.com/nicolaguglielmi/lights-out

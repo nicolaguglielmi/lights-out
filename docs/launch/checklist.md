@@ -349,6 +349,26 @@ the shipped artifacts gain fixes, no command or flag.
 - [ ] **The three drafts `v0.8.1` published to the Marketplace** (owner,
   passkey).
 
+### Release 0.9.0 (prepared 2026-11-25)
+
+Enterprise farm completion (`M72`–`M89`), Cross-Provider Jury and external
+`outside/*` `AgentHarness` (ADR 0130, `M37`), retired zero `core/` shell
+debt (ADR 0131, `M90`), closed deterministic `./go demo-loop` (ADR 0132,
+`M38`), `core/map_brief_eval.py` + `core/live_preflight.py` (with Gemini
+L1 evals `8/8` passing in `docs/plans/live-validation-2026-11-25.md`),
+`uv tool install lights-out-gates` shipping both `lights-out` and
+`lights-out-gates` together (ADR 0099), and scrubbed local git history so
+`ci/secrets.sh` passes clean.
+
+- [x] **The release commit on `main`**: wrapper `lights-out` (`version=0.9.0`),
+  `pyproject.toml`, the three plugin manifests, Actions, CI surfaces,
+  `site/index.html`, active docs bumped to `0.9.0`, and prose in
+  `docs/releases/v0.9.0.md`.
+- [ ] **A dry run** of `package.yml` (`workflow_dispatch`, `dry_run`) on the
+  pushed release commit, then **tag `v0.9.0`** on `main` (owner's act) to
+  publish both signed images, `lights-out-gates` `0.9.0` on PyPI, synced
+  Actions, wiki, and Marketplace drafts.
+
 ### The Python package on PyPI (M35)
 
 The light tier, `lights-out-gates --light`, is a Python package built from
