@@ -15,6 +15,7 @@ Questa regola vince su qualunque altra considerazione tecnica. Se una scelta la 
 - **Niente mock nascosti.** Se un pezzo è simulato a un livello, il README lo dichiara e il codice fallisce con un messaggio chiaro. Mai una finta implementazione che sembra funzionare.
 - **Ogni milestone lascia il repo eseguibile.** Prima di dichiararla chiusa: `./go demo` verde su un container pulito.
 - **Nessun segreto nel repo**, nemmeno negli esempi. Solo `.env.example` con valori finti.
+- **Niente dati privati nel repo, con qualunque tool** (Claude Code, Antigravity, Codex, Gemini CLI o altro; `AGENTS.md` lo ripete per gli altri tool): niente email o account personali, id di progetti cloud, percorsi locali (`/Users/…`, `/home/…`), id di sessione o di richiesta, nomi di altri progetti o container della macchina, roadmap private. Gli handoff (`.claude/context/HANDOFF.md`, `.claude/context/handoffs/`) e gli appunti di sessione restano locali e gitignored; i piani privati stanno in `.crew/`. Prima di ogni push, gitleaks e una ricerca di questi dati sul range non ancora pushato.
 - **ADR per ogni scelta strutturale**, in `docs/adr/`, corti, con le alternative scartate e il motivo.
 - **I test si scrivono dalla spec, mai dall'implementazione.** Vale anche per i test di questo repo.
 - **Verifica prima di scrivere.** Antigravity, Stitch, Gemini CLI, ADK e Cloud Deploy si muovono in fretta. Se un'API non esiste più come descritta nel piano, fermati e segnalalo invece di adattare il piano in silenzio.

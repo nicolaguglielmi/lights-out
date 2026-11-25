@@ -67,4 +67,4 @@ Close the session with:
 - anything you found that contradicts `docs/PLAN.md`, which is more valuable than the code
 - the first thing the next milestone should look at
 
-Write this to `.claude/context/handoffs/<branch>.md`, the branch name with `/` as `-` (docs/adr/0065 §5): never to `.claude/context/HANDOFF.md`, which only the session that lands the branches writes. Commit, and remind the user to clear the context before starting the next milestone.
+Write this to `.claude/context/handoffs/<branch>.md`, the branch name with `/` as `-` (docs/adr/0065 §5): never to `.claude/context/HANDOFF.md`, which only the session that lands the branches writes. Both files are gitignored and never committed (docs/adr/0065 §5, amended 2026-11-25): leave them out of the commit, and remind the user to clear the context before starting the next milestone.

@@ -116,7 +116,7 @@ wins when the two disagree. Decisions behind each step are in
 
 ## Next
 
-The third arc (plan §16), the enterprise farm roadmap (`M72`–`M89`), `M37`, `M38`, `M90` and the GA hardening sprints (`M91`–`M97`) are built and verified in Podman. What remains needs the owner's accounts, keys, credit or hands ([live-validation-2026-11-25.md](docs/plans/live-validation-2026-11-25.md), [live-validation-v1.0.0.md](docs/plans/live-validation-v1.0.0.md)):
+The third arc (plan §16), `M72`–`M89`, `M37`, `M38`, `M90` and the GA hardening sprints (`M91`–`M97`) are built and verified in Podman. What remains needs the owner's accounts, keys, credit or hands ([live-validation-2026-11-25.md](docs/plans/live-validation-2026-11-25.md), [live-validation-v1.0.0.md](docs/plans/live-validation-v1.0.0.md)):
 
 - **Tag `v1.0.0`.** `version=1.0.0` is prepared on `main` and stays untagged until the owner pushes the release commit and tags it, which publishes the signed images, `lights-out-gates` `1.0.0` on PyPI and the Marketplace Action repositories.
 - **Anthropic credit.** The Anthropic L1 ADK evals stopped on a low API billing credit balance; they rerun once the account has credit.
@@ -130,13 +130,6 @@ The adoption roadmap behind M31, M34 and M35, with what to drop, what to
 change and the sequence after them (attestation, the jury, `./go
 demo-loop`, the toolbelt, then the launch), is
 [docs/plans/adoption-roadmap-2026-11.md](docs/plans/adoption-roadmap-2026-11.md).
-
-The gap analysis and living development registry (M72–M89) for evolving
-lights-out into a full plug-and-play autonomous enterprise software farm
-(greenfield apps and epics, autonomous ADRs and external trackers,
-closed-loop enterprise ops, modern workstation UI, and unified
-power-user CLI) is
-[docs/plans/enterprise-farm-roadmap.md](docs/plans/enterprise-farm-roadmap.md).
 
 ## Later
 

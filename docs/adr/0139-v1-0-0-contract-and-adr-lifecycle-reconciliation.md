@@ -2,6 +2,7 @@
 
 - Status: accepted
 - Date: 2026-11-25
+- Note (2026-11-25): `docs/plans/enterprise-farm-roadmap.md`, cited below, was private planning and was taken out of the repository before publication; the milestones it tracked are in `ROADMAP.md`.
 - Milestone: M97
 - Amends: [ADR 0027](0027-l2-on-gcp-terraform-and-cloud-deploy.md) (clarifies L2/L3 adapter delivery under ADR 0128 vs. unexecuted Terraform provisioning and live GCP project apply); [ADR 0028](0028-workbench-cloud-image-split.md) (marks superseded by [ADR 0057](0057-the-stepped-way-in.md)); [ADR 0031](0031-worker-brief-report-and-durable-tower-documents.md) (marks superseded in part across ADR 0034, ADR 0037, ADR 0047, ADR 0060, and ADR 0083); [ADR 0036](0036-the-dev-worker-step-as-a-network.md) (reconciles L0 hand-written ticket 0012 fixtures alongside ADR 0120 and ADR 0135 network execution); [ADR 0050](0050-antigravity-cli-harness.md) (marks `experimental` due to unredistributed binary, absent L1 recording, and open §7 workspace-hook gap); [ADR 0098](0098-verify-from-the-proxy.md) and [ADR 0101](0101-origin-remote-as-codehost.md) (normalizes `- Status: accepted` header syntax for `core/map.py` and `package/wiki.py`).
 

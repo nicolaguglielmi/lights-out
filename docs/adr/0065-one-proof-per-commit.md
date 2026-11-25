@@ -57,6 +57,11 @@ owner asked why every landing takes so long. Measured that day:
    `-`), never to `.claude/context/HANDOFF.md`, which only the
    coordinator writes: the state of the integration branch and a line per
    branch landed, pointing to its file.
+   *Amended 2026-11-25:* both stay on the contributor's machine. They are
+   gitignored and never committed, whatever tool wrote them (Claude Code,
+   Antigravity or any other): they carry local paths, session ids and the
+   names of other projects. What a reader of the repository needs from a
+   handoff goes into the ADR, the release notes or `ROADMAP.md`.
 
 ## Alternatives rejected
 
