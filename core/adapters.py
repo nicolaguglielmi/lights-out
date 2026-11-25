@@ -46,9 +46,11 @@ SUITES = {
     "REGISTRY": "registry-conformance",
     "FLAGS": "flags-conformance",
     "CHARTS": "charts-conformance",
+    "ORCHESTRATOR": "orchestrator-conformance",
+    "METRICS": "metrics-conformance",
 }
-# The profile's other port variables: an outside adapter there has no suite.
-NO_SUITE = ("ORCHESTRATOR", "METRICS")
+# All profile port variables now have a conformance suite; kept empty for callers.
+NO_SUITE = ()
 PREFIX = "outside/"
 NAME = re.compile(r"[a-z0-9][a-z0-9-]*")
 LINKS = Path("adapters/outside")

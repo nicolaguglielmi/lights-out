@@ -294,7 +294,10 @@ class AdaptersRegistryFlagsWiringTest(unittest.TestCase):
         self.assertEqual(adapters.SUITES.get("FLAGS"), "flags-conformance")
         self.assertEqual(adapters.SUITES.get("TRACKER"), "tracker-conformance")
         self.assertEqual(adapters.SUITES.get("CHARTS"), "charts-conformance")
-        self.assertEqual(adapters.NO_SUITE, ("ORCHESTRATOR", "METRICS"))
+        self.assertEqual(adapters.SUITES.get("METRICS"), "metrics-conformance")
+        self.assertEqual(adapters.SUITES.get("ORCHESTRATOR"), "orchestrator-conformance")
+        self.assertEqual(len(adapters.SUITES), 11)
+        self.assertEqual(adapters.NO_SUITE, ())
 
 
 if __name__ == "__main__":

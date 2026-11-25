@@ -1,16 +1,17 @@
 #!/bin/sh
 # SPDX-License-Identifier: Apache-2.0
 #
-# ci-outside: docs/adr/0058, docs/adr/0104, docs/adr/0116, docs/adr/0129
-# & docs/adr/0130 proved cold, no engine, no network.
+# ci-outside: docs/adr/0058, docs/adr/0104, docs/adr/0116, docs/adr/0129,
+# docs/adr/0130 & docs/adr/0133 proved cold, no engine, no network.
 #   (a) adapters outside the repository, fixtures/outside-adapters/
 #       json-files, file-delivery, file-codehost, file-registry, file-flags,
-#       file-tracker, file-eventbus and file-harness copied out of the checkout:
+#       file-tracker, file-eventbus, file-harness, file-metrics and
+#       file-orchestrator copied out of the checkout:
 #       make refuses any goal in one line before anything runs; passing the
 #       port's suite / trial+register admits it; linked at adapters/outside/*;
 #       one changed byte (even mid-trial) is refused again; a broken copy fails
 #       the suite, is not registered and stays refused; a symlink inside the tree
-#       is refused; outside/ on a port with no suite (ORCHESTRATOR) is refused;
+#       is refused; bad outside/ names and unknown ports are refused;
 #       a suite beside another goal on one command line tries nothing; no trial
 #       record outlives a suite.
 #   (b) other CIs are surfaces, never judges (§6): the Jenkins, GitLab CI
@@ -117,8 +118,13 @@ ln -s /etc/hostname "$ext/json-linked/extra.sh"
 m help STATE_STORE=outside/json-linked
 refused "a symlink in the tree" "STATE_STORE=outside/json-linked is refused" "symlink"
 
-m help ORCHESTRATOR=outside/json-files
-refused "a port with no suite" "ORCHESTRATOR=outside/json-files is refused" "no conformance suite"
+m help METRICS=outside/../bad
+refused "bad outside name" "METRICS=outside/../bad is refused"
+
+unk_rc=0
+(cd "$root" && python3 core/adapters.py trial UNKNOWN_PORT >/dev/null 2>"$tmp/unk-err") || unk_rc=$?
+[ "$unk_rc" -ne 0 ] || nogo "a: unknown port accepted by trial"
+grep -q "is not a port" "$tmp/unk-err" || nogo "a: unexpected unknown port refusal: $(cat "$tmp/unk-err")"
 
 # A goal beside a suite is not a trial: it is admitted, or refused, first.
 m statestore-conformance STATE_STORE=outside/json-broken help
@@ -633,6 +639,147 @@ ln -s /etc/hostname "$ext/file-harness-linked/extra.sh"
 m help AGENT_HARNESS=outside/file-harness-linked
 refused "harness symlink in tree" "AGENT_HARNESS=outside/file-harness-linked is refused" "symlink"
 
+# --- a7: METRICS=outside/file-metrics (ADR 0133) ---
+cp -R fixtures/outside-adapters/file-metrics "$ext/file-metrics"
+export FILE_METRICS_DIR="$tmp/file-metrics-state"
+export METRICS_URL=""
+mt_var="METRICS=outside/file-metrics"
+
+m help "$mt_var"
+refused "metrics no proof" "$mt_var is refused" "metrics-conformance GO" "./go metrics-conformance $mt_var"
+[ ! -e "$root/adapters/outside/file-metrics" ] || nogo "a7: no proof linked file-metrics anyway"
+
+cp -R fixtures/outside-adapters/file-metrics "$ext/file-metrics-tamper"
+before_reg=$(cat "$reg")
+(cd "$root" && METRICS=outside/file-metrics-tamper ADAPTERS_PATH="$ext" ADAPTERS_REGISTER="$reg" python3 core/adapters.py trial METRICS) \
+  || nogo "a7: trial file-metrics-tamper failed"
+printf '\n' >> "$ext/file-metrics-tamper/query.sh"
+tamper_rc=0
+(cd "$root" && METRICS=outside/file-metrics-tamper ADAPTERS_PATH="$ext" ADAPTERS_REGISTER="$reg" python3 core/adapters.py register METRICS metrics-conformance >/dev/null 2>&1) || tamper_rc=$?
+[ "$tamper_rc" -ne 0 ] || nogo "a7: register accepted metrics tree mutated during trial"
+(cd "$root" && ADAPTERS_REGISTER="$reg" python3 core/adapters.py untrial METRICS) >/dev/null 2>&1 || true
+[ "$(cat "$reg")" = "$before_reg" ] || nogo "a7: mutated metrics trial wrote to register"
+[ ! -e "$tmp/trial-METRICS" ] || nogo "a7: untrial left trial-METRICS behind"
+
+cp -R fixtures/outside-adapters/file-metrics "$ext/file-metrics-broken"
+cat > "$ext/file-metrics-broken/query.sh" <<'EOF'
+#!/bin/sh
+printf '{"status":"success","data":{"result":[]}}\n'
+EOF
+chmod +x "$ext/file-metrics-broken/query.sh"
+(cd "$root" && METRICS=outside/file-metrics-broken ADAPTERS_PATH="$ext" ADAPTERS_REGISTER="$reg" python3 core/adapters.py trial METRICS) \
+  || nogo "a7: trial file-metrics-broken failed"
+broken_rc=0
+broken_out=$(cd "$root" && METRICS=outside/file-metrics-broken ADAPTERS_PATH="$ext" ADAPTERS_REGISTER="$reg" ADAPTERS_TRIAL=METRICS CONFORMANCE=1 sh gates/metrics-conformance.sh 2>/dev/null) || broken_rc=$?
+[ "$broken_rc" -ne 0 ] || nogo "a7: broken metrics passed metrics-conformance: [$broken_out]"
+case "$broken_out" in "NO-GO: metrics-conformance — "*) ;; *) nogo "a7: broken metrics printed [$broken_out]" ;; esac
+(cd "$root" && ADAPTERS_REGISTER="$reg" python3 core/adapters.py untrial METRICS) >/dev/null 2>&1 || true
+[ "$(cat "$reg")" = "$before_reg" ] || nogo "a7: broken metrics wrote to register"
+
+(cd "$root" && METRICS=outside/file-metrics ADAPTERS_PATH="$ext" ADAPTERS_REGISTER="$reg" python3 core/adapters.py trial METRICS) \
+  || nogo "a7: trial METRICS failed"
+m help "$mt_var"
+refused "metrics on trial without ADAPTERS_TRIAL" "$mt_var is refused"
+m help "$mt_var" ADAPTERS_TRIAL=METRICS
+admitted "file-metrics during trial with ADAPTERS_TRIAL=METRICS"
+(cd "$root" && sh "adapters/outside/file-metrics/ready.sh") || nogo "a7: file-metrics ready.sh failed"
+mt_q=$(cd "$root" && sh "adapters/outside/file-metrics/query.sh" up) || nogo "a7: file-metrics query.sh failed"
+printf '%s\n' "$mt_q" | jq -e '.status == "success" and (.data.result | length) == 1' >/dev/null 2>&1 || nogo "a7: unexpected query.sh output: [$mt_q]"
+mt_out=$(cd "$root" && METRICS=outside/file-metrics ADAPTERS_PATH="$ext" ADAPTERS_REGISTER="$reg" ADAPTERS_TRIAL=METRICS CONFORMANCE=1 sh gates/metrics-conformance.sh 2>/dev/null) \
+  || nogo "a7: metrics-conformance failed on outside/file-metrics: [$mt_out]"
+case "$mt_out" in "GO: metrics-conformance — outside/file-metrics, 5 cases") ;; *) nogo "a7: metrics-conformance printed [$mt_out]" ;; esac
+
+mt_digest=$(python3 core/adapters.py hash "$ext/file-metrics")
+(cd "$root" && METRICS=outside/file-metrics ADAPTERS_PATH="$ext" ADAPTERS_REGISTER="$reg" python3 core/adapters.py register METRICS metrics-conformance) \
+  || nogo "a7: register METRICS failed"
+[ ! -e "$tmp/trial-METRICS" ] || nogo "a7: register METRICS left trial-METRICS behind"
+awk -F'\t' -v d="$mt_digest" '$1 == "METRICS" && $2 == "file-metrics" && $3 == d && index($4, "metrics-conformance@") == 1 { f = 1 } END { exit !f }' "$reg" 2>/dev/null \
+  || nogo "a7: register METRICS wrote no line for sha256 $mt_digest"
+
+rm -f "$root/adapters/outside/file-metrics"
+m help "$mt_var"
+admitted "file-metrics after register"
+[ -L "$root/adapters/outside/file-metrics" ] || nogo "a7: admitted METRICS not linked"
+[ "$(readlink "$root/adapters/outside/file-metrics")" = "$ext/file-metrics" ] || nogo "a7: METRICS link mismatch"
+
+printf '\n' >> "$ext/file-metrics/query.sh"
+m help "$mt_var"
+refused "metrics one changed byte" "$mt_var is refused"
+
+cp -R fixtures/outside-adapters/file-metrics "$ext/file-metrics-linked"
+ln -s /etc/hostname "$ext/file-metrics-linked/extra.sh"
+m help METRICS=outside/file-metrics-linked
+refused "metrics symlink in tree" "METRICS=outside/file-metrics-linked is refused" "symlink"
+
+# --- a8: ORCHESTRATOR=outside/file-orchestrator (ADR 0133) ---
+cp -R fixtures/outside-adapters/file-orchestrator "$ext/file-orchestrator"
+or_var="ORCHESTRATOR=outside/file-orchestrator"
+
+m help "$or_var"
+refused "orchestrator no proof" "$or_var is refused" "orchestrator-conformance GO" "./go orchestrator-conformance $or_var"
+[ ! -e "$root/adapters/outside/file-orchestrator" ] || nogo "a8: no proof linked file-orchestrator anyway"
+
+cp -R fixtures/outside-adapters/file-orchestrator "$ext/file-orchestrator-tamper"
+before_reg=$(cat "$reg")
+(cd "$root" && ORCHESTRATOR=outside/file-orchestrator-tamper ADAPTERS_PATH="$ext" ADAPTERS_REGISTER="$reg" python3 core/adapters.py trial ORCHESTRATOR) \
+  || nogo "a8: trial file-orchestrator-tamper failed"
+printf '\n' >> "$ext/file-orchestrator-tamper/run.sh"
+tamper_rc=0
+(cd "$root" && ORCHESTRATOR=outside/file-orchestrator-tamper ADAPTERS_PATH="$ext" ADAPTERS_REGISTER="$reg" python3 core/adapters.py register ORCHESTRATOR orchestrator-conformance >/dev/null 2>&1) || tamper_rc=$?
+[ "$tamper_rc" -ne 0 ] || nogo "a8: register accepted orchestrator tree mutated during trial"
+(cd "$root" && ADAPTERS_REGISTER="$reg" python3 core/adapters.py untrial ORCHESTRATOR) >/dev/null 2>&1 || true
+[ "$(cat "$reg")" = "$before_reg" ] || nogo "a8: mutated orchestrator trial wrote to register"
+[ ! -e "$tmp/trial-ORCHESTRATOR" ] || nogo "a8: untrial left trial-ORCHESTRATOR behind"
+
+cp -R fixtures/outside-adapters/file-orchestrator "$ext/file-orchestrator-broken"
+cat > "$ext/file-orchestrator-broken/run.sh" <<'EOF'
+#!/bin/sh
+exit 0
+EOF
+chmod +x "$ext/file-orchestrator-broken/run.sh"
+(cd "$root" && ORCHESTRATOR=outside/file-orchestrator-broken ADAPTERS_PATH="$ext" ADAPTERS_REGISTER="$reg" python3 core/adapters.py trial ORCHESTRATOR) \
+  || nogo "a8: trial file-orchestrator-broken failed"
+broken_rc=0
+broken_out=$(cd "$root" && ORCHESTRATOR=outside/file-orchestrator-broken ADAPTERS_PATH="$ext" ADAPTERS_REGISTER="$reg" ADAPTERS_TRIAL=ORCHESTRATOR CONFORMANCE=1 sh gates/orchestrator-conformance.sh 2>/dev/null) || broken_rc=$?
+[ "$broken_rc" -ne 0 ] || nogo "a8: broken orchestrator passed orchestrator-conformance: [$broken_out]"
+case "$broken_out" in "NO-GO: orchestrator-conformance — "*) ;; *) nogo "a8: broken orchestrator printed [$broken_out]" ;; esac
+(cd "$root" && ADAPTERS_REGISTER="$reg" python3 core/adapters.py untrial ORCHESTRATOR) >/dev/null 2>&1 || true
+[ "$(cat "$reg")" = "$before_reg" ] || nogo "a8: broken orchestrator wrote to register"
+
+(cd "$root" && ORCHESTRATOR=outside/file-orchestrator ADAPTERS_PATH="$ext" ADAPTERS_REGISTER="$reg" python3 core/adapters.py trial ORCHESTRATOR) \
+  || nogo "a8: trial ORCHESTRATOR failed"
+m help "$or_var"
+refused "orchestrator on trial without ADAPTERS_TRIAL" "$or_var is refused"
+m help "$or_var" ADAPTERS_TRIAL=ORCHESTRATOR
+admitted "file-orchestrator during trial with ADAPTERS_TRIAL=ORCHESTRATOR"
+(cd "$root" && EVENT_BUS=spool STATE_STORE=sqlite SPOOL_FILE="$tmp/fo-ready.sqlite" STATE_FILE="$tmp/fo-state.sqlite" \
+  sh "adapters/outside/file-orchestrator/ready.sh") || nogo "a8: file-orchestrator ready.sh failed"
+or_out=$(cd "$root" && ORCHESTRATOR=outside/file-orchestrator ADAPTERS_PATH="$ext" ADAPTERS_REGISTER="$reg" ADAPTERS_TRIAL=ORCHESTRATOR CONFORMANCE=1 sh gates/orchestrator-conformance.sh 2>/dev/null) \
+  || nogo "a8: orchestrator-conformance failed on outside/file-orchestrator: [$or_out]"
+case "$or_out" in "GO: orchestrator-conformance — outside/file-orchestrator, 5 cases") ;; *) nogo "a8: orchestrator-conformance printed [$or_out]" ;; esac
+
+or_digest=$(python3 core/adapters.py hash "$ext/file-orchestrator")
+(cd "$root" && ORCHESTRATOR=outside/file-orchestrator ADAPTERS_PATH="$ext" ADAPTERS_REGISTER="$reg" python3 core/adapters.py register ORCHESTRATOR orchestrator-conformance) \
+  || nogo "a8: register ORCHESTRATOR failed"
+[ ! -e "$tmp/trial-ORCHESTRATOR" ] || nogo "a8: register ORCHESTRATOR left trial-ORCHESTRATOR behind"
+awk -F'\t' -v d="$or_digest" '$1 == "ORCHESTRATOR" && $2 == "file-orchestrator" && $3 == d && index($4, "orchestrator-conformance@") == 1 { f = 1 } END { exit !f }' "$reg" 2>/dev/null \
+  || nogo "a8: register ORCHESTRATOR wrote no line for sha256 $or_digest"
+
+rm -f "$root/adapters/outside/file-orchestrator"
+m help "$or_var"
+admitted "file-orchestrator after register"
+[ -L "$root/adapters/outside/file-orchestrator" ] || nogo "a8: admitted ORCHESTRATOR not linked"
+[ "$(readlink "$root/adapters/outside/file-orchestrator")" = "$ext/file-orchestrator" ] || nogo "a8: ORCHESTRATOR link mismatch"
+
+printf '\n' >> "$ext/file-orchestrator/run.sh"
+m help "$or_var"
+refused "orchestrator one changed byte" "$or_var is refused"
+
+cp -R fixtures/outside-adapters/file-orchestrator "$ext/file-orchestrator-linked"
+ln -s /etc/hostname "$ext/file-orchestrator-linked/extra.sh"
+m help ORCHESTRATOR=outside/file-orchestrator-linked
+refused "orchestrator symlink in tree" "ORCHESTRATOR=outside/file-orchestrator-linked is refused" "symlink"
+
 # --- b: a surface is never a judge (ADR 0058 §6, ADR 0095 §10) -------------------
 # The contexts the tower posts: the third argument of every status.sh call in core/.
 tower=$({
@@ -682,4 +829,4 @@ surfaces/gitlab-ci/.gitlab-ci.yml lights-out/gitlab-ci failed
 surfaces/circleci/config.yml lights-out/circleci failure
 EOF
 
-go_with "outside StateStore, Delivery, CodeHost, Registry, Flags, Tracker, EventBus and AgentHarness refused, proven, admitted, refused again on one byte; the surfaces post under${contexts}, the tower under $(printf '%s' "$tower" | tr '\n' ' ' | sed 's/ $//')"
+go_with "outside StateStore, Delivery, CodeHost, Registry, Flags, Tracker, EventBus, AgentHarness, Metrics and Orchestrator refused, proven, admitted, refused again on one byte; the surfaces post under${contexts}, the tower under $(printf '%s' "$tower" | tr '\n' ' ' | sed 's/ $//')"
