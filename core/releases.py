@@ -34,17 +34,145 @@ JSON.
         on GO and `rejected` on NO-GO, and one line of RELEASES_LOG; with
         the reason (GO_FOR_LAUNCH_REASON, null when empty) and the sha256
         and author of PROMOTE_OUT's brief (docs/adr/0079 §1)
+    python3 core/releases.py train <cmd> [args...]
+        hold ReleaseTrainLock (RELEASE_TRAIN_LOCK, bounded by
+        RELEASE_TRAIN_TIMEOUT_S), set LIGHTS_OUT_TRAIN_HELD=1, execute
+        <cmd> [args...], and preserve its exit code (docs/adr/0120)
 
 RELEASE_RECORD keeps only the latest record; the log keeps them all and is
 never rewritten, only appended.
 """
 
+import errno
+import fcntl
 import hashlib
 import json
 import os
 import re
+import subprocess  # nosec B404 - train runs caller-supplied command with explicit argv (ADR 0120)
 import sys
+import threading
+import time
 from datetime import datetime, timezone
+
+# Provenance, external/decision (docs/adr/0120): 15 * STAGE_SECONDS (60s default)
+# matching docs/PLAN.md §2 900s release ceiling and TIMEOUT_S=900.
+RELEASE_TRAIN_TIMEOUT_S = 900
+# Provenance, decision (docs/adr/0120): 50 ms non-blocking flock poll interval
+# avoids busy-spinning while waking promptly once a release finishes.
+RELEASE_TRAIN_POLL_S = 0.05
+TRAIN_HELD_ENV = "LIGHTS_OUT_TRAIN_HELD"
+
+_TRAIN_LOCAL = threading.local()
+
+
+class ReleaseTrainTimeout(TimeoutError):
+    """Raised when ReleaseTrainLock cannot be acquired within RELEASE_TRAIN_TIMEOUT_S."""
+
+
+def _local_depths():
+    depths = getattr(_TRAIN_LOCAL, "depths", None)
+    if depths is None:
+        depths = {}
+        _TRAIN_LOCAL.depths = depths
+    return depths
+
+
+def train_lock_path(env):
+    """Path to the release-train flock file (RELEASE_TRAIN_LOCK or beside RELEASE_RECORD)."""
+    explicit = (env.get("RELEASE_TRAIN_LOCK") or "").strip()
+    if explicit:
+        return explicit
+    rec_path = paths(env)[0]
+    return os.path.join(os.path.dirname(rec_path) or ".", "release-train.lock")
+
+
+def train_timeout_s(env):
+    """Bounded ReleaseTrainLock timeout in seconds from RELEASE_TRAIN_TIMEOUT_S."""
+    raw = (env.get("RELEASE_TRAIN_TIMEOUT_S") or "").strip()
+    if not raw:
+        return float(RELEASE_TRAIN_TIMEOUT_S)
+    try:
+        val = float(raw)
+    except ValueError:
+        raise ValueError(f"RELEASE_TRAIN_TIMEOUT_S must be a non-negative number, got {raw!r}") from None
+    if val < 0:
+        raise ValueError(f"RELEASE_TRAIN_TIMEOUT_S must be >= 0, got {val}")
+    return val
+
+
+class ReleaseTrainLock:
+    """Exclusive fcntl.flock lock serializing canary releases across the fleet (docs/adr/0120)."""
+
+    def __init__(self, lock_path=None, timeout_s=None, env=None, poll_s=RELEASE_TRAIN_POLL_S):
+        self.env = os.environ if env is None else env
+        self.lock_path = str(lock_path) if lock_path else train_lock_path(self.env)
+        self.timeout_s = float(timeout_s) if timeout_s is not None else train_timeout_s(self.env)
+        if self.timeout_s < 0:
+            raise ValueError(f"timeout_s must be >= 0, got {self.timeout_s}")
+        self.poll_s = max(0.005, float(poll_s))
+        self._fh = None
+        self._key = os.path.abspath(self.lock_path)
+        self._reentered = False
+
+    def acquire(self):
+        if self.env.get(TRAIN_HELD_ENV) == "1":
+            return self
+        depths = _local_depths()
+        if depths.get(self._key, 0) > 0:
+            depths[self._key] += 1
+            self._reentered = True
+            return self
+        parent = os.path.dirname(self.lock_path)
+        if parent:
+            os.makedirs(parent, exist_ok=True)
+        fh = open(self.lock_path, "a+", encoding="utf-8")
+        deadline = time.monotonic() + self.timeout_s
+        try:
+            while True:
+                try:
+                    fcntl.flock(fh.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    break
+                except OSError as exc:
+                    if exc.errno not in (errno.EAGAIN, errno.EACCES, errno.EWOULDBLOCK):
+                        raise
+                    remaining = deadline - time.monotonic()
+                    if remaining <= 0:
+                        raise ReleaseTrainTimeout(
+                            f"release train lock timed out after {self.timeout_s:.2f}s ({self.lock_path})"
+                        ) from None
+                    time.sleep(min(self.poll_s, remaining))
+            fh.seek(0)
+            fh.truncate()
+            fh.write(f"{os.getpid()}\n")
+            fh.flush()
+            self._fh = fh
+            depths[self._key] = depths.get(self._key, 0) + 1
+            return self
+        except BaseException:
+            fh.close()
+            raise
+
+    def release(self):
+        depths = _local_depths()
+        if self._reentered:
+            depths[self._key] = max(0, depths.get(self._key, 1) - 1)
+            self._reentered = False
+            return
+        if self._fh is not None:
+            try:
+                depths[self._key] = max(0, depths.get(self._key, 1) - 1)
+                fcntl.flock(self._fh.fileno(), fcntl.LOCK_UN)
+            finally:
+                self._fh.close()
+                self._fh = None
+
+    def __enter__(self):
+        return self.acquire()
+
+    def __exit__(self, exc_type, exc, tb):
+        self.release()
+        return False
 
 
 def now():
@@ -69,26 +197,27 @@ def write_record(path, record):
 
 
 def record(env, verdict, held_at, stages, image, sbom="", dast="", running=None):
-    path, log = paths(env)
-    rec = {"version": env.get("CANARY_VERSION", ""), "stable": env.get("STABLE_VERSION", ""),
-           "stages": json.loads(stages), "verdict": verdict,
-           "held_at": json.loads(held_at) if held_at else None, "image": image, "sbom": sbom or None,
-           "dast": dast or None,
-           "reason": (env.get("RELEASE_REASON") or None) if verdict == "rolled-back" else None}
-    if running is not None:
-        rec["running"] = running
-    write_record(path, rec)
-    if verdict != "in-progress":
-        append(log, {"kind": "release", "at": now(), "ticket": env.get("RELEASE_TICKET") or None, "record": rec})
-    if verdict == "rolled-back" and env.get("AUTO_INCIDENT_ON_ROLLBACK") == "on":
-        try:
-            from . import ops_loop
-        except ImportError:  # run as a script: core/ is sys.path[0]
-            import ops_loop
-        try:
-            ops_loop.on_rollback(path, env, strict=False, release_hook=True)
-        except (ops_loop.Refused, OSError) as exc:
-            print(f"[releases] auto-incident skipped: {exc}", file=sys.stderr)
+    with ReleaseTrainLock(env=env):
+        path, log = paths(env)
+        rec = {"version": env.get("CANARY_VERSION", ""), "stable": env.get("STABLE_VERSION", ""),
+               "stages": json.loads(stages), "verdict": verdict,
+               "held_at": json.loads(held_at) if held_at else None, "image": image, "sbom": sbom or None,
+               "dast": dast or None,
+               "reason": (env.get("RELEASE_REASON") or None) if verdict == "rolled-back" else None}
+        if running is not None:
+            rec["running"] = running
+        write_record(path, rec)
+        if verdict != "in-progress":
+            append(log, {"kind": "release", "at": now(), "ticket": env.get("RELEASE_TICKET") or None, "record": rec})
+        if verdict == "rolled-back" and env.get("AUTO_INCIDENT_ON_ROLLBACK") == "on":
+            try:
+                from . import ops_loop
+            except ImportError:  # run as a script: core/ is sys.path[0]
+                import ops_loop
+            try:
+                ops_loop.on_rollback(path, env, strict=False, release_hook=True)
+            except (ops_loop.Refused, OSError) as exc:
+                print(f"[releases] auto-incident skipped: {exc}", file=sys.stderr)
 
 
 # One `slo:` line of verify/slo.sh's stderr (docs/adr/0080 §1).
@@ -212,49 +341,76 @@ def answered_brief(env):
 
 
 def answer(env, said):
-    path, log = paths(env)
-    with open(path, encoding="utf-8") as fh:
-        rec = json.load(fh)
-    at, by, via = now(), env.get("GO_FOR_LAUNCH_BY") or "unauthenticated", env.get("GO_FOR_LAUNCH_VIA") or "cli"
-    sha, author = answered_brief(env)
-    why = {"reason": (env.get("GO_FOR_LAUNCH_REASON") or "").strip() or None, "brief_sha256": sha, "brief_author": author}
-    if said == "GO":
-        rec["promoted"] = dict({"weight": 100, "at": at, "by": by, "via": via}, **why)
-    else:
-        rec["rejected"] = dict({"at": at, "by": by, "via": via}, **why)
-    with open(path, "w", encoding="utf-8") as fh:
-        fh.write(json.dumps(rec, ensure_ascii=False, separators=(",", ":")) + "\n")
-    append(log, dict({"kind": "answer", "at": at, "version": rec.get("version"), "answer": said, "by": by, "via": via}, **why))
+    with ReleaseTrainLock(env=env):
+        path, log = paths(env)
+        with open(path, encoding="utf-8") as fh:
+            rec = json.load(fh)
+        at, by, via = now(), env.get("GO_FOR_LAUNCH_BY") or "unauthenticated", env.get("GO_FOR_LAUNCH_VIA") or "cli"
+        sha, author = answered_brief(env)
+        why = {"reason": (env.get("GO_FOR_LAUNCH_REASON") or "").strip() or None, "brief_sha256": sha, "brief_author": author}
+        if said == "GO":
+            rec["promoted"] = dict({"weight": 100, "at": at, "by": by, "via": via}, **why)
+        else:
+            rec["rejected"] = dict({"at": at, "by": by, "via": via}, **why)
+        with open(path, "w", encoding="utf-8") as fh:
+            fh.write(json.dumps(rec, ensure_ascii=False, separators=(",", ":")) + "\n")
+        append(log, dict({"kind": "answer", "at": at, "version": rec.get("version"), "answer": said, "by": by, "via": via}, **why))
+
+
+def train(cmd_argv, env):
+    """Hold ReleaseTrainLock, set LIGHTS_OUT_TRAIN_HELD=1, run CMD_ARGV, preserve exit code."""
+    if not cmd_argv:
+        raise ValueError("train requires a command")
+    with ReleaseTrainLock(env=env):
+        child_env = dict(env)
+        child_env[TRAIN_HELD_ENV] = "1"
+        try:
+            proc = subprocess.run(cmd_argv, env=child_env, check=False)  # nosec B603 - explicit argv list
+            return proc.returncode
+        except OSError as exc:
+            print(f"releases: cannot execute {cmd_argv[0]}: {exc}", file=sys.stderr)
+            return 127
 
 
 def main(argv, env=None):
     env = os.environ if env is None else env
     cmd = argv[0] if argv else ""
-    if cmd == "record" and len(argv) in (5, 6, 7):
-        record(env, *argv[1:])
-    elif cmd == "stage" and len(argv) in (4, 5):
-        numbers = [ln.rstrip("\n") for ln in sys.stdin if ln.startswith("slo: ")]
-        entry = {"pct": int(argv[2]), "verdict": argv[3], "numbers": numbers,
-                 "started_at": argv[4] if len(argv) == 5 and argv[4] else None, "judged_at": now(),
-                 "slo": slo_of(numbers, env)}
-        print(json.dumps(json.loads(argv[1]) + [entry], ensure_ascii=False, separators=(",", ":")))
-    elif cmd == "running" and len(argv) in (6, 7):
-        record(env, "in-progress", "", argv[1], argv[5], "", argv[6] if len(argv) == 7 else "",
-               running={"pct": int(argv[2]), "started_at": argv[3], "judge_after_s": int(argv[4])})
-    elif cmd == "brief" and len(argv) == 1:
-        with open(paths(env)[0], encoding="utf-8") as fh:
-            print(brief(json.load(fh)))
-    elif cmd == "plane" and len(argv) == 1:
-        why = plane(env, sys.stdin.read())
-        if why:
-            print(why)
-            return 1
-    elif cmd == "answer" and len(argv) == 2 and argv[1] in ("GO", "NO-GO"):
-        answer(env, argv[1])
-    else:
-        print("usage: releases.py record VERDICT HELD_AT STAGES IMAGE [SBOM [DAST]] | stage STAGES PCT VERDICT [STARTED_AT]"
-              " | running STAGES PCT STARTED_AT JUDGE_AFTER_S IMAGE [DAST] | brief | plane | answer GO|NO-GO", file=sys.stderr)
-        return 2
+    try:
+        if cmd == "record" and len(argv) in (5, 6, 7):
+            record(env, *argv[1:])
+        elif cmd == "stage" and len(argv) in (4, 5):
+            numbers = [ln.rstrip("\n") for ln in sys.stdin if ln.startswith("slo: ")]
+            entry = {"pct": int(argv[2]), "verdict": argv[3], "numbers": numbers,
+                     "started_at": argv[4] if len(argv) == 5 and argv[4] else None, "judged_at": now(),
+                     "slo": slo_of(numbers, env)}
+            print(json.dumps(json.loads(argv[1]) + [entry], ensure_ascii=False, separators=(",", ":")))
+        elif cmd == "running" and len(argv) in (6, 7):
+            record(env, "in-progress", "", argv[1], argv[5], "", argv[6] if len(argv) == 7 else "",
+                   running={"pct": int(argv[2]), "started_at": argv[3], "judge_after_s": int(argv[4])})
+        elif cmd == "brief" and len(argv) == 1:
+            with open(paths(env)[0], encoding="utf-8") as fh:
+                print(brief(json.load(fh)))
+        elif cmd == "plane" and len(argv) == 1:
+            why = plane(env, sys.stdin.read())
+            if why:
+                print(why)
+                return 1
+        elif cmd == "answer" and len(argv) == 2 and argv[1] in ("GO", "NO-GO"):
+            answer(env, argv[1])
+        elif cmd == "train":
+            sub_argv = argv[2:] if len(argv) > 1 and argv[1] == "--" else argv[1:]
+            if not sub_argv:
+                print("usage: releases.py train <cmd> [args...]", file=sys.stderr)
+                return 2
+            return train(sub_argv, env)
+        else:
+            print("usage: releases.py record VERDICT HELD_AT STAGES IMAGE [SBOM [DAST]] | stage STAGES PCT VERDICT [STARTED_AT]"
+                  " | running STAGES PCT STARTED_AT JUDGE_AFTER_S IMAGE [DAST] | brief | plane | answer GO|NO-GO"
+                  " | train <cmd> [args...]", file=sys.stderr)
+            return 2
+    except (ReleaseTrainTimeout, ValueError) as exc:
+        print(f"releases: {exc}", file=sys.stderr)
+        return 1
     return 0
 
 

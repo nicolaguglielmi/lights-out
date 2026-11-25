@@ -45,7 +45,23 @@ refuse() { printf 'harness-network: %s\n' "$1" >&2; exit 1; }
 [ -f "$member_run" ] || refuse "no member harness at adapters/$AGENT_HARNESS/run.sh"
 
 if ! grep -q '^## Network[[:space:]]*$' "$TICKET_FILE"; then
-  exec sh "$member_run"
+  case "${NETWORK_AUTO_SPLIT:-off}" in
+    off) exec sh "$member_run" ;;
+    on)
+      [ -f "$here/core/spec_split.py" ] || refuse "core/spec_split.py not found for NETWORK_AUTO_SPLIT=on"
+      mkdir -p "$OUT"
+      split_spec="$OUT/split-spec.md"
+      split_err="$OUT/split-spec.err"
+      if ! python3 "$here/core/spec_split.py" split "$TICKET_FILE" > "$split_spec" 2> "$split_err"; then
+        why=$(head -n1 "$split_err" 2>/dev/null || true)
+        rm -f "$split_spec" "$split_err"
+        refuse "${why:-$TICKET_FILE has no ## Network section and cannot be auto-split}"
+      fi
+      rm -f "$split_err"
+      TICKET_FILE="$split_spec"
+      ;;
+    *) refuse "NETWORK_AUTO_SPLIT must be on or off, got '${NETWORK_AUTO_SPLIT}'" ;;
+  esac
 fi
 
 # The section, one record per line: "m <id>", "g <id> <glob>", "b <id> <brief line>".

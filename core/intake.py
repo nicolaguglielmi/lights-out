@@ -228,7 +228,41 @@ def proposal_input(doc):
     return json.dumps(items, indent=2, ensure_ascii=False) + "\n"
 
 
-def compose(ticket, tid, intake_id):
+def _spec_split():
+    try:
+        from . import spec_split
+    except ImportError:  # run as a script: core/ is sys.path[0]
+        import spec_split
+    return spec_split
+
+
+def _network_split_enabled(env):
+    cfg = os.environ if env is None else env
+    raw = (cfg.get("INTAKE_NETWORK_SPLIT") or "off").strip().lower()
+    if raw not in ("on", "off"):
+        raise Refused(f"INTAKE_NETWORK_SPLIT must be on or off, got {raw!r}")
+    return raw == "on"
+
+
+def _resolve_network(ticket, env):
+    if "network" in ticket and ticket["network"] is not None:
+        try:
+            return _spec_split().normalize_network(
+                ticket["network"],
+                perimeter=ticket.get("perimeter") or [],
+                criteria=ticket.get("criteria"),
+            )
+        except ValueError as exc:
+            raise Refused(f"ticket {ticket.get('n') or ''} invalid network split: {exc}") from None
+    if _network_split_enabled(env):
+        return _spec_split().propose_network_split(
+            ticket.get("perimeter") or [],
+            criteria=ticket.get("criteria"),
+        )
+    return None
+
+
+def compose(ticket, tid, intake_id, env=None):
     """The Markdown of a proposed ticket, the shape of every committed one (§5)."""
     head = ["- Status: open", f"- Intake: {intake_id}"]
     head += [f"- Feature: {ticket['feature']}"] if ticket.get("feature") else []
@@ -238,6 +272,9 @@ def compose(ticket, tid, intake_id):
     for c in ticket.get("criteria") or []:
         body += [c, ""]
     body += [spec.PERIMETER, ""] + [f"- `{p}`" for p in ticket.get("perimeter") or []]
+    members = _resolve_network(ticket, env)
+    if members:
+        body += ["", _spec_split().render_network_section(members).rstrip("\n")]
     return "\n".join(body).rstrip("\n") + "\n"
 
 
@@ -257,6 +294,7 @@ def perimeter(doc, run_dir, rc, env, check=gate_line):
     """The perimeter step's result (docs/adr/0090 §3)."""
     run = _run(run_dir)
     paths = {}
+    net_hints = {}
     if rc != 0:
         why = _last_line(os.path.join(run_dir, "run.err")) or f"the architect role exited {rc}"
         if not (env.get("AGENT_HARNESS") == "replay" and run.get("no_recording")):
@@ -274,13 +312,21 @@ def perimeter(doc, run_dir, rc, env, check=gate_line):
             raw = args.get("paths")
             if isinstance(raw, list):
                 paths[n] = [p.strip() for p in raw if isinstance(p, str) and p.strip()]
+            if "network" in args and args.get("network") is not None:
+                net_hints[n] = args["network"]
         architect = dict(task(run), consulted=True)
     out = []
     for t in doc.get("proposal") or []:
         if not isinstance(t, dict):
             continue
-        t = dict(t, perimeter=paths.get(t.get("n"), []))
-        t["check"] = check(compose(t, "draft", doc.get("id") or ""))
+        n = t.get("n")
+        t = dict(t, perimeter=paths.get(n, []))
+        if n in net_hints:
+            t["network"] = net_hints[n]
+        members = _resolve_network(t, env)
+        if members is not None:
+            t["network"] = members
+        t["check"] = check(compose(t, "draft", doc.get("id") or "", env=env))
         out.append(t)
     if not out:
         raise Refused("the intake holds no proposed ticket")
@@ -338,7 +384,7 @@ def confidence_threshold(path=POLICY):
     raise Refused(f"{path} has no PERIMETER_CONFIDENCE")
 
 
-def perimeter_decided(doc, req, ans, check=gate_line, threshold=None):
+def perimeter_decided(doc, req, ans, check=gate_line, threshold=None, env=None):
     """The perimeter step's result from the Decide answer (docs/adr/0091 §6)."""
     t_min = confidence_threshold() if threshold is None else threshold
     paths = {}
@@ -370,14 +416,17 @@ def perimeter_decided(doc, req, ans, check=gate_line, threshold=None):
         n = t.get("n")
         t = dict(t, perimeter=sorted(inside.get(n, [])),
                  uncertain=[p for _, p in sorted(unsure.get(n, []), key=lambda x: (-x[0], x[1]))])
-        t["check"] = check(compose(t, "draft", doc.get("id") or ""))
+        members = _resolve_network(t, env)
+        if members is not None:
+            t["network"] = members
+        t["check"] = check(compose(t, "draft", doc.get("id") or "", env=env))
         out.append(t)
     if not out:
         raise Refused("the intake holds no proposed ticket")
     return {"state": "proposed", "architect": architect, "proposal": out}
 
 
-def decide_perimeter(doc, map_path, scope, run_dir):
+def decide_perimeter(doc, map_path, scope, run_dir, env=None):
     """The perimeter step's result asked file by file, or SearchInstead, or Refused."""
     try:
         req = perimeter_request(doc, candidates(map_path, scope))
@@ -393,7 +442,7 @@ def decide_perimeter(doc, map_path, scope, run_dir):
         raise SearchInstead(f"perimeter: the decision is not recorded at L0 ({line}); the architect searches instead")
     if r.returncode != 0:
         raise Refused(f"the architect's decision failed: {line}")
-    return perimeter_decided(doc, req, json.loads(r.stdout))
+    return perimeter_decided(doc, req, json.loads(r.stdout), env=env)
 
 
 # --- §5 the confirmation ----------------------------------------------------
@@ -408,6 +457,8 @@ def _edit(ticket, fields, n):
             if not isinstance(value, list) or not all(isinstance(v, str) for v in value):
                 raise Refused(f"the edit of ticket {n}: {key} is not a list of strings")
             out[key] = [" ".join(v.split()) if key == "criteria" else v.strip() for v in value if v.strip()]
+            if key == "perimeter":
+                out.pop("network", None)
         elif value is None or isinstance(value, str):
             out[key] = (value or "").strip() or (None if key in ("feature", "priority") else "")
         else:
@@ -504,12 +555,13 @@ def main(argv, env=None):
         elif cmd == "perimeter-request" and len(args) == 3:
             print(json.dumps(perimeter_request(load(args[0], {}), candidates(args[1], args[2])), ensure_ascii=False))
         elif cmd == "decide-perimeter" and len(args) == 4:
-            print(json.dumps(decide_perimeter(load(args[0], {}), args[1], args[2], args[3]), ensure_ascii=False))
+            print(json.dumps(decide_perimeter(load(args[0], {}), args[1], args[2], args[3], env=env),
+                             ensure_ascii=False))
         elif cmd == "perimeter-decided" and len(args) == 3:
-            print(json.dumps(perimeter_decided(load(args[0], {}), load(args[1], {}), load(args[2], {})),
+            print(json.dumps(perimeter_decided(load(args[0], {}), load(args[1], {}), load(args[2], {}), env=env),
                              ensure_ascii=False))
         elif cmd == "compose" and len(args) == 3:
-            sys.stdout.write(compose(load(args[0], {}), args[1], args[2]))
+            sys.stdout.write(compose(load(args[0], {}), args[1], args[2], env=env))
         else:
             print("usage: intake.py new <text> <tickets> [<id>] | first <doc> <tickets> | answers <doc>"
                   " | interview <doc> <run dir> <rc> | proposal <doc> | perimeter <doc> <run dir> <rc>"
