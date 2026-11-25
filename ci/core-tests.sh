@@ -8,14 +8,24 @@ set -eu
 name=core-tests
 . ci/lib.sh
 
-# core/tests and ci/tests: each module in a process of its own, as many at
-# once as the machine has CPUs (docs/adr/0093 §6, amended 2026-11-25: run
-# one after the other they took 386 s of the demo's 900 s on a runner).
-# Module names are dotted from the repo root, so `from core.risk import
-# classify` resolves as under `python3 -m unittest discover -t .`.
+# core/tests and ci/tests, every test case dealt round-robin into eight
+# batches per CPU, as many batches at once as there are CPUs (docs/adr/0093
+# §6, amended 2026-11-25): one after the other they took 386 s of the
+# demo's budget on a runner, and the six slowest cases sit in one module.
+# Ids are dotted from the repo root, as under `unittest discover -t .`; a
+# module that fails to import shows up as a failing id.
 cpus=$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 2)
-find core/tests ci/tests -maxdepth 1 -name 'test_*.py' | sort | sed 's|\.py$||; s|/|.|g' \
-  | xargs -P "$cpus" -n 4 python3 -m unittest >&2 || nogo "unittest reported failures"
+python3 - "$cpus" <<'PY' | xargs -P "$cpus" -L 1 python3 -m unittest >&2 || nogo "unittest reported failures"
+import sys, unittest
+def ids(s):
+    for t in s:
+        yield from (ids(t) if isinstance(t, unittest.TestSuite) else [t.id()])
+every = [i for d in ("core/tests", "ci/tests") for i in ids(unittest.defaultTestLoader.discover(d, top_level_dir="."))]
+n = 8 * int(sys.argv[1])
+for b in range(n):
+    if every[b::n]:
+        print(" ".join(every[b::n]))
+PY
 # The python stack's runners, run for real (docs/adr/0074, amendment of
 # 2026-11-11; docs/adr/0076).
 python3 -m unittest discover -s stacks/python/tests -t stacks/python >&2 || nogo "stacks/python/tests reported failures"

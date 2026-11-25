@@ -268,6 +268,20 @@ must reach `GO: demo` anyway, and the log must name both moves. The
 ci workflow's `engine-compat` job keeps the default ports, so both paths
 run on every push.
 
+*Amended 2026-11-25:* the work behind 1.0.0 grew the unit tests in `make
+ci` from 96 s to 386 s on a runner (`core-tests`, run 45649324464; the
+same check was 96 s in run 44847816834), and `./go demo` waits for `make
+ci`: the stranger run took 1,120 s and the engine-compat run 1,020 s, both
+over budget. Six end-to-end cases in one module, `ci/tests/test_ux_glue_e2e.py`,
+took 927 s of the 1,547 s the suite took on this Mac's VM, one module per
+process. `ci/core-tests.sh` now deals every test case of `core/tests` and
+`ci/tests` round-robin into eight batches per CPU (eight, a decision: enough
+batches that the slow cases land apart) and runs as many batches at once as
+there are CPUs. The budgets stay as they are. Rejected: taking the checks out
+of the demo (it would no longer prove what it proved, §3), and moving the
+slow end-to-end cases to a nightly run (they guard the wrapper and the
+entrypoint on every push).
+
 ## Tests, from this ADR
 
 `ci/first-run.sh`, a `./go ci` check, runs `core/preflight.sh` and
