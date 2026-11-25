@@ -80,6 +80,23 @@ M24_CHECK_NATIVE = (
     ("--repository", True), ("--kind", True), ("--phase", True),
     ("--replace", False),
 )
+DEMO_LOOP_NATIVE = (
+    ("--out", True), ("--budget", True), ("--inject-break", True),
+)
+JURY_NATIVE = (
+    ("--author-provider", True), ("--author-harness", True),
+    ("--risk", True), ("--role", True),
+    ("--run-json", True), ("--review-run-json", True),
+    ("--doc", True), ("--providers", True),
+)
+MAP_BRIEF_EVAL_NATIVE = (
+    ("--repo", True), ("--rev", True), ("--map", True),
+    ("--tickets", True), ("--exclude", True), ("--worker-brief", True),
+    ("--write-map", False), ("--no-determinism-check", False),
+)
+LIVE_PREFLIGHT_NATIVE = (
+    ("--repo", True), ("--strict", False),
+)
 NATIVE_FLAGS = (
     "--json", "--jsonl", "--help", "--engine", "--non-interactive", "--mode", "--preset", "--provider",
     "--harness", "--delivery", "--profile", "--ticket-budget-usd", "--day-budget-usd", "--level",
@@ -88,7 +105,9 @@ NATIVE_FLAGS = (
     "--tickets-count", "--no-commit", "--today", "--stacks", "--id", "--title", "--tickets", "--tickets-dir",
     "--state-dir", "--no-publish", "--out", "--manifest", "--changed", "--in-place", "--data", "--logbook",
     "--logbooks", "--min-providers", "--allow-incomplete", "--handoff", "--scope", "--repository",
-    "--kind", "--phase", "--replace",
+    "--kind", "--phase", "--replace", "--budget", "--inject-break", "--author-provider", "--author-harness",
+    "--risk", "--role", "--run-json", "--review-run-json", "--doc", "--providers", "--rev", "--map",
+    "--exclude", "--worker-brief", "--write-map", "--no-determinism-check", "--strict",
 )
 BOOL_FLAGS = {"--staged": "STAGED", "--once": "ONCE"}
 ENGINE_FLAT = ("init", "gates", "test-proof", "test-integrity", "adr-check", "migration-safety")
@@ -132,6 +151,7 @@ COMMANDS = (
     _c("repo", "map", keys=("MAP_FILE",)),
     _c("repo", "corpus", keys=("CORPUS_FULL",), surface="clone"),
     _c("repo", "genesis", positional=1, native=GENESIS_NATIVE),
+    _c("repo", "map-brief-eval", native=MAP_BRIEF_EVAL_NATIVE),
     _c("ticket", "intake", keys=("INTAKE_NETWORK_SPLIT",)),
     _c("ticket", "request", keys=("REQUEST_BY", "REQUEST_VIA")),
     _c("ticket", "answer", keys=("INTAKE_NETWORK_SPLIT",)),
@@ -161,6 +181,7 @@ COMMANDS = (
     _c("ops", "top", keys=("LOGBOOK_FILE", "LOGBOOK", "URL", "ONCE", "JSON", "POLL_S", "VIEW", "WIDTH", "HEIGHT")),
     _c("ops", "charts-conformance", keys=("CHARTS",), surface="clone"),
     _c("ops", "m24-check", positional=8, native=M24_CHECK_NATIVE),
+    _c("ops", "demo-loop", positional=1, native=DEMO_LOOP_NATIVE),
     _c("config", "start", native=START_NATIVE),
     _c("config", "next", native=(("--mode", True),)),
     _c("config", "cloud-setup", keys=("SLO_MODE",)),
@@ -168,6 +189,8 @@ COMMANDS = (
     _c("config", "agents", surface="clone"),
     _c("config", "tracker-conformance", keys=("TRACKER",), surface="clone"),
     _c("config", "console-build", native=(("--check", False),), surface="clone"),
+    _c("config", "jury", positional=1, native=JURY_NATIVE),
+    _c("config", "live-preflight", native=LIVE_PREFLIGHT_NATIVE),
 )
 FLAT_ONLY = (Command("", "console", "console"),)
 FLAT = {c.flat: c for c in (*COMMANDS, *FLAT_ONLY)}

@@ -11,11 +11,64 @@ from pathlib import Path
 from typing import Any, Sequence
 
 try:
-    from . import cmd_util
+    from . import cmd_util, jury
 except ImportError:
     import cmd_util
+    import jury
 
 _STEP = "step-review"
+
+
+def _resolve_providers_path(cur_env: dict[str, str]) -> Path | None:
+    """Locate providers.json in CWD or relative to the repository checkout."""
+    explicit = (cur_env.get("PROVIDERS_FILE") or "").strip()
+    if explicit:
+        path = Path(explicit)
+        return path if path.is_file() else None
+    local = Path("profiles") / "providers.json"
+    if local.is_file():
+        return local
+    repo_rel = Path(__file__).resolve().parents[1] / "profiles" / "providers.json"
+    return repo_rel if repo_rel.is_file() else None
+
+
+def select_review_jury(
+    cur_env: dict[str, str],
+    *,
+    ticket: str,
+    role: str,
+    doc: dict[str, Any] | None,
+    default_harness: str,
+) -> dict[str, Any] | None:
+    """Consult core.jury.select_reviewer for reviewer roles; fail closed on Refused."""
+    if role not in jury.REVIEWER_ROLES:
+        return None
+    providers_path = _resolve_providers_path(cur_env)
+    if providers_path is None:
+        return None
+    providers_cfg = jury.load_providers(str(providers_path))
+    crew_dir = (cur_env.get("CREW_DIR") or ".crew").strip() or ".crew"
+    run_path = Path(crew_dir) / ticket / "out" / "run.json"
+    run_obj: dict[str, Any] | None = None
+    if run_path.is_file():
+        try:
+            loaded = cmd_util.read_json(run_path)
+            if isinstance(loaded, dict):
+                run_obj = loaded
+        except (OSError, ValueError):
+            run_obj = None
+    run_prov, run_harness = jury._extract_run_actor(run_obj)
+    doc_prov, doc_harness = jury._extract_doc_author(doc)
+    doc_risk = jury._extract_doc_risk(doc)
+    author_provider = (cur_env.get("AUTHOR_PROVIDER") or run_prov or doc_prov or "").strip()
+    author_harness = (
+        cur_env.get("AUTHOR_HARNESS") or run_harness or doc_harness or default_harness or ""
+    ).strip()
+    risk = (cur_env.get("RISK_LEVEL") or cur_env.get("RISK") or doc_risk or "low").strip()
+    try:
+        return jury.select_reviewer(author_provider, author_harness, risk, providers_cfg, cur_env)
+    except jury.Refused as exc:
+        cmd_util.fail_msg(_STEP, f"jury refused: {exc}")
 
 
 def prepare_review_workspace(
@@ -137,6 +190,7 @@ def run_single_review(
     attempt: str,
     input_sha256: str,
     instructions: dict[str, Any],
+    jury_decision: dict[str, Any] | None = None,
 ) -> tuple[str, str, dict[str, Any]]:
     """Invoke a single reviewer harness run and return ``(state, status, review_payload)``."""
     out_dir = review_dir / "out"
@@ -145,13 +199,19 @@ def run_single_review(
         review_dir / "workspace", "rev-parse", "HEAD", env=cur_env, capture_stdout=True
     ).stdout.rstrip("\r\n")
 
+    run_env = dict(role_env)
+    if jury_decision and jury_decision.get("cross_vendor"):
+        if jury_decision.get("reviewer_provider"):
+            run_env["MODEL_PROVIDER"] = jury_decision["reviewer_provider"]
+        if jury_decision.get("reviewer_model"):
+            run_env["MODEL"] = jury_decision["reviewer_model"]
+
     budget_proc = cmd_util.run_py(
-        "core/spend.py", "token-budget", f"roles/{role}/role.env", env=cur_env, capture_stdout=True
+        "core/spend.py", "token-budget", f"roles/{role}/role.env", env=run_env, capture_stdout=True
     )
     if budget_proc.returncode != 0:
         raise SystemExit(budget_proc.returncode)
 
-    run_env = dict(role_env)
     run_env["ROLE"] = role
     run_env["TICKET"] = ticket
     run_env["ATTEMPT"] = attempt
@@ -173,8 +233,12 @@ def run_single_review(
     if run_json.is_file():
         try:
             rec = cmd_util.read_json(run_json)
-            if isinstance(rec, dict) and isinstance(rec.get("recorded"), dict):
-                recorded_sha256 = rec["recorded"].get("input_sha256") or ""
+            if isinstance(rec, dict):
+                if isinstance(rec.get("recorded"), dict):
+                    recorded_sha256 = rec["recorded"].get("input_sha256") or ""
+                if jury_decision is not None:
+                    rec["jury"] = jury_decision
+                    run_json.write_text(json.dumps(rec, indent=2) + "\n", encoding="utf-8")
         except (OSError, ValueError):
             recorded_sha256 = ""
     input_matches = (recorded_sha256 == input_sha256) if (harness == "replay" and recorded_sha256) else True
@@ -193,6 +257,8 @@ def run_single_review(
         "input_matches_recorded": input_matches,
         "instructions": instructions,
     }
+    if jury_decision is not None:
+        review_obj["jury"] = jury_decision
     return state, status, review_obj
 
 
@@ -242,13 +308,35 @@ def main(argv: Sequence[str] | None = None, env: dict[str, str] | None = None) -
         tracker=tracker,
         role=role,
     )
-    harness = role_env.get("HARNESS") or agent_harness
+    default_harness = role_env.get("HARNESS") or agent_harness
     attempt = "1"
+    doc: dict[str, Any] | None = None
     doc_file = cur_env.get("DOC_FILE") or ""
     if doc_file:
-        doc = cmd_util.read_json(doc_file)
-        if isinstance(doc, dict) and doc.get("attempt") is not None:
-            attempt = str(doc["attempt"])
+        loaded = cmd_util.read_json(doc_file)
+        if isinstance(loaded, dict):
+            doc = loaded
+            if loaded.get("attempt") is not None:
+                attempt = str(loaded["attempt"])
+
+    jury_decision = select_review_jury(
+        cur_env,
+        ticket=ticket,
+        role=role,
+        doc=doc,
+        default_harness=default_harness,
+    )
+    if (
+        jury_decision
+        and jury_decision.get("cross_vendor")
+        and jury_decision.get("reviewer_harness")
+        and not role_env.get("HARNESS")
+    ):
+        harness = jury_decision["reviewer_harness"]
+        sys.stderr.write(f"[review] jury: {jury_decision['reason']}\n")
+        sys.stderr.flush()
+    else:
+        harness = default_harness
 
     state, status, review_obj = run_single_review(
         cur_env,
@@ -260,6 +348,7 @@ def main(argv: Sequence[str] | None = None, env: dict[str, str] | None = None) -
         attempt=attempt,
         input_sha256=input_sha256,
         instructions=instructions,
+        jury_decision=jury_decision,
     )
     post_review_status(
         cur_env,

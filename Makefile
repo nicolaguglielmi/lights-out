@@ -75,7 +75,7 @@ CORPUS_FULL ?= 0
 # `init`/`try` draft one (docs/adr/0042 §6, 0093 §5), `cloud-setup` stages
 # cloud infrastructure templates (docs/adr/0104), and `start`/`next` guide a
 # repo from Stage 1 before a contract exists (docs/adr/0103).
-ifneq ($(filter $(MAKECMDGOALS),init genesis epics spec-split m24-check try cloud-setup start next cli top alert-webhook auto-incident console-build),)
+ifneq ($(filter $(MAKECMDGOALS),init genesis epics spec-split m24-check demo-loop jury map-brief-eval live-preflight try cloud-setup start next cli top alert-webhook auto-incident console-build),)
 -include $(WORKLOAD_CONTRACT)/workload.env
 else
 include $(WORKLOAD_CONTRACT)/workload.env
@@ -89,7 +89,7 @@ export
 # goals only tries the adapter instead: its recipe goes through `conform`.
 OUTSIDE_PORTS := AGENT_HARNESS CODE_HOST DELIVERY STATE_STORE EVENT_BUS TRACKER ORCHESTRATOR METRICS FLAGS REGISTRY CHARTS
 ifneq ($(filter outside/%,$(foreach p,$(OUTSIDE_PORTS),$($(p)))),)
-ifneq ($(filter-out %-conformance genesis epics spec-split m24-check start next cli top cloud-setup alert-webhook auto-incident console-build,$(or $(MAKECMDGOALS),help)),)
+ifneq ($(filter-out %-conformance genesis epics spec-split m24-check demo-loop jury map-brief-eval live-preflight start next cli top cloud-setup alert-webhook auto-incident console-build,$(or $(MAKECMDGOALS),help)),)
 ADMIT := $(shell python3 core/adapters.py admit 2>&1)
 ifneq ($(ADMIT),)
 $(error $(ADMIT))
@@ -1772,6 +1772,22 @@ spec-split: ## Plan or validate autonomous Network split for a ticket: [SPEC_SPL
 m24-check: ## Evaluate M24 multi-provider benchmark criteria or ingest run logbooks: [M24_ARGS="evaluate|ingest-logbook ..."] (docs/adr/0120)
 	@sh core/m24_runner.sh $(M24_ARGS)
 
+.PHONY: demo-loop
+demo-loop: ## Closed deterministic L0 self-healing demo loop (alert -> rollback -> postmortem -> ticket -> gates -> canary -> 100%, < 300s): [DEMO_LOOP_OUT=] [DEMO_LOOP_ARGS=] (docs/adr/0132)
+	@sh core/demo_loop.sh $(DEMO_LOOP_ARGS)
+
+.PHONY: jury
+jury: ## Cross-provider jury reviewer selection and inspection: [JURY_ARGS="select-env|inspect ..."] (docs/adr/0130)
+	@TICKET="$(if $(filter command line environment,$(origin TICKET)),$(TICKET))" AGENT_HARNESS="$(if $(filter command line environment,$(origin AGENT_HARNESS)),$(AGENT_HARNESS))" sh core/jury.sh $(JURY_ARGS)
+
+.PHONY: map-brief-eval
+map-brief-eval: ## Measure MAP_BRIEF=off vs MAP_BRIEF=on brief footprint across tickets: [MAP_BRIEF_EVAL_ARGS=] (docs/adr/0054)
+	@sh core/map_brief_eval.sh $(if $(WORKLOAD_ATTACHED),--repo "$(WORKLOAD_REPO)" --tickets "$(MAP_TICKETS)",) $(MAP_BRIEF_EVAL_ARGS)
+
+.PHONY: live-preflight
+live-preflight: ## Non-destructive live L1/CodeHost/Cloud readiness audit (boolean key presence only): [LIVE_PREFLIGHT_ARGS=]
+	@sh core/live_preflight.sh $(LIVE_PREFLIGHT_ARGS)
+
 # Your repository in one command (docs/adr/0093 §5): ./go attaches a clone
 # of its HEAD, then this drafts the contract in the clone (init, unchanged)
 # and judges the last commit by that draft (gates, unchanged). The draft is
@@ -1954,13 +1970,23 @@ gitlab-conformance: ## The CodeHost conformance suite on adapters/gitlab, agains
 # (gates/harness-conformance/proof.sh): a
 # suite that cannot fail would say GO to everything.
 .PHONY: harness-conformance
-harness-conformance: ## Every CLI harness against a scripted model, eleven cases, no key: [CONFORMANCE_HARNESS=<name>] (docs/adr/0041 §8)
+ifneq ($(filter outside/%,$(AGENT_HARNESS)),)
+harness-conformance: WORKLOAD := workloads/minimal
+harness-conformance: WORKLOAD_CONTRACT := workloads/minimal/.lights-out
+harness-conformance: COMPOSE_FILE := compose.yaml:workloads/minimal/.lights-out/compose.yaml
+harness-conformance: HARNESS_BASE_IMAGE := $(WORKBENCH_IMAGE)
+endif
+harness-conformance: ## Every CLI harness against a scripted model, eleven cases, no key: [CONFORMANCE_HARNESS=<name>] [AGENT_HARNESS=outside/<name>] (docs/adr/0041 §8, 0130)
+ifeq ($(filter outside/%,$(AGENT_HARNESS)),)
 	@sh gates/harness-conformance/proof.sh
 	@CONFORMANCE=1 \
 		WORKLOAD=workloads/minimal WORKLOAD_CONTRACT=workloads/minimal/.lights-out \
 		COMPOSE_FILE=compose.yaml:workloads/minimal/.lights-out/compose.yaml \
 		HARNESS_BASE_IMAGE=$(WORKBENCH_IMAGE) \
 		sh gates/harness-conformance.sh
+else
+	$(call conform,AGENT_HARNESS,harness-conformance)
+endif
 
 # Records the ADK roles' model responses at L1 (docs/adr/0020 §2), one
 # role at a time: ci/evals.sh with ADK_RECORD=1 writes fixtures/adk/<role>/

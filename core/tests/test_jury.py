@@ -330,5 +330,119 @@ class JuryCliAndProvenanceTests(unittest.TestCase):
             os.chdir(prev)
 
 
+class StepReviewJuryWiringTests(unittest.TestCase):
+    """Verify core/step_review.py routes medium/high risk reviews via core.jury."""
+
+    def test_step_review_selects_cross_vendor_and_attaches_run_json_jury(self):
+        from core import cmd_util, step_review
+        from unittest import mock
+
+        with tempfile.TemporaryDirectory() as td:
+            root = Path(td).resolve()
+            (root / "profiles").mkdir(parents=True)
+            (root / "profiles" / "providers.json").write_text(
+                json.dumps(SYNTH_PROVIDERS), encoding="utf-8"
+            )
+            (root / "roles" / "test-reviewer").mkdir(parents=True)
+            (root / "roles" / "test-reviewer" / "prompt.md").write_text("Review.\n", encoding="utf-8")
+            (root / "roles" / "test-reviewer" / "role.env").write_text(
+                "THINKING=high\nMAX_TURNS=60\nTIMEOUT_S=900\nTOKEN_BUDGET=1000\nTOKEN_BUDGET_BETA=2222\n",
+                encoding="utf-8",
+            )
+            doc_path = root / "doc.json"
+            doc_path.write_text(
+                json.dumps({
+                    "id": "0042",
+                    "attempt": 1,
+                    "tasks": [{"attempt": 1, "provider": "alpha", "harness": "alpha-cli"}],
+                    "ci": {"risk_level": "medium"},
+                }),
+                encoding="utf-8",
+            )
+            seen = {}
+
+            def fake_sh(script, *args, **kwargs):
+                s = str(script)
+                env = kwargs.get("env") or {}
+                if s.endswith("clone-url.sh"):
+                    return subprocess.CompletedProcess([], 0, stdout="file:///repo\n", stderr="")
+                if s.endswith("get.sh"):
+                    return subprocess.CompletedProcess([], 0, stdout="Ticket 0042\n", stderr="")
+                if s.endswith("run.sh"):
+                    seen["script"] = s
+                    seen["provider"] = env.get("MODEL_PROVIDER")
+                    seen["model"] = env.get("MODEL")
+                    seen["budget"] = env.get("TOKEN_BUDGET")
+                    out_dir = Path(env["OUT"])
+                    (out_dir / "final.md").write_text("APPROVED\n\nCross-vendor verified.\n", encoding="utf-8")
+                    (out_dir / "run.json").write_text(
+                        json.dumps({"harness": "beta-cli", "provider": "beta", "model": "beta-model-v2"}),
+                        encoding="utf-8",
+                    )
+                    return subprocess.CompletedProcess([], 0, stdout="", stderr="")
+                return subprocess.CompletedProcess([], 0, stdout="", stderr="")
+
+            def fake_py(script, *args, **kwargs):
+                s = str(script)
+                if s.endswith("agents.py"):
+                    Path(args[args.index("--out") + 1]).write_text("review input", encoding="utf-8")
+                    return subprocess.CompletedProcess([], 0, stdout="null", stderr="")
+                if s.endswith("spend.py"):
+                    prov = ((kwargs.get("env") or {}).get("MODEL_PROVIDER") or "").upper()
+                    return subprocess.CompletedProcess([], 0, stdout=("2222\n" if prov == "BETA" else "1000\n"), stderr="")
+                if s.endswith("tower.py"):
+                    rj = json.loads(Path(args[-1]).read_text(encoding="utf-8"))
+                    return subprocess.CompletedProcess(
+                        [], 0, stdout=json.dumps({"harness": rj["harness"], "provider": rj["provider"]}), stderr=""
+                    )
+                return subprocess.CompletedProcess([], 0, stdout="", stderr="")
+
+            prev = os.getcwd()
+            os.chdir(root)
+            try:
+                import contextlib, io
+                out = io.StringIO()
+                env = {
+                    "TICKET": "0042",
+                    "PR_NUMBER": "12",
+                    "BASE_SHA": "b1",
+                    "HEAD_SHA": "h1",
+                    "CODE_HOST": "stub-ch",
+                    "TRACKER": "stub-tr",
+                    "AGENT_HARNESS": "alpha-cli",
+                    "MODEL_PROVIDER": "alpha",
+                    "DOC_FILE": str(doc_path),
+                    "SYNTH_ALPHA_CRED": "k-alpha-val",
+                    "SYNTH_BETA_CRED": "k-beta-val",
+                }
+                with mock.patch.object(cmd_util, "run_sh", side_effect=fake_sh), \
+                     mock.patch.object(cmd_util, "run_py", side_effect=fake_py), \
+                     mock.patch.object(cmd_util, "git_cmd", return_value=subprocess.CompletedProcess([], 0, stdout="h1\n", stderr="")), \
+                     mock.patch.object(cmd_util, "run_cmd", return_value=subprocess.CompletedProcess([], 0, stdout="", stderr="")), \
+                     contextlib.redirect_stdout(out), contextlib.redirect_stderr(io.StringIO()):
+                    rc = step_review.main([], env=env)
+                self.assertEqual(rc, 0)
+                self.assertEqual(seen["script"], "adapters/beta-cli/run.sh")
+                self.assertEqual(seen["provider"], "beta")
+                self.assertEqual(seen["model"], "beta-model-v2")
+                self.assertEqual(seen["budget"], "2222")
+                res = json.loads(out.getvalue())
+                self.assertTrue(res["review"]["jury"]["cross_vendor"])
+                self.assertEqual(res["review"]["jury"]["reviewer_provider"], "beta")
+                run_json = json.loads((root / ".crew" / "0042" / "review" / "out" / "run.json").read_text(encoding="utf-8"))
+                self.assertEqual(run_json["jury"]["reviewer_harness"], "beta-cli")
+
+                # Strict mode in replay fails closed
+                with self.assertRaises(SystemExit) as cm:
+                    with contextlib.redirect_stderr(io.StringIO()):
+                        step_review.select_review_jury(
+                            {**env, "AGENT_HARNESS": "replay", "JURY_CROSS_PROVIDER": "strict"},
+                            ticket="0042", role="test-reviewer", doc={"ci": {"risk_level": "high"}}, default_harness="replay",
+                        )
+                self.assertEqual(cm.exception.code, 1)
+            finally:
+                os.chdir(prev)
+
+
 if __name__ == "__main__":
     unittest.main()

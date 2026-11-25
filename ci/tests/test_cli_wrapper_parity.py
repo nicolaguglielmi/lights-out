@@ -32,7 +32,8 @@ IMAGE_PREFIX = "ghcr.io/nicolaguglielmi/lights-out"
 READONLY = ("init", "genesis", "gates", "test-proof", "test-integrity", "adr-check", "migration-safety",
             "triage", "postmortem")
 STATE = ("next", "dora", "spend", "cloud-setup", "map", "network", "scoreboard",
-         "auto-incident", "incident", "alert-webhook", "top", "epics", "spec-split", "m24-check")
+         "auto-incident", "incident", "alert-webhook", "top", "epics", "spec-split", "m24-check",
+         "map-brief-eval", "demo-loop", "jury", "live-preflight")
 PLANE = ("start", "intake", "answer", "intake-confirm", "assign", "up", "down", "smoke", "release",
          "promote", "console", "evidence", "provenance", "try", "watch", "request", "resume", "audit",
          "production-readiness")
@@ -124,6 +125,10 @@ class WrapperGrammarParityTests(WrapperParityBase):
             ["ops", "watch", "--once", "--workers", "4", "--runner-workers", "3"],
             ["ticket", "intake", "--intake-network-split", "on"],
             ["ticket", "assign", "--network-auto-split", "on"],
+            ["ops", "demo-loop", "run", "--out", ".crew/dl", "--budget", "120", "--inject-break", "gates"],
+            ["config", "jury", "select-env", "--ticket", "0007", "--author-provider", "p", "--risk", "high"],
+            ["repo", "map-brief-eval", "--rev", "HEAD", "--write-map", "--no-determinism-check"],
+            ["config", "live-preflight", "--repo", ".", "--strict"],
         )
         for argv in cases:
             plan = cli.parse(argv)

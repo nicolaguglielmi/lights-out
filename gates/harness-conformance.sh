@@ -24,20 +24,26 @@ if [ "${CONFORMANCE:-}" != "1" ]; then
   nogo "set CONFORMANCE=1: this suite builds each CLI harness's image and runs it against a scripted model (./go harness-conformance)"
 fi
 
-[ -n "${WORKBENCH_IMAGE:-}" ] || nogo "WORKBENCH_IMAGE is not set; run this via ./go harness-conformance"
-for tool in docker-compose jq git python3; do
+for tool in jq git python3; do
   command -v "$tool" >/dev/null 2>&1 || nogo "$tool is not on PATH; run this via ./go harness-conformance"
 done
-# The suite's compose view: compose.yaml and the smallest workload fragment
-# that defines `backend` (the Makefile's to say; this directory never names a
-# workload, ci/app-free.sh).
-[ -n "${COMPOSE_FILE:-}" ] || nogo "COMPOSE_FILE is not set; run this via ./go harness-conformance"
-[ -n "${WORKLOAD:-}" ] || nogo "WORKLOAD is not set; run this via ./go harness-conformance"
-[ -n "${WORKLOAD_CONTRACT:-}" ] || nogo "WORKLOAD_CONTRACT is not set; run this via ./go harness-conformance"
-# Case 10's fixture and the module that reads a contract (docs/adr/0073).
-[ -f "$WORKLOAD_CONTRACT/mcp.json" ] && [ -f "$WORKLOAD_CONTRACT/mcp/notes.py" ] \
-  || nogo "case 10's fixture is missing: $WORKLOAD_CONTRACT/mcp.json and $WORKLOAD_CONTRACT/mcp/notes.py (docs/adr/0073)"
-[ -f core/agents.py ] || nogo "core/agents.py is missing: case 10 reads a contract through it (docs/adr/0073 §7)"
 [ -f roles/test-reviewer/prompt.md ] || nogo "roles/test-reviewer/prompt.md is missing: case 10a runs the test-reviewer"
+case "${AGENT_HARNESS:-}:${ADAPTERS_TRIAL:-}" in
+  outside/*:AGENT_HARNESS) ;;
+  *)
+    [ -n "${WORKBENCH_IMAGE:-}" ] || nogo "WORKBENCH_IMAGE is not set; run this via ./go harness-conformance"
+    command -v docker-compose >/dev/null 2>&1 || nogo "docker-compose is not on PATH; run this via ./go harness-conformance"
+    # The suite's compose view: compose.yaml and the smallest workload fragment
+    # that defines `backend` (the Makefile's to say; this directory never names a
+    # workload, ci/app-free.sh).
+    [ -n "${COMPOSE_FILE:-}" ] || nogo "COMPOSE_FILE is not set; run this via ./go harness-conformance"
+    [ -n "${WORKLOAD:-}" ] || nogo "WORKLOAD is not set; run this via ./go harness-conformance"
+    [ -n "${WORKLOAD_CONTRACT:-}" ] || nogo "WORKLOAD_CONTRACT is not set; run this via ./go harness-conformance"
+    # Case 10's fixture and the module that reads a contract (docs/adr/0073).
+    [ -f "$WORKLOAD_CONTRACT/mcp.json" ] && [ -f "$WORKLOAD_CONTRACT/mcp/notes.py" ] \
+      || nogo "case 10's fixture is missing: $WORKLOAD_CONTRACT/mcp.json and $WORKLOAD_CONTRACT/mcp/notes.py (docs/adr/0073)"
+    [ -f core/agents.py ] || nogo "core/agents.py is missing: case 10 reads a contract through it (docs/adr/0073 §7)"
+    ;;
+esac
 
 verdict core.gates.harness

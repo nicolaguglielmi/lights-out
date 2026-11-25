@@ -27,13 +27,14 @@ ROOT = Path(__file__).resolve().parents[2]
 
 SPEC = {
     "repo": ["init", "try", "gates", "test-proof", "test-integrity", "adr-check", "migration-safety",
-             "doctor", "map", "corpus", "genesis"],
+             "doctor", "map", "corpus", "genesis", "map-brief-eval"],
     "ticket": ["intake", "request", "answer", "intake-confirm", "assign", "resume", "network", "audit", "epics",
                "spec-split"],
     "release": ["up", "down", "smoke", "deploy", "promote", "evidence", "provenance", "production-readiness"],
     "ops": ["watch", "alert-webhook", "triage", "auto-incident", "incident", "postmortem", "dora", "spend", "top",
-            "charts-conformance", "m24-check"],
-    "config": ["start", "next", "cloud-setup", "scoreboard", "agents", "tracker-conformance", "console-build"],
+            "charts-conformance", "m24-check", "demo-loop"],
+    "config": ["start", "next", "cloud-setup", "scoreboard", "agents", "tracker-conformance", "console-build",
+               "jury", "live-preflight"],
 }
 SHELLS = ["bash", "zsh", "fish"]
 GATE_SHAPED = {"init", "try", "gates", "test-proof", "test-integrity", "adr-check", "migration-safety",
@@ -689,6 +690,44 @@ class WaveBCLITests(unittest.TestCase):
             flag_prefix = "-l " if sh_name == "fish" else "--"
             for flag in ("in-place", "allow-incomplete", "workers", "runner-workers",
                          "intake-network-split", "network-auto-split"):
+                self.assertIn(f"{flag_prefix}{flag}", comp)
+
+    def test_v090_wave_b_commands_and_flags_parse(self):
+        p_dl = cli.parse(["ops", "demo-loop", "run", "--out", ".crew/dl", "--budget", "120", "--inject-break", "gates"])
+        self.assertEqual(p_dl.command.flat, "demo-loop")
+        self.assertEqual(p_dl.positional, ["run"])
+        self.assertEqual(p_dl.tail, ["--out", ".crew/dl", "--budget", "120", "--inject-break", "gates"])
+
+        p_jury = cli.parse([
+            "config", "jury", "select-env", "--ticket", "0007",
+            "--author-provider", "alpha", "--author-harness", "alpha-cli",
+            "--risk", "high", "--role", "architect",
+        ])
+        self.assertEqual(p_jury.command.flat, "jury")
+        self.assertEqual(p_jury.positional, ["select-env"])
+        self.assertEqual(
+            p_jury.tail,
+            ["TICKET=0007", "--author-provider", "alpha", "--author-harness", "alpha-cli",
+             "--risk", "high", "--role", "architect"],
+        )
+
+        p_mbe = cli.parse([
+            "repo", "map-brief-eval", "--repo", ".", "--rev", "HEAD",
+            "--write-map", "--no-determinism-check",
+        ])
+        self.assertEqual(p_mbe.command.flat, "map-brief-eval")
+        self.assertEqual(p_mbe.tail, ["--repo", ".", "--rev", "HEAD", "--write-map", "--no-determinism-check"])
+
+        p_lp = cli.parse(["config", "live-preflight", "--repo", ".", "--strict"])
+        self.assertEqual(p_lp.command.flat, "live-preflight")
+        self.assertEqual(p_lp.tail, ["--repo", ".", "--strict"])
+
+        for sh_name in SHELLS:
+            comp = cli.completion(sh_name)
+            for cmd in ("demo-loop", "jury", "map-brief-eval", "live-preflight"):
+                self.assertIn(cmd, comp)
+            flag_prefix = "-l " if sh_name == "fish" else "--"
+            for flag in ("budget", "inject-break", "author-provider", "write-map", "strict"):
                 self.assertIn(f"{flag_prefix}{flag}", comp)
 
 

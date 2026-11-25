@@ -1369,7 +1369,6 @@ def _phase_fix_gates_merge_mainline(
         env=env,
         check_msg="post commit status failed",
     )
-    _run(["sh", "adapters/file-codehost/await.sh", head_sha, "gates"], cwd=sandbox, env=env, check_msg="await status failed")
 
     t_now = _utc_now()
     ticket_doc: dict[str, Any] = {

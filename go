@@ -27,6 +27,10 @@
 #   ./go epics          manage multi-ticket epic DAGs (create|status|unblock) and monorepo workspaces (workspace) (ADR 0119)
 #   ./go spec-split     plan or validate autonomous ## Network spec-split for a ticket (ADR 0120)
 #   ./go m24-check      evaluate M24 multi-provider benchmark criteria or ingest real run logbooks (ADR 0120)
+#   ./go demo-loop      run closed deterministic L0 self-healing demo loop (< 300s, zero API keys; ADR 0132)
+#   ./go jury           cross-provider jury reviewer selection and inspection (select-env|inspect; ADR 0130)
+#   ./go map-brief-eval measure MAP_BRIEF=off vs MAP_BRIEF=on brief footprint across tickets (ADR 0054)
+#   ./go live-preflight non-destructive live L1/CodeHost/Cloud readiness audit (boolean key presence only)
 #   ./go gates          judge a range of the workload: BASE=<ref> HEAD=<ref>, default the last commit; no plane needed
 #   ./go adr-check      check ADR lifecycle compliance on a range: [BASE=<ref> HEAD=<ref>] (ADR 0115)
 #   ./go migration-safety  check database expand/contract migration safety: [BASE=<ref> HEAD=<ref>] [TICKET_FILE=] (ADR 0123)
@@ -70,7 +74,7 @@
 #   ./go record-evals   record the ADK roles' responses at L1 (PROFILE=l1)
 #   ./go record-decisions  record the screens and the perimeter decisions L0 replays, at L1 (PROFILE=l1, ADR 0091)
 #   ./go record-postmortem  record the ops-triage role's post mortem of fixtures/incidents/ at L1 (PROFILE=l1)
-#   ./go harness-conformance  every CLI harness against a scripted model, no key: [CONFORMANCE_HARNESS=<name>] (ADR 0041)
+#   ./go harness-conformance  every CLI harness against a scripted model, no key: [CONFORMANCE_HARNESS=<name>] [AGENT_HARNESS=outside/<name>] (ADR 0041, 0130)
 #   ./go argo-conformance  the Delivery suite on adapters/argo-rollouts, a local k3s beside the plane (ADR 0051)
 #   ./go flagger-conformance  the Delivery suite on adapters/flagger, the same k3s with Flagger (ADR 0095)
 #   ./go flagger-proof  Flagger's own rollback on bad metrics and its promotion held at the gate, on that cluster (ADR 0095)
@@ -427,6 +431,12 @@ fi
 socket_flags=""
 socket_optional=""
 case "$cmd" in gates|init|try|mutation-baseline|demo-init|console|logbook|network|dora|watch|cli|registry-conformance) socket_optional=1 ;; esac
+if [ "$cmd" = harness-conformance ]; then
+  for a in "$@"; do
+    case "$a" in AGENT_HARNESS=outside/*) socket_optional=1 ;; esac
+  done
+  case "${AGENT_HARNESS:-}" in outside/*) socket_optional=1 ;; esac
+fi
 case "$cmd" in
   up|down|test|demo|release|demo-rollback|demo-hold|demo-dast|demo-seam|demo-seam-plain|demo-network|e2e|resume|shell|gates|demo-gates|mutation-baseline|assign|demo-crew|record|demo-launch|review|demo-review|record-review|delivery-conformance|argo-conformance|flagger-conformance|flagger-proof|harness-conformance|codehost-conformance|gitlab-conformance|registry-conformance|unsigned-refused|board|demo-rework|demo-mainline|init|try|demo-init|console|logbook|network|dora|demo-console|request|answer|watch|cli)
     sock=""
@@ -518,7 +528,10 @@ for v in POLL_S ONCE ALERT_FILE ALERT_WEBHOOK_TOKEN ALERT_WEBHOOK_OUT WEBHOOK_AR
          TRACKER GITHUB_API_URL LINEAR_TEAM_ID LINEAR_API_URL LINEAR_TOKEN \
          CHARTS CHARTS_URL GRAFANA_URL GRAFANA_TOKEN \
          MONITORING_API_URL MONITORING_ACCESS_TOKEN MONITORING_AUTH_HEADER \
-         SSE_HEARTBEAT_S CONSOLE_SSE_HEARTBEAT_S; do
+         SSE_HEARTBEAT_S CONSOLE_SSE_HEARTBEAT_S \
+         DEMO_LOOP_OUT DEMO_LOOP_BUDGET_SECONDS \
+         JURY_CROSS_PROVIDER JURY_PROVIDER JURY_MODEL JURY_HARNESS \
+         GITHUB_REPO GOOGLE_CLOUD_PROJECT GCP_PROJECT GOOGLE_CLOUD_LOCATION CLOUDSDK_CORE_PROJECT; do
   if env | grep -q "^$v="; then port_flags="$port_flags -e $v"; fi
 done
 if [ "$cmd" = top ] && env | grep -q "^TERM="; then
@@ -694,7 +707,7 @@ elif [ "$cmd" = genesis ]; then
     export LIGHTS_OUT_CLI_ARGS
     port_flags="$port_flags -e LIGHTS_OUT_CLI_ARGS"
   fi
-elif [ "$cmd" = start ] || [ "$cmd" = next ] || [ "$cmd" = top ] || [ "$cmd" = epics ] || [ "$cmd" = spec-split ] || [ "$cmd" = m24-check ]; then
+elif [ "$cmd" = start ] || [ "$cmd" = next ] || [ "$cmd" = top ] || [ "$cmd" = epics ] || [ "$cmd" = spec-split ] || [ "$cmd" = m24-check ] || [ "$cmd" = demo-loop ] || [ "$cmd" = jury ] || [ "$cmd" = map-brief-eval ] || [ "$cmd" = live-preflight ]; then
   cli_sep=$(printf '\037')
   cli_args=""
   for a in "$@"; do
@@ -803,7 +816,7 @@ fi
 
 if [ "$cmd" = shell ]; then
   run sh
-elif [ "$cmd" = init ] || [ "$cmd" = start ] || [ "$cmd" = next ] || [ "$cmd" = top ] || [ "$cmd" = cli ] || [ "$cmd" = genesis ] || [ "$cmd" = epics ] || [ "$cmd" = spec-split ] || [ "$cmd" = m24-check ]; then
+elif [ "$cmd" = init ] || [ "$cmd" = start ] || [ "$cmd" = next ] || [ "$cmd" = top ] || [ "$cmd" = cli ] || [ "$cmd" = genesis ] || [ "$cmd" = epics ] || [ "$cmd" = spec-split ] || [ "$cmd" = m24-check ] || [ "$cmd" = demo-loop ] || [ "$cmd" = jury ] || [ "$cmd" = map-brief-eval ] || [ "$cmd" = live-preflight ]; then
   if [ -n "$make_args" ]; then
     old_ifs=$IFS
     IFS=$(printf '\037')

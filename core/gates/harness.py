@@ -116,6 +116,7 @@ import re
 import secrets
 import shutil
 import sys
+import tempfile
 import time
 from collections import namedtuple
 
@@ -1302,7 +1303,89 @@ class Suite:
                 self.run_case(*limits(case.id, self.role, self.timeout_s))
             getattr(self, case.judge)()
 
+    def _run_outside_harness(self, agent_harness):
+        """Cold AgentHarness conformance for an outside/<name> adapter on trial (ADR 0130)."""
+        name = agent_harness[len("outside/"):]
+        h_dir = os.path.join("adapters", "outside", name)
+        run_sh = os.path.join(h_dir, "run.sh")
+        if not os.path.isdir(h_dir) or not os.path.isfile(run_sh):
+            raise NoGo("%s: %s/run.sh not found" % (agent_harness, h_dir))
+        t0 = time.time()
+        say("harness-conformance: %s (outside cold AgentHarness)" % agent_harness)
+        ver_sh = os.path.join(h_dir, "version.sh")
+        if os.path.isfile(ver_sh):
+            ver = proc(["sh", ver_sh], stdin=DEVNULL, capture_output=True, text=True)
+            if ver.returncode != 0 or not ver.stdout.strip():
+                raise NoGo("%s: version.sh failed (exit %d): %s" % (agent_harness, ver.returncode, ver.stderr.strip()))
+        with tempfile.TemporaryDirectory(prefix="outside-harness-conf-") as td:
+            ws = os.path.join(td, "ws")
+            out_w = os.path.join(td, "out-write")
+            out_r = os.path.join(td, "out-review")
+            ticket = os.path.join(td, "ticket.md")
+            os.makedirs(ws, exist_ok=True)
+            os.makedirs(out_w, exist_ok=True)
+            os.makedirs(out_r, exist_ok=True)
+            with open(ticket, "w", encoding="utf-8") as fh:
+                fh.write("Ticket 0001: verify outside AgentHarness conformance.\n")
+            with open(ticket, "rb") as fh:
+                in_sha = hashlib.sha256(fh.read()).hexdigest()
+            for git_args in (
+                ["init", "-q"],
+                ["config", "user.name", "lights-out-conformance"],
+                ["config", "user.email", "conformance@lights-out.invalid"],
+            ):
+                res = proc(["git", "-C", ws, *git_args], stdin=DEVNULL, capture_output=True, text=True)
+                if res.returncode != 0:
+                    raise NoGo("%s: git setup failed: %s" % (agent_harness, res.stderr.strip()))
+            with open(os.path.join(ws, "README.md"), "w", encoding="utf-8") as fh:
+                fh.write("base\n")
+            for git_args in (["add", "README.md"], ["commit", "-q", "-m", "initial"]):
+                res = proc(["git", "-C", ws, *git_args], stdin=DEVNULL, capture_output=True, text=True)
+                if res.returncode != 0:
+                    raise NoGo("%s: git initial commit failed: %s" % (agent_harness, res.stderr.strip()))
+            base_sha = proc(["git", "-C", ws, "rev-parse", "HEAD"], stdin=DEVNULL, capture_output=True, text=True).stdout.strip()
+            base_env = dict(os.environ)
+            w_env = dict(base_env, ROLE="dev-worker", TICKET="0001", WORKSPACE=ws, BASE=base_sha,
+                         OUT=out_w, TICKET_FILE=ticket, THINKING="high", MAX_TURNS="4",
+                         TIMEOUT_S="30", TOKEN_BUDGET="2500")
+            w_res = proc(["sh", run_sh], stdin=DEVNULL, capture_output=True, text=True, env=w_env)
+            if w_res.returncode != 0:
+                raise NoGo("%s: dev-worker run.sh exited %d: %s" % (agent_harness, w_res.returncode, w_res.stderr.strip()))
+            hc = proc(["sh", "core/harness-check.sh", out_w, ws, base_sha], stdin=DEVNULL, capture_output=True, text=True)
+            if hc.returncode != 0:
+                raise NoGo("%s: core/harness-check.sh failed: %s%s" % (agent_harness, hc.stdout.strip(), hc.stderr.strip()))
+            rj = self.json(os.path.join(out_w, "run.json"))
+            if not isinstance(rj, dict):
+                raise NoGo("%s: missing or invalid out/run.json" % agent_harness)
+            if rj.get("harness") != agent_harness:
+                raise NoGo("%s: run.json .harness is %r, want %r" % (agent_harness, rj.get("harness"), agent_harness))
+            if rj.get("exit_code") != 0:
+                raise NoGo("%s: run.json .exit_code is %r, want 0" % (agent_harness, rj.get("exit_code")))
+            if rj.get("input_sha256") != in_sha:
+                raise NoGo("%s: run.json .input_sha256 mismatch" % agent_harness)
+            hooks = read(os.path.join(out_w, "hooks.log")).splitlines()
+            if not hooks or any(not re.match(r"^(ALLOW [^ ]+ -|DENY [^ ]+ .+)$", ln) for ln in hooks):
+                raise NoGo("%s: empty or malformed hooks.log" % agent_harness)
+            head_after = proc(["git", "-C", ws, "rev-parse", "HEAD"], stdin=DEVNULL, capture_output=True, text=True).stdout.strip()
+            r_env = dict(base_env, ROLE="test-reviewer", TICKET="0001", WORKSPACE=ws, BASE=head_after,
+                         OUT=out_r, TICKET_FILE=ticket, THINKING="medium", MAX_TURNS="4",
+                         TIMEOUT_S="30", TOKEN_BUDGET="2500")
+            r_res = proc(["sh", run_sh], stdin=DEVNULL, capture_output=True, text=True, env=r_env)
+            if r_res.returncode != 0:
+                raise NoGo("%s: test-reviewer run.sh exited %d: %s" % (agent_harness, r_res.returncode, r_res.stderr.strip()))
+            verdict_line = (read(os.path.join(out_r, "final.md")).splitlines() or [""])[0]
+            if verdict_line not in ("APPROVED", "CHANGES-REQUESTED"):
+                raise NoGo("%s: reviewer final.md first line is %r, want APPROVED or CHANGES-REQUESTED" % (agent_harness, verdict_line))
+            head_post = proc(["git", "-C", ws, "rev-parse", "HEAD"], stdin=DEVNULL, capture_output=True, text=True).stdout.strip()
+            dirty = proc(["git", "-C", ws, "status", "--porcelain"], stdin=DEVNULL, capture_output=True, text=True).stdout.strip()
+            if head_post != head_after or dirty:
+                raise NoGo("%s: test-reviewer mutated workspace" % agent_harness)
+        return "%s, cold AgentHarness, %d s" % (agent_harness, int(time.time() - t0))
+
     def run(self):
+        agent_harness = self.env.get("AGENT_HARNESS", "")
+        if agent_harness.startswith("outside/") and self.env.get("ADAPTERS_TRIAL") == "AGENT_HARNESS":
+            return self._run_outside_harness(agent_harness)
         found = discover("adapters")
         selected = select(found, self.env.get("CONFORMANCE_HARNESS", ""))
         runs = [(h, cf) for h in selected for cf in check_contract(h, "adapters")]

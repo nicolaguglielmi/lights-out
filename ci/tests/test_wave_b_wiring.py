@@ -735,6 +735,126 @@ exit 0
         argv_w = next(c for c in _read_calls(go_log) if c and c[0] == "run")
         self.assertEqual(argv_w[-4:], ["make", "watch", "ONCE=1", "WORKERS=4"])
 
+    def test_v090_wave_b_demo_loop_jury_map_brief_live_preflight_and_outside_harness(self) -> None:
+        help_res = subprocess.run(
+            ["make", "--no-print-directory", "help"],
+            cwd=self.ws, capture_output=True, text=True, check=True,
+        )
+        go_header = "\n".join((self.ws / "go").read_text(encoding="utf-8").splitlines()[:85])
+        for target, script in (
+            ("demo-loop", "core/demo_loop.sh"),
+            ("jury", "core/jury.sh"),
+            ("map-brief-eval", "core/map_brief_eval.sh"),
+            ("live-preflight", "core/live_preflight.sh"),
+        ):
+            self.assertRegex(help_res.stdout, rf"(?m)^\s*{target}\s+", f"make help missing {target}")
+            self.assertIn(f"./go {target}", go_header, f"./go header missing {target}")
+            dry = subprocess.run(
+                ["make", "--no-print-directory", "-n", target],
+                cwd=self.ws, capture_output=True, text=True, check=True,
+            )
+            self.assertIn(script, dry.stdout)
+
+        base_env = {"PATH": os.environ.get("PATH", "/usr/bin:/bin"), "HOME": str(self.tmp)}
+        crew = self.ws / ".crew"
+        crew.mkdir(parents=True, exist_ok=True)
+        (crew / "start-plan.env").write_text(
+            "START_PROFILE=l0\nDELIVERY=outside/gcp-cloud-deploy\nADAPTERS_PATH="
+            + str((self.ws / "plugins" / "cloud").resolve())
+            + "\n",
+            encoding="utf-8",
+        )
+        missing_wl = self.tmp / "empty-contract-v090"
+        missing_wl.mkdir(exist_ok=True)
+
+        # Standalone jury, map-brief-eval, live-preflight run even without workload.env or admitted cloud DELIVERY
+        res_jury = subprocess.run(
+            [
+                "make", "--no-print-directory", "jury",
+                f"WORKLOAD_CONTRACT={missing_wl}",
+                "JURY_ARGS=select-env --author-provider gemini --risk high",
+            ],
+            cwd=self.ws,
+            env=dict(base_env, GEMINI_API_KEY="present-g", ANTHROPIC_API_KEY="present-a"),
+            capture_output=True, text=True, check=False,
+        )
+        self.assertEqual(res_jury.returncode, 0, res_jury.stdout + res_jury.stderr)
+        jury_doc = json.loads(res_jury.stdout)
+        self.assertTrue(jury_doc["cross_vendor"])
+        self.assertEqual(jury_doc["reviewer_provider"], "anthropic")
+
+        res_lp = subprocess.run(
+            ["make", "--no-print-directory", "live-preflight", f"WORKLOAD_CONTRACT={missing_wl}", "LIVE_PREFLIGHT_ARGS=--json"],
+            cwd=self.ws, env=base_env, capture_output=True, text=True, check=False,
+        )
+        self.assertEqual(res_lp.returncode, 0, res_lp.stdout + res_lp.stderr)
+        self.assertEqual(json.loads(res_lp.stdout)["schema"], "lights-out/live-preflight/1")
+
+        res_mbe = subprocess.run(
+            [
+                "make", "--no-print-directory", "map-brief-eval",
+                f"WORKLOAD_CONTRACT={missing_wl}",
+                f"MAP_BRIEF_EVAL_ARGS=--map {self.tmp / 'm.sqlite'} --no-determinism-check",
+            ],
+            cwd=self.ws, env=base_env, capture_output=True, text=True, check=False,
+        )
+        self.assertEqual(res_mbe.returncode, 0, res_mbe.stdout + res_mbe.stderr)
+        self.assertTrue(res_mbe.stdout.strip().startswith("GO: map-brief-eval — "), res_mbe.stdout)
+
+        # make harness-conformance AGENT_HARNESS=outside/file-harness routes via $(call conform,AGENT_HARNESS,harness-conformance)
+        (crew / "start-plan.env").unlink(missing_ok=True)
+        ext_dir = (self.ws / "fixtures" / "outside-adapters").resolve()
+        reg_file = self.tmp / "reg-state-ah"
+        res_ah = subprocess.run(
+            [
+                "make", "--no-print-directory", "harness-conformance",
+                "AGENT_HARNESS=outside/file-harness",
+                f"ADAPTERS_PATH={ext_dir}",
+                f"ADAPTERS_REGISTER={reg_file}",
+            ],
+            cwd=self.ws, env=base_env, capture_output=True, text=True, check=False,
+        )
+        self.assertEqual(res_ah.returncode, 0, res_ah.stdout + res_ah.stderr)
+        self.assertTrue(res_ah.stdout.strip().startswith("GO: harness-conformance — outside/file-harness"), res_ah.stdout)
+        self.assertIn("AGENT_HARNESS\tfile-harness\t", reg_file.read_text(encoding="utf-8"))
+
+        # ./go forwards flags & env vars without sockets, and permits socket-optional outside harness-conformance
+        bindir, tools, go_log = self._setup_fake_podman()
+        go_env = {
+            "PATH": f"{bindir}:{tools}",
+            "HOME": str(self.tmp),
+            "JURY_CROSS_PROVIDER": "auto",
+            "DEMO_LOOP_OUT": ".crew/dl",
+        }
+        for cmd_argv, want_tail in (
+            (["sh", "./go", "demo-loop", "--json", "--budget", "90"], ["make", "demo-loop"]),
+            (["sh", "./go", "jury", "select-env", "--risk", "high"], ["make", "jury"]),
+            (["sh", "./go", "map-brief-eval", "--json"], ["make", "map-brief-eval"]),
+            (["sh", "./go", "live-preflight", "--json"], ["make", "live-preflight"]),
+        ):
+            go_log.unlink(missing_ok=True)
+            res = subprocess.run(cmd_argv, cwd=self.ws, env=go_env, capture_output=True, text=True, check=False)
+            self.assertEqual(res.returncode, 0, res.stderr)
+            argv = next(c for c in _read_calls(go_log) if c and c[0] == "run")
+            envs = _extract_env_flags(argv)
+            self.assertIn("LIGHTS_OUT_CLI_ARGS", envs)
+            self.assertIn("JURY_CROSS_PROVIDER", envs)
+            self.assertIn("DEMO_LOOP_OUT", envs)
+            self.assertFalse(any("DOCKER_HOST" in e for e in envs), cmd_argv)
+            self.assertEqual(argv[-2:], want_tail)
+
+        go_log.unlink(missing_ok=True)
+        res_go_ah = subprocess.run(
+            ["sh", "./go", "harness-conformance", "AGENT_HARNESS=outside/file-harness", f"ADAPTERS_PATH={ext_dir}"],
+            cwd=self.ws, env=go_env, capture_output=True, text=True, check=False,
+        )
+        self.assertEqual(res_go_ah.returncode, 0, res_go_ah.stderr)
+        argv_ah = next(c for c in _read_calls(go_log) if c and c[0] == "run")
+        self.assertEqual(
+            argv_ah[-4:],
+            ["make", "harness-conformance", "AGENT_HARNESS=outside/file-harness", f"ADAPTERS_PATH={ext_dir}"],
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
