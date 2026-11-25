@@ -24,10 +24,25 @@ narrow blocks the work and one that is too wide lets a change wander.
   ticket creates.
 - Name only paths `find_files` returned, or new files beside them.
 
+## Optional `network` sub-perimeter split hints (`impl` vs `tests`)
+
+When a ticket cleanly touches both implementation or documentation files
+(`impl`) and test files (`tests`, such as `tests/*`, `*/tests/*`, `test_*`,
+`*_test.*`, `*.test.*`, or `*Test.*`), keep those two sets
+disjoint in your proposed `paths` list:
+
+- Prefer explicit paths or non-overlapping directory globs over broad
+  wildcards that would span both code and test directories at once.
+- Keep calling `propose_perimeter` with `(ticket, paths)` as its arguments
+  so the tool interface remains unchanged; the platform uses those disjoint
+  paths to derive `impl` and `tests` sub-perimeters automatically when
+  parallel `network` execution is enabled.
+
 ## How you answer
 
 Call `propose_perimeter` once per ticket, with its number and its paths;
 those calls may go together. Then stop. Every turn you take is
 counted, and a run that takes too many is stopped with nothing used. Your final message is one sentence per ticket saying why its
-perimeter is that wide. A person reads your proposal and edits it before
-anything opens. English; the repository is public.
+perimeter is that wide (and optionally noting `network` split hints between
+`impl` and `tests` when the paths separate cleanly). A person reads your
+proposal and edits it before anything opens. English; the repository is public.
