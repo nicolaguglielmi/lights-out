@@ -669,6 +669,11 @@ class ProvenanceAttachRealCodeHostTests(unittest.TestCase):
             **os.environ,
             "PYTHONPATH": str(ROOT),
             "WORKLOAD": str(work),
+            "TICKET": "",
+            "VERSION": "",
+            "STATE_STORE": "",
+            "RELEASES_LOG": "",
+            "WORKLOAD_ATTACHED": "",
             "PROVENANCE_DIR": str(self.tmp / "prov"),
             "COSIGN_KEY": str(self.tmp / "keys" / "cosign.key"),
             "CODE_HOST": "gitlab",
@@ -684,7 +689,7 @@ class ProvenanceAttachRealCodeHostTests(unittest.TestCase):
             text=True,
             check=False,
         )
-        self.assertEqual(res.returncode, 0, res.stderr)
+        self.assertEqual(res.returncode, 0, res.stdout + res.stderr)
         self.assertTrue(res.stdout.startswith("GO: provenance — "), res.stdout)
 
         att = self.tmp / "prov" / f"{head}.intoto.json"
