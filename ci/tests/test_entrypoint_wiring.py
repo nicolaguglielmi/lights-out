@@ -60,7 +60,7 @@ def _extract_port_flags(argv: list[str]) -> list[str]:
 class MakefileAndGoWiringTest(unittest.TestCase):
     def setUp(self) -> None:
         if not shutil.which("make"):
-            self.skipTest("make is required")
+            self.fail("make is required")
         self.tmp = Path(tempfile.mkdtemp(prefix="entrypoint-wiring-")).resolve()
         self.addCleanup(shutil.rmtree, self.tmp, True)
 

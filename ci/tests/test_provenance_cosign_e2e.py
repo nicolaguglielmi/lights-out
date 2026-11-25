@@ -21,9 +21,9 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[2]
 
 
-@unittest.skipUnless(shutil.which("cosign"), "cosign is required (run inside Podman workbench)")
 class ProvenanceCosignE2ETests(unittest.TestCase):
     def setUp(self):
+        self.assertIsNotNone(shutil.which("cosign"), "cosign is not on PATH: this test runs in the workbench, ./go ci")
         self._tmp = tempfile.TemporaryDirectory()
         self.root = Path(self._tmp.name).resolve()
         for rel in ("core", "ci", "console"):

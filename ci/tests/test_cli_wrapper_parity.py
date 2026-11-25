@@ -364,7 +364,7 @@ class CompletionParityTests(WrapperParityBase):
     def test_bash_script_parses(self):
         bash = shutil.which("bash")
         if not bash:
-            self.skipTest("bash not available")
+            self.fail("bash not available")
         script = self.tmp / "comp.bash"
         script.write_text(cli.completion("bash"), encoding="utf-8")
         res = subprocess.run([bash, "-n", str(script)], capture_output=True, text=True, check=False)
@@ -376,7 +376,7 @@ class EntrypointParityTests(unittest.TestCase):
 
     def setUp(self):
         if not shutil.which("make"):
-            self.skipTest("make is required")
+            self.fail("make is required")
         self.tmp = Path(tempfile.mkdtemp(prefix="entry-parity-")).resolve()
         self.addCleanup(shutil.rmtree, self.tmp, True)
         self.img = self.tmp / "img"

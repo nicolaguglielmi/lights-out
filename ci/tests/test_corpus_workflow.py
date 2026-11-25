@@ -165,7 +165,7 @@ class CorpusWorkflowTest(unittest.TestCase):
     def test_corpus_yml_passes_actionlint(self) -> None:
         wf_path = ROOT / ".github/workflows/corpus.yml"
         if not shutil.which("actionlint"):
-            self.skipTest("actionlint not installed outside workbench")
+            self.fail("actionlint not installed outside workbench")
         proc = subprocess.run(
             ["actionlint", "-no-color", str(wf_path)],
             cwd=ROOT,

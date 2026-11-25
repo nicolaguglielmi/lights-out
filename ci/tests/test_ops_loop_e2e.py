@@ -307,7 +307,7 @@ class SurfaceRecipesTest(unittest.TestCase):
                         self.assertIn(EXPECTED_CHECKOUT_PIN, uses_val)
 
         if not shutil.which("actionlint"):
-            self.skipTest("actionlint not installed outside workbench")
+            self.fail("actionlint not installed outside workbench")
         lint = subprocess.run(
             ["actionlint", "-no-color", str(wf)],
             cwd=ROOT,

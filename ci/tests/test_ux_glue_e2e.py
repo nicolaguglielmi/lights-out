@@ -87,7 +87,7 @@ class StartPlanEndToEndWiringTests(unittest.TestCase):
 
     def setUp(self) -> None:
         if not shutil.which("make"):
-            self.skipTest("make is required")
+            self.fail("make is required")
         self.tmp = Path(tempfile.mkdtemp(prefix="ux-start-e2e-")).resolve()
         self.addCleanup(shutil.rmtree, self.tmp, True)
 
@@ -402,7 +402,7 @@ class WrapperEngineGatesWorkloadE2ETests(unittest.TestCase):
 
     def setUp(self) -> None:
         if not shutil.which("make"):
-            self.skipTest("make is required")
+            self.fail("make is required")
         self.tmp = Path(tempfile.mkdtemp(prefix="ux-engine-e2e-")).resolve()
         self.addCleanup(shutil.rmtree, self.tmp, True)
 
@@ -658,11 +658,11 @@ exit 0
 
     def test_ci_package_passes_and_catches_engine_flag_defect(self) -> None:
         if not shutil.which("shellcheck"):
-            self.skipTest("shellcheck not on PATH")
+            self.fail("shellcheck not on PATH")
         try:
             import yaml  # noqa: F401
         except ImportError:
-            self.skipTest("PyYAML not installed")
+            self.fail("PyYAML not installed")
 
         res = subprocess.run(["sh", "ci/package.sh"], cwd=ROOT, capture_output=True, text=True, check=False)
         self.assertEqual(res.returncode, 0, res.stdout + res.stderr)

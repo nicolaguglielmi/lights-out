@@ -118,7 +118,7 @@ class PolyglotThirtySixCorpusE2ETest(unittest.TestCase):
 
     def test_polyglot_positive_shapes_pass_full_osv_and_sast_checks(self) -> None:
         if not shutil.which("osv-scanner"):
-            self.skipTest("osv-scanner not installed outside workbench")
+            self.fail("osv-scanner not installed outside workbench")
         polyglot_names = {
             "dotnet-sdk-http",
             "dotnet-cpm-sln-lib",
@@ -200,7 +200,7 @@ class OutsideFileEventBusE2ETest(unittest.TestCase):
 
     def test_ci_outside_sh_passes_with_eventbus_included(self) -> None:
         if not shutil.which("jq"):
-            self.skipTest("jq not installed outside workbench")
+            self.fail("jq not installed outside workbench")
         proc = subprocess.run(
             ["sh", "ci/outside.sh"],
             cwd=ROOT,

@@ -604,8 +604,8 @@ class ProvenanceAttachRealCodeHostTests(unittest.TestCase):
         self.assertEqual(data["status"], "attached")
         self.assertEqual(data["receipt"]["stored"], "local")
 
-    @unittest.skipUnless(shutil.which("cosign"), "cosign is required (run inside Podman workbench)")
     def test_provenance_sh_build_attach_signs_then_attaches_bundle_to_gitlab(self) -> None:
+        self.assertIsNotNone(shutil.which("cosign"), "cosign is not on PATH: this test runs in the workbench, ./go ci")
         tok = "tok-" + "e2e-gl" + "-707"
         seen: list[dict] = []
 

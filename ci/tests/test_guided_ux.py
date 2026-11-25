@@ -146,7 +146,7 @@ class ConsoleJourneyOverviewTest(unittest.TestCase):
 
         # Execute the console's own overview/thresholds functions in Node 24 against golden 1.8 and 1.2/1.4/1.5
         if shutil.which("node") is None:
-            self.skipTest("node not on PATH")
+            self.fail("node not on PATH")
         # Extract the main inline <script> block and embedded JSON blocks from console/index.html
         tower_m = re.search(r'<script type="application/json" id="tower-machine">(.*?)</script>', html, re.S)
         words_m = re.search(r'<script type="application/json" id="network-words">(.*?)</script>', html, re.S)

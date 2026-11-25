@@ -36,7 +36,7 @@ class ExtendedRunnersAndWorkloadsContractTest(unittest.TestCase):
 
     def test_rust_and_java_runners_pass_shellcheck(self) -> None:
         if not shutil.which("shellcheck"):
-            self.skipTest("shellcheck not installed outside workbench")
+            self.fail("shellcheck not installed outside workbench")
         scripts = [
             ROOT / "stacks/rust/runners/sast.sh",
             ROOT / "stacks/rust/runners/mutation.sh",

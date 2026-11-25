@@ -156,7 +156,7 @@ class EntrypointWorkloadE2ETests(unittest.TestCase):
 
     def setUp(self):
         if not shutil.which("make"):
-            self.skipTest("make is required for entrypoint tests")
+            self.fail("make is required for entrypoint tests")
         self.tmp = Path(tempfile.mkdtemp(prefix="entrypoint-e2e-")).resolve()
         self.addCleanup(shutil.rmtree, self.tmp, True)
 
@@ -318,11 +318,11 @@ class CiPackageBehavioralTests(unittest.TestCase):
 
     def test_ci_package_passes_and_catches_socket_boundary_defects(self):
         if not shutil.which("shellcheck"):
-            self.skipTest("shellcheck not on PATH")
+            self.fail("shellcheck not on PATH")
         try:
             import yaml  # noqa: F401
         except ImportError:
-            self.skipTest("PyYAML not installed")
+            self.fail("PyYAML not installed")
 
         res = subprocess.run(["sh", "ci/package.sh"], cwd=ROOT, capture_output=True, text=True, check=False)
         self.assertEqual(res.returncode, 0, res.stdout + res.stderr)

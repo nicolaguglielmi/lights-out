@@ -156,7 +156,7 @@ class SelfHealingE2E(unittest.TestCase):
 
     def test_mitigation_flips_the_real_kill_switch_and_rolls_back_through_a_stub_port(self) -> None:
         if shutil.which("jq") is None:
-            self.skipTest("the flags-file adapter needs jq")
+            self.fail("the flags-file adapter needs jq")
         (self.root / "adapters").mkdir()
         os.symlink(ROOT / "adapters" / "flags-file", self.root / "adapters" / "flags-file")
         self.write("adapters/stub-delivery/rollback.sh", '#!/bin/sh\necho rolled >> "$MARK"\n')

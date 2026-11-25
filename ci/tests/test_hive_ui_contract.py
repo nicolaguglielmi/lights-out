@@ -134,7 +134,7 @@ class ConsoleHiveIntegrationContractTest(unittest.TestCase):
 
     def test_wizard_all_providers_codehosts_cloud_targets_in_node(self) -> None:
         if shutil.which("node") is None:
-            self.skipTest("node not on PATH")
+            self.fail("node not on PATH")
         html = CONSOLE_HTML.read_text(encoding="utf-8")
         tower_m = re.search(r'<script type="application/json" id="tower-machine">(.*?)</script>', html, re.S)
         words_m = re.search(r'<script type="application/json" id="network-words">(.*?)</script>', html, re.S)

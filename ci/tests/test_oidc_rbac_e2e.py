@@ -437,7 +437,7 @@ class OidcRbacEndToEndTest(unittest.TestCase):
 
     def test_e2e_live_console_serve_jwt_and_four_tier_rbac(self) -> None:
         if not shutil.which("make"):
-            self.skipTest("make is required")
+            self.fail("make is required")
 
         def free_port() -> int:
             with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
