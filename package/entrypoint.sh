@@ -905,6 +905,19 @@ if [ -n "${LIGHTS_OUT_PLATFORM_DIR:-}" ]; then
   esac
 fi
 
+# Where the repository is cloned, never the tree this script runs from: the
+# self-checks run in /tmp/lights-out/attached inside this image, and a test
+# that runs this entrypoint from there deleted its own checkout (self,
+# 2026-11-25, run 45695306774).
+attach_dir() {
+  attach_default=/tmp/lights-out/attached
+  attach_real=$(cd "$attach_default" 2>/dev/null && pwd -P) || attach_real=$attach_default
+  case "$(pwd -P)/ $(cd "$(dirname "$0")/.." 2>/dev/null && pwd -P)/" in
+    "$attach_real"/*|*" $attach_real/"*) mktemp -d /tmp/lights-out/attached-XXXXXX ;;
+    *) printf '%s\n' "$attach_default" ;;
+  esac
+}
+
 # State-only commands (docs/adr/0105 §1): no socket, /opt/lights-out/.crew
 # mounted from $out/crew. cloud-setup skips attach; next/dora/spend attach
 # $repo_dir when available.
@@ -912,8 +925,8 @@ case "$sub" in
   cloud-setup|scoreboard|auto-incident|incident|alert-webhook|top|m24-check|demo-loop|jury|live-preflight|reviewer-eval|portfolio)
     run_make "$sub" "$@" ;;
   next|dora|spend|map|network|epics|spec-split|map-brief-eval|thresholds)
-    attached=/tmp/lights-out/attached
     mkdir -p /tmp/lights-out
+    attached=$(attach_dir)
     if sh core/await-head.sh "$repo_dir" 15; then
       rm -rf "$attached"
       sh core/attach.sh "$repo_dir" "$attached" || nogo "could not clone the repository (see above)"
@@ -948,7 +961,7 @@ LIGHTS_OUT_NO_START_PLAN=1
 export LIGHTS_OUT_NO_START_PLAN
 sh core/await-head.sh "$repo_dir" 15 \
   || nogo "the current directory is not a git repository with a commit"
-attached=${gate_attached:-/tmp/lights-out/attached}
+attached=${gate_attached:-$(attach_dir)}
 if [ "$sub" = init ] && [ "$init_apply" = 1 ]; then
   # Zero-copy init --apply: wrapper mounted $repo_dir read-write; skip clone and apply directly.
   rm -rf "$out_root/init"
