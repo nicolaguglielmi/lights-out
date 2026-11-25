@@ -380,6 +380,7 @@ class ObsChartsE2ETests(unittest.TestCase):
                     RELEASE_RECORD=str(rec_path),
                     LOGS=str(logs_path),
                     INCIDENT_OUT=str(out_dir),
+                    TICKET="",
                 ),
                 capture_output=True,
                 text=True,
