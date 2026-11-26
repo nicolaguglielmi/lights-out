@@ -49,7 +49,7 @@ CI_DEBT: dict[str, int] = {
     "ci/dev-phase.sh": 112,
     "ci/evals.sh": 66,
     "ci/first-run.sh": 191,
-    "ci/gates-light.sh": 163,
+    "ci/gates-light.sh": 162,
     "ci/harness-shape.sh": 387,
     "ci/harness.sh": 66,
     "ci/hooks.sh": 305,

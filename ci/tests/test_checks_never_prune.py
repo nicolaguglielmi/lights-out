@@ -34,8 +34,9 @@ class ChecksNeverPrune(unittest.TestCase):
 
     def test_gates_light_removes_its_own_worktrees(self):
         text = (ROOT / "ci" / "gates-light.sh").read_text(encoding="utf-8")
-        self.assertRegex(text, r"own_worktrees_gone\(\) \{\n[^}]*git worktree remove --force")
-        self.assertIn("trap own_worktrees_gone EXIT", text)
+        added = re.findall(r'git worktree add --detach "(\$t/wt-\$jf)"', text)
+        self.assertEqual(added, ["$t/wt-$jf"])
+        self.assertIn('git worktree remove --force "$t/wt-$jf"', text)
 
 
 if __name__ == "__main__":
