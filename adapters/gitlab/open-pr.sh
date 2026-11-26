@@ -27,7 +27,24 @@ if [ -z "$mr" ]; then
       || die "reading default branch for $GITLAB_PROJECT_PATH failed"
   fi
   payload=$(jq -c --arg b "$branch" --arg t "$target" '{source_branch: $b, target_branch: $t, title: .title, description: (.body // "")}' "$pr_json")
-  mr=$(api -f -X POST -H 'Content-Type: application/json' -d "$payload" "$GITLAB_PROJECT/merge_requests") \
-    || die "create merge request failed"
+  # GitLab takes a push in the background: for a moment after it the new
+  # branch is unknown to the merge request API, a 400 naming the source
+  # branch. That one is retried, once a second, READY_TIMEOUT times (as
+  # bootstrap.sh and merge.sh wait); any other answer fails, with its body.
+  i=0
+  while :; do
+    tmp=$(mktemp)
+    code=$(api -o "$tmp" -w '%{http_code}' -X POST -H 'Content-Type: application/json' -d "$payload" \
+      "$GITLAB_PROJECT/merge_requests") || code=000
+    mr=$(cat "$tmp"); rm -f "$tmp"
+    case "$code" in
+      201) break ;;
+      400) case "$mr" in *[Ss]ource*branch*) ;; *) die "create merge request failed: $code $mr" ;; esac
+        i=$((i + 1))
+        [ "$i" -lt "${READY_TIMEOUT:-60}" ] || die "create merge request failed: $code $mr, ${i}s after the push"
+        sleep 1 ;;
+      *) die "create merge request failed: $code $mr" ;;
+    esac
+  done
 fi
 printf '%s' "$mr" | jq -er '"\(.iid) \(.web_url)"' || die "no merge request in the answer: $mr"
