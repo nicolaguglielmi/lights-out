@@ -282,6 +282,19 @@ of the demo (it would no longer prove what it proved, §3), and moving the
 slow end-to-end cases to a nightly run (they guard the wrapper and the
 entrypoint on every push).
 
+*Amended 2026-11-26:* with the unit tests in parallel the demo still ran
+over: 802 s in the stranger run 45723894533 and 924 s in the engine-compat
+run 45711051425. The checks took 731 s one after the other (`core-tests`
+258 s, `logbook` 62 s, `intake` 51 s, `package` 49 s, the other 56 under
+35 s each, as the `[ci] <name>: <n> s` lines on stderr now show), while
+the demo's own stages end near 450 s. `make ci` now runs the checks
+`CI_JOBS` at a time, one per CPU unless set (a decision), with
+`--output-sync`, then `contract` alone. The checks were already safe side
+by side: each plants its defects in a copy of its own, and `core-tests`
+has run many of them in parallel batches since the amendment above. Their
+records (ADR 0062) make the order they end in irrelevant; on a NO-GO make
+starts no new check, as before. The budgets stay as they are.
+
 ## Tests, from this ADR
 
 `ci/first-run.sh`, a `./go ci` check, runs `core/preflight.sh` and

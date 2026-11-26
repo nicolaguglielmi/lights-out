@@ -327,8 +327,17 @@ CI_CHECKS := secrets secrets-history lint shell help docs-drift map profiles wor
 # and ci-contract alone runs every check cold, as it always did.
 ci: export CI_RECORDS := .crew/ci/$(shell od -An -N8 -tx1 /dev/urandom | tr -d ' \n')
 
+# The checks run CI_JOBS at a time, one per CPU unless set (docs/adr/0093
+# §6, amended 2026-11-26): each plants its defects in a copy of its own,
+# never in this tree, and records its verdict (docs/adr/0062), so the order
+# they end in changes nothing; `contract` judges the records once all have
+# ended. --output-sync keeps each check's output in one piece.
+CI_JOBS ?= $(shell getconf _NPROCESSORS_ONLN 2>/dev/null || echo 2)
+
 .PHONY: ci
-ci: $(addprefix ci-,$(CI_CHECKS)) ## Repo self-checks (ADR 0002), same on laptop and CI
+ci: ## Repo self-checks (ADR 0002), same on laptop and CI
+	@$(MAKE) --no-print-directory -j "$(CI_JOBS)" --output-sync=target $(addprefix ci-,$(filter-out contract,$(CI_CHECKS)))
+	@$(MAKE) --no-print-directory ci-contract
 	@case "$$CI_RECORDS" in .crew/ci/?*) rm -f "$$CI_RECORDS"/*.out "$$CI_RECORDS"/*.rc; rmdir "$$CI_RECORDS" 2>/dev/null || : ;; esac
 	@printf 'GO: ci\n'
 
