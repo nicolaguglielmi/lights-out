@@ -324,17 +324,21 @@ class ReleaseBriefLedgerTests(unittest.TestCase):
                 self.assertEqual(rel_entries[0]["role"], "release")
                 self.assertAlmostEqual(rel_entries[0]["cost_usd"], 1.2, places=6)
 
+                # The brief run is stamped with promote's own clock: the
+                # ticket's spend falls on that same day, or the day's burn
+                # would leave it out once the test runs past midnight UTC.
+                day = rel_entries[0]["at"][:10]
                 docs = {
                     "0010": {
                         "id": "0010",
-                        "history": [{"step": "open", "state": "opened", "at": "2026-11-25T09:00:00Z"}],
+                        "history": [{"step": "open", "state": "opened", "at": f"{day}T00:00:00Z"}],
                         "spend": [{
                             "role": "dev-worker",
                             "step": "assign",
                             "attempt": 1,
                             "cost_usd": 1.0,
                             "duration_s": 20,
-                            "at": "2026-11-25T09:10:00Z",
+                            "at": f"{day}T00:00:01Z",
                         }],
                     }
                 }
