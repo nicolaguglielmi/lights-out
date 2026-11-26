@@ -30,8 +30,15 @@ root=$(pwd)
 order=$(sed -n 's/^GATES := //p' Makefile)
 [ -n "$order" ] || nogo "no GATES := line in the Makefile"
 t=$(mktemp -d)
-trap 'rm -rf "$t"; git worktree prune >/dev/null 2>&1 || :' EXIT
-git worktree prune
+# Only this check's own worktrees are removed, never a `git worktree
+# prune`: under ./go demo the checks run in a container of their own beside
+# the plane, where the tower's worktrees, in the demo's /tmp, do not exist,
+# and a prune deleted their metadata mid-ticket (stranger, 2026-11-26).
+own_worktrees_gone() {
+  for w in "$t"/wt-*; do [ ! -d "$w" ] || git worktree remove --force "$w" >/dev/null 2>&1 || :; done
+  rm -rf "$t"
+}
+trap own_worktrees_gone EXIT
 
 # env_of FILE KEY: the value of KEY in a KEY=VALUE file, empty when absent.
 env_of() { sed -n "s/^$2=//p" "$1" | tail -n 1; }
