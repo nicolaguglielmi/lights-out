@@ -7,6 +7,9 @@ name: cloud-conformance
 # Disabled by default so forks and unconfigured repositories skip cleanly:
 # set repository variable CLOUD_CONFORMANCE_ENABLED=true and the OIDC target
 # variables (never static JSON/secret keys) in repository settings.
+# GCP_PROJECT, GCP_WIF_PROVIDER and GCP_DEPLOYER_SA are read from a secret of
+# that name first, then from the variable: a public repository's run logs
+# print variables in clear, and a secret is masked there.
 
 on:
   schedule:
@@ -72,22 +75,35 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
+      - name: Resolve the GCP OIDC target
+        id: gcp_cfg
+        env:
+          GCP_WIF_PROVIDER: ${{ secrets.GCP_WIF_PROVIDER || vars.GCP_WIF_PROVIDER }}
+          GCP_DEPLOYER_SA: ${{ secrets.GCP_DEPLOYER_SA || vars.GCP_DEPLOYER_SA }}
+        run: |
+          set -eu
+          if [ -n "${GCP_WIF_PROVIDER:-}" ] && [ -n "${GCP_DEPLOYER_SA:-}" ]; then
+            echo "set=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "set=false" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Install cosign (GCP / OCI targets)
         if: (matrix.target == 'gcp' || matrix.target == 'oci-registry') && (inputs.target == 'all' || inputs.target == '' || inputs.target == matrix.target)
         uses: sigstore/cosign-installer@v3
 
       - name: Authenticate to GCP via keyless OIDC
         id: gcp_auth
-        if: (matrix.target == 'gcp' || matrix.target == 'oci-registry') && (inputs.target == 'all' || inputs.target == '' || inputs.target == matrix.target) && vars.GCP_WIF_PROVIDER != '' && vars.GCP_DEPLOYER_SA != ''
+        if: (matrix.target == 'gcp' || matrix.target == 'oci-registry') && (inputs.target == 'all' || inputs.target == '' || inputs.target == matrix.target) && steps.gcp_cfg.outputs.set == 'true'
         uses: google-github-actions/auth@v2
         with:
-          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
-          service_account: ${{ vars.GCP_DEPLOYER_SA }}
+          workload_identity_provider: ${{ secrets.GCP_WIF_PROVIDER || vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ secrets.GCP_DEPLOYER_SA || vars.GCP_DEPLOYER_SA }}
           token_format: access_token
           access_token_scopes: https://www.googleapis.com/auth/cloud-platform
 
       - name: Setup Cloud SDK (GCP L2/L3)
-        if: matrix.target == 'gcp' && (inputs.target == 'all' || inputs.target == '' || inputs.target == 'gcp') && vars.GCP_WIF_PROVIDER != '' && vars.GCP_DEPLOYER_SA != ''
+        if: matrix.target == 'gcp' && (inputs.target == 'all' || inputs.target == '' || inputs.target == 'gcp') && steps.gcp_cfg.outputs.set == 'true'
         uses: google-github-actions/setup-gcloud@v2
 
       - name: Authenticate to AWS via keyless OIDC
@@ -109,11 +125,14 @@ jobs:
         env:
           TARGET: ${{ matrix.target }}
           DISPATCH_TARGET: ${{ inputs.target }}
-          GCP_WIF_PROVIDER: ${{ vars.GCP_WIF_PROVIDER }}
-          GCP_PROJECT: ${{ vars.GCP_PROJECT }}
+          GCP_WIF_PROVIDER: ${{ secrets.GCP_WIF_PROVIDER || vars.GCP_WIF_PROVIDER }}
+          GCP_PROJECT: ${{ secrets.GCP_PROJECT || vars.GCP_PROJECT }}
           GCP_REGION: ${{ vars.GCP_REGION }}
           GCP_PROMETHEUS_LOCATION: ${{ vars.GCP_PROMETHEUS_LOCATION }}
           GCP_WORKFLOW_LOCATION: ${{ vars.GCP_WORKFLOW_LOCATION }}
+          # A Firestore database of the suite's own, so its token never reaches
+          # another workload's (default) database; empty keeps (default).
+          FIRESTORE_DATABASE: ${{ vars.FIRESTORE_DATABASE }}
           GCP_ACCESS_TOKEN: ${{ steps.gcp_auth.outputs.access_token }}
           CLOUDSDK_AUTH_ACCESS_TOKEN: ${{ steps.gcp_auth.outputs.access_token }}
           ARTIFACT_REGISTRY_REPOSITORY: ${{ vars.ARTIFACT_REGISTRY_REPOSITORY }}

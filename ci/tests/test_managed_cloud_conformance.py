@@ -1092,6 +1092,34 @@ else:
         matrix_targets = wf["jobs"]["conformance"]["strategy"]["matrix"]["target"]
         self.assertEqual(matrix_targets, ["gcp", "oci-registry", "aws", "azure"])
 
+    def test_cloud_conformance_passes_its_own_firestore_database(self):
+        # Spec (adapters/firestore/README.md): FIRESTORE_DATABASE names the
+        # database, empty meaning (default); the live suite takes it from a
+        # repository variable so a shared project's (default) stays untouched.
+        wf = yaml.safe_load((ROOT / ".github" / "workflows" / "cloud-conformance.yml").read_text(encoding="utf-8"))
+        run = next(s for s in wf["jobs"]["conformance"]["steps"] if s.get("name") == "Run keyless OIDC conformance suite")
+        self.assertEqual(run["env"]["FIRESTORE_DATABASE"], "${{ vars.FIRESTORE_DATABASE }}")
+
+    def test_cloud_conformance_reads_gcp_ids_from_secrets_first(self):
+        # Spec (the workflow's header): the GCP project, WIF provider and
+        # deployer service account come from a secret of that name, masked in a
+        # public repository's logs, and fall back to the variable.
+        text = (ROOT / ".github" / "workflows" / "cloud-conformance.yml").read_text(encoding="utf-8")
+        wf = yaml.safe_load(text)
+        steps = wf["jobs"]["conformance"]["steps"]
+        by_name = {s.get("name"): s for s in steps}
+        for name in ("GCP_PROJECT", "GCP_WIF_PROVIDER", "GCP_DEPLOYER_SA"):
+            self.assertNotIn("${{ vars.%s }}" % name, text, name)
+        auth = by_name["Authenticate to GCP via keyless OIDC"]
+        self.assertEqual(auth["with"]["workload_identity_provider"], "${{ secrets.GCP_WIF_PROVIDER || vars.GCP_WIF_PROVIDER }}")
+        self.assertEqual(auth["with"]["service_account"], "${{ secrets.GCP_DEPLOYER_SA || vars.GCP_DEPLOYER_SA }}")
+        self.assertIn("steps.gcp_cfg.outputs.set == 'true'", auth["if"])
+        self.assertIn("steps.gcp_cfg.outputs.set == 'true'", by_name["Setup Cloud SDK (GCP L2/L3)"]["if"])
+        cfg = next(s for s in steps if s.get("id") == "gcp_cfg")
+        self.assertLess(steps.index(cfg), steps.index(auth))
+        run = by_name["Run keyless OIDC conformance suite"]
+        self.assertEqual(run["env"]["GCP_PROJECT"], "${{ secrets.GCP_PROJECT || vars.GCP_PROJECT }}")
+
 
 if __name__ == "__main__":
     unittest.main()
