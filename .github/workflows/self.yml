@@ -48,7 +48,7 @@ jobs:
     # GitHub's 6 h; a pull request never does, so no fork's code reaches it.
     # With the variable unset, ubuntu-latest and 360 minutes, as before.
     runs-on: ${{ github.event_name == 'push' && vars.SELF_RUNNER || 'ubuntu-latest' }}
-    timeout-minutes: ${{ github.event_name == 'push' && vars.SELF_RUNNER && 720 || 360 }}
+    timeout-minutes: ${{ fromJSON(github.event_name == 'push' && vars.SELF_RUNNER != '' && '720' || '360') }}
     needs: plan
     if: github.server_url == 'https://github.com' && needs.plan.outputs.run == 'true'
     permissions:

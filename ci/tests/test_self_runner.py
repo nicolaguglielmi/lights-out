@@ -32,7 +32,7 @@ class SelfRunnerTest(unittest.TestCase):
     def test_the_longer_timeout_needs_a_push_and_the_variable(self) -> None:
         self.assertEqual(
             _gates()["timeout-minutes"],
-            "${{ github.event_name == 'push' && vars.SELF_RUNNER && 720 || 360 }}",
+            "${{ fromJSON(github.event_name == 'push' && vars.SELF_RUNNER != '' && '720' || '360') }}",
         )
 
     def test_the_plan_job_stays_on_github(self) -> None:
