@@ -233,3 +233,15 @@ The history was rewritten once, on 2026-11-12, to fix attributions. GitHub attri
    Anyone else contributes under their own address (CONTRIBUTING, DCO). The check also runs itself on planted histories: three it must accept and six it must refuse.
 
 Rejected: deleting and recreating the repository, as on 2026-11-04. That loses the stars, the releases, the Marketplace listings and every check run. Also rejected: leaving the attributions. The owner's rule is that no commit names the tools that write this repository, and the stranger's account was credited with 1,111 lines.
+
+## Amendment 2026-11-28: a self-hosted runner for a judgement past 6 h
+
+The last green on main's first-parent line was `13a08de` (2026-11-21). Up to `b060fce`, 30,584 `core/` lines were never judged (measured with `git diff --numstat` on the range), so every push mutated all of them. At about 27 s a mutant on four shards (the 2026-11-11 measure), that is well past GitHub's 6 h job limit (an external limit). Every self run was cancelled. The run that judges a fix is the base's judge, so no change to the runner or the gates could help until something was green again.
+
+7. **A push can run on a self-hosted runner.** The gates job runs on the runner labelled by the repository variable `SELF_RUNNER`, but only on a push. A pull request always runs on `ubuntu-latest`, so no fork's code reaches a self-hosted runner. With the variable set, the job's timeout is 720 minutes, the owner's spending cap for one judgement. Without it, the timeout stays at 360. The variable is unset by default, and with it unset nothing changes. `ci/tests/test_self_runner.py` checks both expressions.
+   - **The runner is ephemeral.** It is one VM in the owner's GCP project, created with 16 vCPU (so `nproc` gives 16 shards) and no service account, and registered with `--ephemeral`. It is deleted after its one job, and the variable is unset again. The check run is posted by GitHub Actions as on any runner, so the verdict means the same.
+
+Rejected:
+- Landing without self, as for 0.9.0. The owner refused it.
+- An owner-accepted base. It would make the 30,584 lines count as judged without ever mutating them.
+- Judging in steps. Every first-parent step before `f56fc64` adds the three `skipTest` calls of `9b90417`, which the test-weakening gate refuses (run 46019999772). The first step without them already carries 30,581 lines.
